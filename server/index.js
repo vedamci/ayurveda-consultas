@@ -19,13 +19,17 @@ const __dirname = dirname(__filename);
 // Detect if we are running in Electron packaged mode or regular dev mode
 const isPackaged = process.env.NODE_ENV === 'production' || !!process.versions.electron || process.env.IS_PACKAGED === 'true';
 
-// Determine standard user-writable folder on macOS for user data: ~/Library/Application Support/AyurvedaApp
-const USER_DATA_DIR = isPackaged 
+// Determine the user-writable folder for app data.
+// Priority: DATA_DIR env (used for hosting, e.g. a Render persistent disk) >
+//   macOS Application Support (Electron packaged) > project root (local dev).
+const USER_DATA_DIR = process.env.DATA_DIR
+    ? process.env.DATA_DIR
+    : isPackaged
     ? join(os.homedir(), 'Library/Application Support/AyurvedaApp')
     : join(__dirname, '..');
 
-// Ensure USER_DATA_DIR exists if packaged
-if (isPackaged && !fs.existsSync(USER_DATA_DIR)) {
+// Ensure USER_DATA_DIR exists
+if (!fs.existsSync(USER_DATA_DIR)) {
     fs.mkdirSync(USER_DATA_DIR, { recursive: true });
 }
 
@@ -4032,6 +4036,43 @@ app.post('/api/consultation', async (req, res) => {
     }
 });
 
+// Public health check — verifies the server is up and the Notion connection works.
+// Returns booleans only; never exposes secrets.
+app.get('/api/health', async (req, res) => {
+    const result = {
+        server: 'ok',
+        notionConfigured: !!process.env.VITE_NOTION_API_KEY && !!databaseId,
+        notionAuth: false,
+        notionDatabase: false,
+    };
+    try {
+        const meRes = await fetch('https://api.notion.com/v1/users/me', {
+            headers: {
+                'Authorization': `Bearer ${process.env.VITE_NOTION_API_KEY}`,
+                'Notion-Version': '2022-06-28',
+            },
+        });
+        result.notionAuth = meRes.ok;
+
+        if (databaseId) {
+            const dbRes = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${process.env.VITE_NOTION_API_KEY}`,
+                    'Notion-Version': '2022-06-28',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ page_size: 1 }),
+            });
+            result.notionDatabase = dbRes.ok;
+        }
+    } catch (err) {
+        result.error = err.message;
+    }
+    const healthy = result.notionAuth && result.notionDatabase;
+    res.status(healthy ? 200 : 503).json(result);
+});
+
 // Serve static React files in production/packaged mode
 if (isPackaged) {
     const distPath = join(__dirname, '../dist');
@@ -4046,6 +4087,9 @@ if (isPackaged) {
     }
 }
 
-app.listen(port, 'localhost', () => {
-    console.log(`Server running on http://localhost:${port}`);
+// Bind to 0.0.0.0 in hosted/production environments (Render, etc.) so the
+// platform can route traffic; keep localhost for local dev / Electron.
+const listenHost = process.env.HOST || (isPackaged ? '0.0.0.0' : 'localhost');
+app.listen(port, listenHost, () => {
+    console.log(`Server running on http://${listenHost}:${port}`);
 });

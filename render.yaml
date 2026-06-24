@@ -1,0 +1,56 @@
+# Render Blueprint — despliegue todo-en-uno (API + frontend) para Ayurveda Consultas.
+# El servidor Express sirve la API y, con NODE_ENV=production, también el frontend
+# compilado (carpeta dist). Un solo servicio web.
+#
+# Cómo usar:
+#   1. En https://dashboard.render.com -> New -> Blueprint, conecta el repo
+#      vedamci/ayurveda-consultas. Render detecta este archivo automáticamente.
+#   2. Completa las variables marcadas como sync:false (ver DEPLOY.md).
+#   3. Deploy. La URL será https://ayurveda-consultas.onrender.com (o similar).
+#
+# Nota: para que los datos locales (fotos, PDFs, planes) PERSISTAN entre
+# despliegues necesitas el disco de abajo, disponible en planes de pago.
+# Los datos clínicos principales viven en Notion y no dependen del disco.
+
+services:
+  - type: web
+    name: ayurveda-consultas
+    runtime: node
+    region: oregon
+    plan: starter            # 'starter' ($7/mes) permite disco persistente. 'free' funciona pero sin disco y se duerme.
+    buildCommand: npm install && npm run build
+    startCommand: node server/index.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data          # punto de montaje del disco persistente (abajo)
+      - key: HOST
+        value: 0.0.0.0
+      # --- Secretos: se configuran en el panel de Render, NO en el repo ---
+      - key: VITE_NOTION_API_KEY
+        sync: false
+      - key: VITE_NOTION_DATABASE_ID
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_MODEL
+        sync: false
+      - key: DEEPSEEK_BASE_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false               # https://TU-APP.onrender.com/api/calendar/auth/callback
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false
+      - key: GOOGLE_CALENDAR_ID
+        value: primary
+    disk:
+      name: ayurveda-data
+      mountPath: /var/data        # debe coincidir con DATA_DIR
+      sizeGB: 1
