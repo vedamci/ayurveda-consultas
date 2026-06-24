@@ -662,6 +662,82 @@ const packBlocksByHeight = (
     return pages.length > 0 ? pages : [''];
 };
 
+// Detecta la línea separadora de una tabla markdown, p. ej. | --- | :--: |.
+const isTableSeparatorLine = (line: string): boolean => {
+    const t = (line || '').trim();
+    if (!t.includes('-')) return false;
+    return /^\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/.test(t);
+};
+
+// Parsea un bloque que contiene una tabla markdown. Devuelve el texto previo
+// (p. ej. un encabezado pegado a la tabla), la fila de cabecera, el separador
+// y las filas de cuerpo. Devuelve null si el bloque no es una tabla.
+const parseTableBlock = (
+    block: string
+): { pre: string[]; header: string; sep: string; rows: string[] } | null => {
+    const lines = block.split('\n');
+    for (let i = 0; i < lines.length - 1; i++) {
+        if (lines[i].includes('|') && isTableSeparatorLine(lines[i + 1])) {
+            return {
+                pre: lines.slice(0, i),
+                header: lines[i],
+                sep: lines[i + 1],
+                rows: lines.slice(i + 2).filter(l => l.trim() !== ''),
+            };
+        }
+    }
+    return null;
+};
+
+// Parte un bloque más alto que la página para que NUNCA lo recorte overflow-hidden.
+// - Tablas: se reparten por filas, repitiendo la cabecera en cada parte.
+// - Otros bloques largos: se reparten por líneas.
+// Cada parte candidata se mide en vivo para garantizar que cabe.
+const splitOversizedBlock = (
+    block: string, usablePx: number, wrapperClass: string
+): string[] => {
+    const measure = (s: string): number =>
+        measureMarkdownBlockHeights([s], wrapperClass)?.[0] ?? Infinity;
+
+    const table = parseTableBlock(block);
+    if (table && table.rows.length > 1) {
+        const { pre, header, sep, rows } = table;
+        const preTxt = pre.join('\n').trim();
+        const build = (rws: string[], first: boolean): string =>
+            (first && preTxt ? preTxt + '\n' : '') + [header, sep, ...rws].join('\n');
+        const chunks: string[] = [];
+        let curRows: string[] = [];
+        for (const row of rows) {
+            const trial = [...curRows, row];
+            if (curRows.length > 0 && measure(build(trial, chunks.length === 0)) > usablePx) {
+                chunks.push(build(curRows, chunks.length === 0));
+                curRows = [row];
+            } else {
+                curRows = trial;
+            }
+        }
+        if (curRows.length > 0) chunks.push(build(curRows, chunks.length === 0));
+        if (chunks.length > 0) return chunks;
+    }
+
+    // Bloque no-tabla (o tabla no parseable): repartir por líneas.
+    const lines = block.split('\n').filter(l => l.trim() !== '');
+    if (lines.length <= 1) return [block];
+    const chunks: string[] = [];
+    let cur: string[] = [];
+    for (const line of lines) {
+        const trial = [...cur, line];
+        if (cur.length > 0 && measure(trial.join('\n')) > usablePx) {
+            chunks.push(cur.join('\n'));
+            cur = [line];
+        } else {
+            cur = trial;
+        }
+    }
+    if (cur.length > 0) chunks.push(cur.join('\n'));
+    return chunks.length > 0 ? chunks : [block];
+};
+
 // Paginación medida con respaldo automático al método por caracteres.
 const measuredPaginate = (
     text: string, wrapperClass: string, usableHeightMm: number, fallback: () => string[]
@@ -676,7 +752,31 @@ const measuredPaginate = (
     const total = heights.reduce((a, b) => a + b, 0);
     if (total <= 0) return fallback();
     const usablePx = usableHeightMm * getPxPerMm();
-    return packBlocksByHeight(blocks, heights, usablePx, 8);
+
+    // Si algún bloque (típicamente una tabla larga) supera el alto de página, se
+    // subdivide para que ninguna parte quede recortada. Margen del 4% para
+    // absorber pequeñas diferencias entre la medición y el render final.
+    const splitLimitPx = usablePx * 0.96;
+    const finalBlocks: string[] = [];
+    let didSplit = false;
+    for (let i = 0; i < blocks.length; i++) {
+        if ((heights[i] || 0) > splitLimitPx) {
+            const parts = splitOversizedBlock(blocks[i], splitLimitPx, wrapperClass);
+            finalBlocks.push(...parts);
+            if (parts.length > 1) didSplit = true;
+        } else {
+            finalBlocks.push(blocks[i]);
+        }
+    }
+
+    if (!didSplit) {
+        return packBlocksByHeight(blocks, heights, usablePx, 8);
+    }
+    const finalHeights = measureMarkdownBlockHeights(finalBlocks, wrapperClass);
+    if (!finalHeights || finalHeights.length !== finalBlocks.length || finalHeights.some(h => !isFinite(h))) {
+        return packBlocksByHeight(blocks, heights, usablePx, 8);
+    }
+    return packBlocksByHeight(finalBlocks, finalHeights, usablePx, 8);
 };
 
 // Mide el alto real de cada tarjeta de categoría dietética (cabecera + tabla
