@@ -1,0 +1,344 @@
+{
+  "dosha": "Tridoshica",
+  "sabores": {
+    "mejor": [
+      "Astringente"
+    ],
+    "evitar": [
+      "Agrio",
+      "Salado",
+      "Amargo"
+    ]
+  },
+  "categorias": [
+    {
+      "nombre": "Cereales",
+      "mejor": [
+        "arroz basmati"
+      ],
+      "pequenas_cantidades": [
+        "Amaranto",
+        "cebada",
+        "arroz integral",
+        "trigo sarraceno (alforfón)",
+        "productos de harina de maíz",
+        "mijo",
+        "quínoa"
+      ],
+      "evitar": [
+        "Avena",
+        "trigo"
+      ],
+      "consejo": "Estos se pueden comer cereales cocidos o como pan con levadura."
+    },
+    {
+      "nombre": "Lácteos",
+      "mejor": [
+        "Ghee (mantequilla clarificada)",
+        "leche con 2% de grasa"
+      ],
+      "pequenas_cantidades": [
+        "mantequilla",
+        "queso suaves",
+        "crema",
+        "leche de cabra",
+        "kéfir (búlgaros de yogurt)",
+        "crema agria",
+        "toda la leche de vaca"
+      ],
+      "evitar": [
+        "Quesos duros",
+        "helados",
+        "yogurt congelado"
+      ],
+      "consejo": "Es mejor utilizar leche cruda o productos orgánicos. La leche debe tomarse caliente con una pequeña cantidad de especias como el jengibre y cardamomo. El ghee se utiliza mejor con especias suaves."
+    },
+    {
+      "nombre": "Endulzantes",
+      "mejor": [
+        "Miel fresca"
+      ],
+      "pequenas_cantidades": [
+        "Azúcar de dátiles",
+        "dextrosa",
+        "fructosa",
+        "azúcar de uva",
+        "miel añeja",
+        "maltosa",
+        "azúcar de arce",
+        "jarabe de arce",
+        "melaza",
+        "jarabe de arroz",
+        "stevia"
+      ],
+      "evitar": [
+        "azúcar blanca de mesa"
+      ],
+      "consejo": "Uso excesivo de cualquier edulcorante eventualmente provoca un desequilibrio."
+    },
+    {
+      "nombre": "Aceites",
+      "mejor": [
+        "canola",
+        "maíz",
+        "soja",
+        "girasol"
+      ],
+      "pequenas_cantidades": [
+        "Almendras",
+        "aguacate",
+        "ricino",
+        "coco",
+        "linaza",
+        "manteca",
+        "mostaza",
+        "aceite de oliva",
+        "maní",
+        "sésamo",
+        "margarina",
+        "cártamo"
+      ],
+      "evitar": [],
+      "consejo": "Los mejores aceites para usar son los más ligeros, frescos, y secos. La demás se pueden utilizar de vez en cuando."
+    },
+    {
+      "nombre": "Frutas",
+      "mejor": [
+        "Chabacano",
+        "moras",
+        "arándanos",
+        "cerezas",
+        "toronja",
+        "uvas",
+        "jujube",
+        "limón",
+        "lima",
+        "mangos",
+        "nectarinas",
+        "naranja",
+        "papaya",
+        "melocotones",
+        "peras",
+        "piñas",
+        "ciruelas (dulce)",
+        "granada",
+        "frambuesa",
+        "mandarina",
+        "sandia",
+        "pitaya"
+      ],
+      "pequenas_cantidades": [
+        "Manzanas",
+        "plátanos",
+        "melón",
+        "dátiles",
+        "higos",
+        "caquis (palosanto)",
+        "guamuchil"
+      ],
+      "evitar": [
+        "ciruelas (agrias)",
+        "fresas"
+      ],
+      "consejo": "Las frutas tienden a ser livianas, frescas y húmedas. Por lo tanto, tienden el equilibrio ideal de cualidades para traer equilibrio a individuos tridóshicos, por lo tanto, pueden constituir una parte importante de la dieta."
+    },
+    {
+      "nombre": "Hortalizas",
+      "mejor": [
+        "germinados",
+        "coliflor",
+        "perejil",
+        "papas",
+        "brotes de girasol"
+      ],
+      "pequenas_cantidades": [
+        "brotes de alfalfa",
+        "alcachofas",
+        "espárragos",
+        "aguacate",
+        "frijol (verde)",
+        "remolacha",
+        "melón amargo",
+        "brócoli",
+        "repollo",
+        "col de Bruselas",
+        "zanahorias",
+        "apio",
+        "cilantro",
+        "maíz",
+        "berro",
+        "pepino",
+        "berenjena",
+        "ajo",
+        "alcachofa de Jerusalén",
+        "col rizada",
+        "puerros",
+        "lechugas",
+        "setas",
+        "verduras de mostaza",
+        "okra",
+        "cebollas",
+        "arvejas",
+        "pimientos",
+        "pimentones",
+        "calabaza",
+        "rábano",
+        "algas",
+        "espinacas",
+        "calabaza amarilla",
+        "tomate dulce",
+        "nabos"
+      ],
+      "evitar": [
+        "pimientos picantes",
+        "chile"
+      ],
+      "consejo": "Las verduras son generalmente livianas, frescas, y secas. Si se cocinan con el agua o aceite, se convierten más calientes y húmedas. Las mejores verduras se pueden comer con regularidad como parte sustancial de la dieta."
+    },
+    {
+      "nombre": "Nueces",
+      "mejor": [
+        "semillas de calabaza",
+        "piñones",
+        "semillas de girasol"
+      ],
+      "pequenas_cantidades": [
+        "Almendras",
+        "nueces de Brasil (nuez de la india)",
+        "anacardos/marañón",
+        "coco",
+        "avellanas",
+        "semillas de loto",
+        "macademia",
+        "maní",
+        "pecanas",
+        "pistachos",
+        "semillas de sésamo",
+        "nueces"
+      ],
+      "evitar": [],
+      "consejo": "Pesadas, aceitosas y un poco calientes, la mayoría de las nueces perturban a los individuos si son utilizados como alimento básico. Sin embargo, se aconseja el uso en pequeñas cantidades y así no causa desequilibrios."
+    },
+    {
+      "nombre": "Carnes",
+      "mejor": [],
+      "pequenas_cantidades": [
+        "carne de res",
+        "pollo",
+        "pato",
+        "huevo",
+        "pescado",
+        "cordero",
+        "cerdo",
+        "pavo"
+      ],
+      "evitar": [],
+      "consejo": "Repetidas investigaciones muestran que las dietas basadas en vegetales son más saludables que las dietas basadas en carnes ya que previenen muchas enfermedades. Yoga y ayurveda hacen hincapié en una dieta vegetariana principalmente por razones espirituales. Por lo tanto, se debe limitar el consumo de carnes, los pacientes débiles deben de consumirla como caldo de carne."
+    },
+    {
+      "nombre": "Legumbres",
+      "mejor": [
+        "frijol mongo",
+        "tofu"
+      ],
+      "pequenas_cantidades": [
+        "frijol aduki",
+        "frijol negro",
+        "lenteja grano negro",
+        "garbanzos",
+        "habas",
+        "frijoles",
+        "frijol marino",
+        "frijoles pintos",
+        "soja",
+        "tempeh"
+      ],
+      "evitar": [],
+      "consejo": "Los frijoles tienden a ser secos, frescos y un poco pesados. Todos los granos deben cocinarse con especias para ayudar a la digestión."
+    },
+    {
+      "nombre": "Especias",
+      "mejor": [
+        "cardamomo",
+        "nébeda",
+        "manzanilla",
+        "cilantro",
+        "comino",
+        "hinojo",
+        "limón verbena",
+        "azafrán",
+        "menta",
+        "cúrcuma"
+      ],
+      "pequenas_cantidades": [
+        "Pimienta",
+        "anís",
+        "asafétida",
+        "albahaca",
+        "laurel",
+        "pimienta negra",
+        "cálamo",
+        "alcaravea",
+        "semilla de apio",
+        "canela",
+        "hojas de curry",
+        "eneldo",
+        "fenogreco",
+        "hisopo",
+        "mejorana",
+        "nuez moscada",
+        "orégano",
+        "paprika",
+        "perejil",
+        "semillas de amapola",
+        "romero",
+        "salvia",
+        "sal",
+        "anís estrellado",
+        "estragón",
+        "tomillo"
+      ],
+      "evitar": [
+        "pimienta cayena",
+        "clavo",
+        "ajo crudo",
+        "jengibre seco",
+        "rábano picante",
+        "mostaza caliente"
+      ],
+      "consejo": "Las especias ayudan a la digestión y absorción de nutrientes y mejoran el sabor. Su uso debe de ser moderado para no preparar la comida muy picante o con muchas especias."
+    },
+    {
+      "nombre": "Condimentos",
+      "mejor": [],
+      "pequenas_cantidades": [
+        "salsa de tomate",
+        "mayonesa",
+        "vinagre"
+      ],
+      "evitar": [],
+      "consejo": ""
+    },
+    {
+      "nombre": "Bebidas",
+      "mejor": [
+        "agua",
+        "agua de limón",
+        "té de hierbas con especias"
+      ],
+      "pequenas_cantidades": [
+        "Té negro",
+        "jugos de verduras verdes",
+        "bebidas carbonatadas de puro zumo natural"
+      ],
+      "evitar": [
+        "El alcohol",
+        "el café (con cafeína y descafeinado)",
+        "zumos de frutas dulces",
+        "gaseosas sin azúcar",
+        "gaseosas"
+      ],
+      "consejo": "Se toman a temperatura a ambiente o tibia, pero nunca helada."
+    }
+  ]
+}

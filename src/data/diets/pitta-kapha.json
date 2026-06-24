@@ -1,0 +1,366 @@
+{
+  "dosha": "Pitta-Kapha",
+  "sabores": {
+    "mejor": [
+      "Amargo",
+      "Astringente"
+    ],
+    "evitar": [
+      "Agrio",
+      "Salado",
+      "Picante"
+    ]
+  },
+  "categorias": [
+    {
+      "nombre": "Cereales",
+      "mejor": [
+        "Cebada",
+        "Arroz basmati",
+        "Productos de harina de maíz (excepto tortillas de maíz)",
+        "Centeno"
+      ],
+      "pequenas_cantidades": [
+        "Amaranto",
+        "Mijo",
+        "Quinoa",
+        "Arroz integral"
+      ],
+      "evitar": [
+        "Alforfón",
+        "Avena",
+        "Trigo",
+        "Arroz blanco pegajoso"
+      ],
+      "consejo": "Estos se pueden comer cereales cocidos o como pan con levadura."
+    },
+    {
+      "nombre": "Lácteos",
+      "mejor": [
+        "Leche descremada"
+      ],
+      "pequenas_cantidades": [
+        "Ghee (mantequilla clarificada)",
+        "Leche de cabra",
+        "Yogurt bajo en grasa"
+      ],
+      "evitar": [
+        "Mantequilla",
+        "Quesos (duros y blandos)",
+        "Queso cottage",
+        "Crema",
+        "Kéfir",
+        "Helados",
+        "Leche (entera)",
+        "Crema agria",
+        "Yogur (congelado)",
+        "Yogurt (de leche entera)"
+      ],
+      "consejo": "Es mejor utilizar leche cruda o productos orgánicos. La leche debe tomarse caliente con una pequeña cantidad de especias como el jengibre y cardamomo."
+    },
+    {
+      "nombre": "Endulzantes",
+      "mejor": [
+        "Stevia"
+      ],
+      "pequenas_cantidades": [
+        "Miel fresca"
+      ],
+      "evitar": [
+        "Azúcar morena",
+        "Azúcar de dátiles",
+        "Dextrosa",
+        "Fructosa",
+        "Azúcar de uva",
+        "Miel (de más de 6 meses)",
+        "Maltosa",
+        "Azúcar de arce",
+        "Jarabe de arce",
+        "Melaza",
+        "Jarabe de arroz",
+        "Azúcar blanca de mesa"
+      ],
+      "consejo": "Uso excesivo de cualquier edulcorante eventualmente provoca un desequilibrio."
+    },
+    {
+      "nombre": "Aceites",
+      "mejor": [
+        "Canola",
+        "Maíz",
+        "Soja",
+        "Girasol"
+      ],
+      "pequenas_cantidades": [
+        "Margarina",
+        "Cártamo"
+      ],
+      "evitar": [
+        "Almendras",
+        "Aguacate",
+        "Ricino",
+        "Coco",
+        "Linaza",
+        "Manteca",
+        "Mostaza",
+        "Maní",
+        "Ajonjolí"
+      ],
+      "consejo": "En general, los aceites, siendo pesados y húmedos, deben ser utilizados en pequeñas cantidades para los tipos pitta/Kapha. Los mejores aceites son los más ligeros, más secos y frescos."
+    },
+    {
+      "nombre": "Frutas",
+      "mejor": [
+        "Manzanas",
+        "Arándanos",
+        "Limón",
+        "Lima",
+        "Granada"
+      ],
+      "pequenas_cantidades": [
+        "Albaricoques",
+        "Moras",
+        "Melón",
+        "Cerezas",
+        "Toronja",
+        "Jujube",
+        "Nectarinas",
+        "Naranjas",
+        "Melocotones",
+        "Peras",
+        "Caquis",
+        "Piña (dulce)",
+        "Ciruelas",
+        "Frambuesas",
+        "Mandarina",
+        "Sandía"
+      ],
+      "evitar": [
+        "Dátiles",
+        "Higos",
+        "Uvas",
+        "Mango",
+        "Papaya",
+        "Piña (agria)",
+        "Fresas"
+      ],
+      "consejo": "Como las frutas tienden a ser livianas y frías, en general son buenas para tipos pitta / kapha. Debido a que contienen una gran cantidad de agua, el uso excesivo puede perturbar a kapha. Los frutos secos son los mejores, aunque también se puede comer fruta fresca. Cantidades mayores se pueden comer en el verano y menos en el resto del año. Las frutas más agrias tienen el efecto particular (prabhav) de refrigerar, a pesar de la presencia de fuego en su sabor. Esto hace que sean buenas para pitta, aunque pueden perturbar a kapha en exceso."
+    },
+    {
+      "nombre": "Hortalizas",
+      "mejor": [
+        "Brotes de alfalfa",
+        "Alcachofas",
+        "Espárragos",
+        "Raíces chinas",
+        "Pimientos",
+        "Melón amargo",
+        "Brócoli",
+        "Coles de Bruselas",
+        "Repollo",
+        "Coliflor",
+        "Apio",
+        "Cilantro",
+        "Berro",
+        "Habichuelas verdes",
+        "Pimientos verdes",
+        "Col rizada",
+        "Lechugas verdes",
+        "Champiñones",
+        "Perejil",
+        "Arvejas/guisantes verdes",
+        "Calabaza",
+        "Brotes de girasol",
+        "Guisantes dulces",
+        "Nabos"
+      ],
+      "pequenas_cantidades": [
+        "Remolacha",
+        "Zanahoria",
+        "Maíz",
+        "Pepino",
+        "Berenjena",
+        "Ajo (cocido)",
+        "Puerros",
+        "Mostaza verde",
+        "Quimbombó",
+        "Cebolla (fresca)",
+        "Perejil",
+        "Patatas",
+        "Algas",
+        "Espinacas",
+        "Calabaza (amarilla)",
+        "Tomate (dulce)"
+      ],
+      "evitar": [
+        "Aguacate",
+        "Chiles",
+        "Alcachofa Jerusalén",
+        "Rábano",
+        "Calabacín (bellota, invierno)",
+        "Pasta de tomate"
+      ],
+      "consejo": "Las verduras crudas son mejores en el verano. La mezcla de crudo y cocido se puede comer el resto del año. Siendo livianas y frescas, la mayoría de las verduras reducen pitta y kapha y, por tanto, deben consumirse en gran abundancia."
+    },
+    {
+      "nombre": "Nueces",
+      "mejor": [
+        "Semillas de calabaza",
+        "Semillas de girasol"
+      ],
+      "pequenas_cantidades": [
+        "Avellanas",
+        "Piñones",
+        "Semillas de sésamo"
+      ],
+      "evitar": [
+        "Almendras",
+        "Nueces de Brasil",
+        "Anacardos/marañón",
+        "Coco",
+        "Semillas de loto",
+        "Macadamia",
+        "Maní",
+        "Pecanas",
+        "Pistachos",
+        "Nueces"
+      ],
+      "consejo": "Pesadas, ligeramente aceitosas y calientes, la mayoría de las nueces perturban a las personas pitta / kapha. Las semillas son mejores, ya que son ligeras y secas."
+    },
+    {
+      "nombre": "Carnes",
+      "mejor": [],
+      "pequenas_cantidades": [
+        "Pollo",
+        "Clara de huevo",
+        "Peces de agua dulce",
+        "Pavo"
+      ],
+      "evitar": [
+        "Carne de res",
+        "Pato",
+        "Huevo (yema)",
+        "Cordero",
+        "Cerdo",
+        "Mariscos",
+        "Venado"
+      ],
+      "consejo": "Repetidas investigaciones muestran que las dietas basadas en vegetales son más saludables que las dietas basadas en carnes y previenen muchas enfermedades. Yoga y Ayurveda hacen hincapié en una dieta vegetariana principalmente por razones espirituales. Por lo tanto, si es posible, los omnívoros deben limitar el consumo de carne. Los pacientes débiles deben consumirla como caldo de carne. La carne blanca es mejor para balancear que la carne oscura."
+    },
+    {
+      "nombre": "Legumbres",
+      "mejor": [
+        "Frijoles Aduki",
+        "Lenteja gramo negro",
+        "Habas",
+        "Frijoles rosados",
+        "Frijoles lima",
+        "Frijol mongos",
+        "Frijoles marinos",
+        "Arvejas/guisantes (en mitades)",
+        "Frijoles pintos",
+        "Frijoles de soya",
+        "Tofu"
+      ],
+      "pequenas_cantidades": [
+        "Frijoles negros"
+      ],
+      "evitar": [
+        "Garbanzos",
+        "Lentejas",
+        "Cacahuetes/maní",
+        "Tempeh"
+      ],
+      "consejo": "Los frijoles tienden a ser secos, frescos y algo pesados. En general, úselos de manera moderada, son adecuados para tipos pitta / kapha. Debe comerse con especias para ayudar a la digestión. Remojar los frijoles antes de cocinar los hace más fáciles de digerir. De todos los frijoles, tofu y mongos son los mejores."
+    },
+    {
+      "nombre": "Especias",
+      "mejor": [
+        "Cardamomo",
+        "Nébeda",
+        "Manzanilla",
+        "Cilantro",
+        "Comino",
+        "Hojas de curry",
+        "Hinojo",
+        "Limón verbena",
+        "Menta",
+        "Azafrán",
+        "Cúrcuma"
+      ],
+      "pequenas_cantidades": [
+        "Pimienta",
+        "Anís",
+        "Albahaca",
+        "Laurel",
+        "Alcaravea",
+        "Eneldo",
+        "Alholva",
+        "Jengibre (fresco)",
+        "Hisopo",
+        "Orégano",
+        "Pimentón",
+        "Perejil",
+        "Semillas de amapola",
+        "Romero",
+        "Salvia",
+        "Anís estrellado",
+        "Estragón",
+        "Tomillo"
+      ],
+      "evitar": [
+        "Asafétida",
+        "Pimienta negra",
+        "Cálamo",
+        "Pimienta de Cayena",
+        "Semillas de apio",
+        "Canela",
+        "Clavo de olor",
+        "Ajo (crudo)",
+        "Jengibre (seco)",
+        "Rábano picante",
+        "Mejorana",
+        "Mostazas (caliente)",
+        "Nuez moscada",
+        "Sal"
+      ],
+      "consejo": "Las especias ayudan a la digestión y absorción de nutrientes, así como mejorar el sabor. Como las personas pitta / kapha tienden al calor, especias leves/moderadas son recomendadas y se debe tener cuidado para que el picante de la comida no esté demasiado caliente. Es el efecto global de las especias que es más importante y no las especias individuales utilizadas. Grandes cantidades de las especias más utilizadas son las mejores para mejorar el sabor."
+    },
+    {
+      "nombre": "Condimentos",
+      "mejor": [],
+      "pequenas_cantidades": [
+        "Algarroba/carob (endulzado apropiadamente)"
+      ],
+      "evitar": [
+        "Catsup",
+        "Chocolate",
+        "Mayonesa",
+        "Vinagre"
+      ],
+      "consejo": ""
+    },
+    {
+      "nombre": "Bebidas",
+      "mejor": [
+        "Jugos de verduras verdes",
+        "Té (manzanilla, menta, té de especias de la lista “mejor” de especias)",
+        "Agua",
+        "Agua con limón"
+      ],
+      "pequenas_cantidades": [
+        "Zumo puro sin azúcar añadida",
+        "Gaseosas sin azúcar"
+      ],
+      "evitar": [
+        "Alcohol",
+        "Té negro",
+        "Café (con cafeína y descafeinado)",
+        "Zumos de frutas (dulces)",
+        "Refrescos",
+        "Gaseosas (endulzados)",
+        "Tés especiados"
+      ],
+      "consejo": "Se toman a temperatura a ambiente o tibia, pero nunca helada."
+    }
+  ]
+}

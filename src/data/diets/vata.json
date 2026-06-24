@@ -1,0 +1,328 @@
+{
+  "dosha": "Vata",
+  "sabores": {
+    "mejor": [
+      "Dulce",
+      "salado",
+      "agrio"
+    ],
+    "evitar": [
+      "Amargo",
+      "astringente",
+      "picante"
+    ]
+  },
+  "categorias": [
+    {
+      "nombre": "Cereales",
+      "mejor": [
+        "Amaranto",
+        "avena (cocida)",
+        "quínoa",
+        "arroz (blanco o integral)",
+        "trigo"
+      ],
+      "pequenas_cantidades": [
+        "Cebada",
+        "mijo"
+      ],
+      "evitar": [
+        "Alforfón (trigo sarraceno)",
+        "harina de maíz (pan y tortillas)",
+        "avena seca (granola)",
+        "polenta",
+        "centeno"
+      ],
+      "consejo": "Es mejor comer cereales cocidos o como pan sin levadura. Pequeñas cantidades de panes con levadura están bien"
+    },
+    {
+      "nombre": "Lácteos",
+      "mejor": [
+        "Mantequilla",
+        "mantequilla clarificada (ghee)",
+        "kéfir",
+        "leche",
+        "crema agria",
+        "yogurt (fresco)"
+      ],
+      "pequenas_cantidades": [
+        "Quesos duros"
+      ],
+      "evitar": [
+        "Helados",
+        "yogurt congelado"
+      ],
+      "consejo": "Es mejor utilizar leche cruda o ecológica. La leche debe tomarse caliente con una pequeña cantidad de jengibre y cardamomo."
+    },
+    {
+      "nombre": "Endulzantes",
+      "mejor": [
+        "Miel cruda",
+        "panela (azúcar sin procesar)",
+        "maltosa",
+        "jarabe de arce/maple",
+        "melaza",
+        "jarabe de arroz",
+        "sucanat"
+      ],
+      "pequenas_cantidades": [
+        "Azúcar de dátiles",
+        "azúcar de uva"
+      ],
+      "evitar": [
+        "Azúcar morena",
+        "azúcar blanca"
+      ],
+      "consejo": "La moderación es importante, incluso el uso excesivo de los mejores endulzantes aumentará vata."
+    },
+    {
+      "nombre": "Aceites",
+      "mejor": [
+        "Almendra",
+        "ghee",
+        "sésamo"
+      ],
+      "pequenas_cantidades": [
+        "Aguacate",
+        "ricino",
+        "coco",
+        "linaza",
+        "mostaza",
+        "aceite de oliva",
+        "maní",
+        "girasol"
+      ],
+      "evitar": [
+        "Cártamo"
+      ],
+      "consejo": ""
+    },
+    {
+      "nombre": "Frutas",
+      "mejor": [
+        "Manzanas al horno",
+        "albaricoques",
+        "aguacates",
+        "plátanos (maduros)",
+        "moras",
+        "melón",
+        "cerezas",
+        "coco",
+        "salsa de arándano",
+        "dátiles (no secos)",
+        "higos (frescos)",
+        "toronja",
+        "uvas",
+        "limones",
+        "mangos",
+        "nectarinas",
+        "naranjas",
+        "papaya",
+        "melocotones",
+        "peras",
+        "caquis",
+        "piña",
+        "ciruelas",
+        "frambuesas",
+        "fresas (maduras)",
+        "mandarinas"
+      ],
+      "pequenas_cantidades": [
+        "Manzanas (agrias son mejores)",
+        "granada"
+      ],
+      "evitar": [
+        "Frutos secos de cualquier tipo",
+        "arándanos"
+      ],
+      "consejo": "Las frutas dulces son las mejores."
+    },
+    {
+      "nombre": "Hortalizas",
+      "mejor": [
+        "Aguacate",
+        "remolacha",
+        "zanahoria (no como jugo)",
+        "puerro",
+        "mostaza",
+        "okra",
+        "cebollas (bien cocidas)",
+        "chirivías",
+        "cebollín (chalotes)",
+        "bellota calabaza",
+        "calabaza de invierno",
+        "batatas",
+        "tomates",
+        "castañas de agua"
+      ],
+      "pequenas_cantidades": [
+        "Brócoli",
+        "coliflor",
+        "apio",
+        "maíz",
+        "pepino",
+        "berenjena",
+        "habichuelas verdes",
+        "col rizada",
+        "chiles medianos y ají",
+        "champiñones",
+        "papas",
+        "rábanos",
+        "algas",
+        "espinacas",
+        "arvejas dulces",
+        "calabacín",
+        "lechuga (con aderezo cremoso o graso, para uso ocasional)",
+        "espinaca (con aderezo cremoso o graso, para uso ocasional)",
+        "cualquier hoja verde (con aderezo cremoso o graso, para uso ocasional y con un aderezo condimentado y pesado)"
+      ],
+      "evitar": [
+        "Brotes de alfalfa",
+        "alcachofas (a menos que se sirva con una salsa de mantequilla de limón)",
+        "espárragos",
+        "raíces chinas",
+        "repollitos/coles de Bruselas",
+        "repollo (incluso cocidos)",
+        "verduras crudas",
+        "guisantes"
+      ],
+      "consejo": "Verduras cocidas son mejores porque son más fáciles de digerir."
+    },
+    {
+      "nombre": "Nueces",
+      "mejor": [
+        "Almendras"
+      ],
+      "pequenas_cantidades": [
+        "Anacardos/marañón",
+        "avellanas",
+        "pacanas",
+        "piñón",
+        "pistachos",
+        "semillas de calabaza",
+        "semillas de sésamo",
+        "semillas de girasol",
+        "cualquier otra nuez no mencionada"
+      ],
+      "evitar": [
+        "Maní/cacahuetes"
+      ],
+      "consejo": "Nueces ligeramente tostadas son las mejores. Lo tostado en seco debe evitarse. Nueces saladas están bien. Las mantequillas de nuez son altamente recomendables con excepción de la mantequilla de maní/cacahuete."
+    },
+    {
+      "nombre": "Carnes",
+      "mejor": [
+        "Pollo y pavo (carne oscura)",
+        "carne de vaca",
+        "pato",
+        "huevos",
+        "peces de agua dulce",
+        "cordero",
+        "cerdo",
+        "mariscos",
+        "venado"
+      ],
+      "pequenas_cantidades": [
+        "Pollo y pavo (carne blanca)",
+        "mariscos"
+      ],
+      "evitar": [],
+      "consejo": "Si decide comer carne, limitar el consumo a 2 ó 3 veces por semana. Las sopas de carne pueden ser especialmente nutritivas durante la convalecencia."
+    },
+    {
+      "nombre": "Legumbres",
+      "mejor": [
+        "Frijol mungo"
+      ],
+      "pequenas_cantidades": [
+        "Tofu",
+        "humus"
+      ],
+      "evitar": [
+        "Frijol aduki",
+        "frijol negro",
+        "garbanzos",
+        "habas",
+        "frijoles",
+        "lentejas",
+        "frijoles mexicanos",
+        "habas marinas",
+        "frijoles pintos",
+        "soja (excepto en los casos de tofu o leche de soja)"
+      ],
+      "consejo": ""
+    },
+    {
+      "nombre": "Especias",
+      "mejor": [
+        "Anís",
+        "albahaca",
+        "laurel",
+        "alcaravea",
+        "cardamomo",
+        "nébeda",
+        "canela",
+        "clavo de olor",
+        "comino",
+        "eneldo",
+        "hinojo",
+        "alholva/fenogreco",
+        "ajo",
+        "jengibre (fresco)",
+        "mejorana",
+        "mostaza",
+        "nuez moscada",
+        "orégano",
+        "pimienta",
+        "menta",
+        "semillas de amapola",
+        "romero",
+        "azafrán",
+        "salvia/artemisa",
+        "tomillo",
+        "cúrcuma"
+      ],
+      "pequenas_cantidades": [
+        "Pimienta de cayena",
+        "cilantro",
+        "jengibre (seco)",
+        "rábano picante",
+        "mostaza (muy caliente)",
+        "perejil"
+      ],
+      "evitar": [],
+      "consejo": "Cuando se está cocinando, el picante es más importante que las especias. Incluso algunas especies bajo 'evitar' se pueden utilizar si se equilibran con otras especias de la lista 'mejor'. Para vata, los alimentos deben ser moderadamente condimentados y nunca muy picantes o desabridos."
+    },
+    {
+      "nombre": "Condimentos",
+      "mejor": [
+        "Mayonesa",
+        "vinagre"
+      ],
+      "pequenas_cantidades": [
+        "Pasta de tomate",
+        "salsa de tomate"
+      ],
+      "evitar": [
+        "Algarroba (carob)",
+        "chocolate"
+      ],
+      "consejo": ""
+    },
+    {
+      "nombre": "Bebidas",
+      "mejor": [
+        "Tres o cuatro tazas al día de agua a temperatura ambiente o caliente",
+        "Tés especiados como manzanilla",
+        "canela",
+        "clavo y jengibre",
+        "Té vata"
+      ],
+      "pequenas_cantidades": [
+        "Zumos de frutas diluidos"
+      ],
+      "evitar": [],
+      "consejo": ""
+    }
+  ]
+}

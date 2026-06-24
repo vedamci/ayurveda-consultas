@@ -1,0 +1,68 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+dist-electron
+build
+
+# Vite
+*.local
+
+# === SECRETOS Y CREDENCIALES (NUNCA subir) ===
+.env
+.env.local
+.env.*.local
+.env.production
+*.pem
+*secret*.json
+client_secret*.json
+**/credentials.json
+**/token.json
+
+# === DATOS DE PACIENTES / DATOS LOCALES (NUNCA subir) ===
+local-data/
+server/users.json
+*.sqlite
+*.db
+
+# === Scratch / pruebas / temporales ===
+scratch-puppeteer/
+scratch-pdf-text/
+scratch-pdf/
+scratch-test-notion.js
+scratch_check_notion.js
+scratch_test_api.js
+test_ai.js
+test_puppeteer.js
+diagnosis_output.json
+get_pdf_text.cjs
+server-bundle.cjs
+*.tmp
+
+# PDFs generados / binarios pesados
+VEDAMCI_Consulta_Inicial.pdf
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+Thumbs.db

@@ -1,0 +1,333 @@
+{
+  "dosha": "Kapha",
+  "sabores": {
+    "mejor": [
+      "Picante",
+      "Amargo",
+      "Astringente"
+    ],
+    "evitar": [
+      "Dulce",
+      "Agrio",
+      "Salado"
+    ]
+  },
+  "categorias": [
+    {
+      "nombre": "Cereales",
+      "mejor": [
+        "Amaranto",
+        "Cebada",
+        "Arroz basmati",
+        "Trigo sarraceno",
+        "Harina de maíz",
+        "Quínoa"
+      ],
+      "pequenas_cantidades": [
+        "Mijo",
+        "Centeno"
+      ],
+      "evitar": [
+        "Avena",
+        "Arroz de grano largo y corto (blanco o integral)",
+        "Trigo",
+        "Trigo integral"
+      ],
+      "consejo": "Los panes tostados son muy buenos, ya que son más secos."
+    },
+    {
+      "nombre": "Lácteos",
+      "mejor": [
+        "Leche de cabra",
+        "Leche descremada",
+        "Leche de soja"
+      ],
+      "pequenas_cantidades": [],
+      "evitar": [
+        "Mantequilla",
+        "Queso",
+        "Queso cottage",
+        "Crema de leche",
+        "Helados",
+        "Kéfir",
+        "Crema agria",
+        "Yogurt"
+      ],
+      "consejo": "Es mejor utilizar leche cruda o ecológica. La leche debe tomarse caliente con una pequeña cantidad de jengibre y cardamomo."
+    },
+    {
+      "nombre": "Endulzantes",
+      "mejor": [
+        "Miel cruda únicamente (Busque miel que tenga más de seis meses de edad o guárdela usted mismo)"
+      ],
+      "pequenas_cantidades": [],
+      "evitar": [
+        "Fructosa",
+        "Jarabe de arce",
+        "Melaza",
+        "Azúcar cruda",
+        "Azúcar blanca",
+        "Azúcar morena"
+      ],
+      "consejo": "La moderación es importante, incluso el uso excesivo de los mejores endulzantes aumentará vata."
+    },
+    {
+      "nombre": "Aceites",
+      "mejor": [
+        "Canola",
+        "Maíz",
+        "Linaza",
+        "Mostaza",
+        "Cártamo",
+        "Soja",
+        "Girasol"
+      ],
+      "pequenas_cantidades": [],
+      "evitar": [
+        "Almendras",
+        "Aguacate",
+        "Ricino",
+        "Coco",
+        "Aceite de oliva",
+        "Maní",
+        "Ajonjolí"
+      ],
+      "consejo": "Utilizar todos los aceites sólo en pequeñas cantidades. Incluso los mejores aceites, si se abusan de ellos, agravarán kapha."
+    },
+    {
+      "nombre": "Frutas",
+      "mejor": [
+        "Frutas secas",
+        "Manzanas",
+        "Cerezas",
+        "Arándanos",
+        "Pomelos",
+        "Granada",
+        "Ciruelas",
+        "Uvas pasas"
+      ],
+      "pequenas_cantidades": [
+        "Albaricoques",
+        "Limón",
+        "Lima",
+        "Papaya",
+        "Piña"
+      ],
+      "evitar": [
+        "Frutas dulces",
+        "Aguacates",
+        "Plátanos",
+        "Bayas (frambuesas, moras, arándanos, fresa)",
+        "Melón",
+        "Coco",
+        "Dátiles",
+        "Higos",
+        "Uvas",
+        "Mangos",
+        "Melones",
+        "Piñas",
+        "Naranjas",
+        "Melocotones",
+        "Peras",
+        "Caquis",
+        "Ciruelas",
+        "Mandarinas",
+        "Sandía"
+      ],
+      "consejo": "Las frutas dulces son las mejores."
+    },
+    {
+      "nombre": "Hortalizas",
+      "mejor": [
+        "Brotes de alfalfa",
+        "Alcachofa",
+        "Espárragos",
+        "Habichuelas verdes",
+        "Pimientos",
+        "Brócoli",
+        "Coles de bruselas",
+        "Repollo",
+        "Coliflor",
+        "Zanahoria",
+        "Apio",
+        "Chiles",
+        "Cilantro",
+        "Maíz",
+        "Col",
+        "Lechuga",
+        "Otras verduras de hoja verde",
+        "Mostaza",
+        "Cebollas",
+        "Perejil",
+        "Arvejas",
+        "Ají",
+        "Papas",
+        "Rábanos",
+        "Algas",
+        "Espinacas",
+        "Rutabagas/Nabos"
+      ],
+      "pequenas_cantidades": [
+        "Setas",
+        "Tomate"
+      ],
+      "evitar": [
+        "Remolachas",
+        "Pepinos",
+        "Berenjena",
+        "Quimbombó/Gombo",
+        "Calabaza (todas)",
+        "Batatas",
+        "Castañas de agua",
+        "Calabacín/Zucchini"
+      ],
+      "consejo": "Las hortalizas son mejores comidas crudas durante el verano y cocidas en el resto del año y durante tiempos de dificultades digestivas. En general, las verduras son buenas e incluso las del grupo \"evitar\", si se comen en pequeñas cantidades, no causan daño."
+    },
+    {
+      "nombre": "Nueces",
+      "mejor": [
+        "Semillas de calabaza",
+        "Semillas de girasol"
+      ],
+      "pequenas_cantidades": [
+        "Semillas de sésamo"
+      ],
+      "evitar": [
+        "Almendras",
+        "Nueces de Brasil",
+        "Anacardos (marañon)",
+        "Coco",
+        "Avellanas",
+        "Semillas de loto",
+        "Nueces de macadamia",
+        "Pacanas",
+        "Pistachos",
+        "Cacahuetes (maní)",
+        "Nueces"
+      ],
+      "consejo": "Nueces ligeramente tostadas son las mejores. Lo tostado en seco debe evitarse. Nueces saladas están bien. Las mantequillas de nuez son altamente recomendables con excepción de la mantequilla de maní/cacahuete."
+    },
+    {
+      "nombre": "Carnes",
+      "mejor": [
+        "Pollo o pavo (carne oscura)",
+        "Peces de agua dulce",
+        "Conejo"
+      ],
+      "pequenas_cantidades": [
+        "Huevos"
+      ],
+      "evitar": [
+        "Carne de vaca",
+        "Pato",
+        "Cordero",
+        "Cerdo",
+        "Pescado",
+        "Mariscos",
+        "Venado"
+      ],
+      "consejo": "Si decide comer carne, limitar el consumo a 2 ó 3 veces por semana. Se pueden tomar sopas de carne; son especialmente nutritivas durante la convalecencia. Las personas kapha prosperan como vegetarianos."
+    },
+    {
+      "nombre": "Legumbres",
+      "mejor": [
+        "Frijol mongo",
+        "Lentejas rojas",
+        "Soja (tofu y leche de soja)",
+        "Arvejas/guisantes partidos"
+      ],
+      "pequenas_cantidades": [
+        "Frijoles aduki",
+        "Lenteja gramo negro",
+        "Frijol negro",
+        "Frijol rosado",
+        "Frijoles lima",
+        "Frijoles pintos"
+      ],
+      "evitar": [
+        "Lentejas negras",
+        "Garbanzos"
+      ],
+      "consejo": ""
+    },
+    {
+      "nombre": "Especias",
+      "mejor": [
+        "Anís",
+        "Albahaca",
+        "Laurel",
+        "Pimienta negra",
+        "Cálamo",
+        "Manzanilla",
+        "Alcaravea",
+        "Cardamomo",
+        "Nébeda",
+        "Pimienta de Cayena",
+        "Canela",
+        "Clavo",
+        "Cilantro",
+        "Comino",
+        "Eneldo",
+        "Hinojo",
+        "Fenogreco",
+        "Ajo",
+        "Jengibre",
+        "Rábano picante",
+        "Hisopo",
+        "Mejorana",
+        "Mostaza",
+        "Nuez moscada",
+        "Orégano",
+        "Yerbabuena",
+        "Semilla de adormidera",
+        "Romero",
+        "Azafrán",
+        "Salvia",
+        "Menta piperita",
+        "Anís estrellado",
+        "Tomillo",
+        "Cúrcuma"
+      ],
+      "pequenas_cantidades": [],
+      "evitar": [
+        "Sal"
+      ],
+      "consejo": "Las especias picantes son las mejores. Cuando se está cocinando, el picante es más importante que las especias. Incluso algunas especies bajo \"evitar\" se pueden utilizar si se equilibran con otras especias de la lista \"mejor\". Para kapha, los alimentos deben ser picantes y nunca desabridos."
+    },
+    {
+      "nombre": "Condimentos",
+      "mejor": [
+        "Salsa de tomate",
+        "Vinagre"
+      ],
+      "pequenas_cantidades": [],
+      "evitar": [
+        "Mayonesa",
+        "Sal"
+      ],
+      "consejo": ""
+    },
+    {
+      "nombre": "Bebidas",
+      "mejor": [
+        "Dos vasos de agua por día en climas frescos y tres en tiempo caliente (Excepto cuando haga ejercicio y sudoración vigorosa)",
+        "Té de hierbas (picantes y amargas)",
+        "Zumos de arándano",
+        "Jugos de verduras verdes",
+        "Jugo de pasto de trigo"
+      ],
+      "pequenas_cantidades": [
+        "Agua mineral carbonatada",
+        "Café",
+        "Té"
+      ],
+      "evitar": [
+        "Jugo de manzana",
+        "Jugo de zanahoria",
+        "Jugo de naranja",
+        "Refresco"
+      ],
+      "consejo": ""
+    }
+  ]
+}

@@ -1,0 +1,349 @@
+{
+  "dosha": "Pitta",
+  "sabores": {
+    "mejor": [
+      "Dulce",
+      "amargo",
+      "astringente"
+    ],
+    "evitar": [
+      "Picante",
+      "ácido",
+      "salado"
+    ]
+  },
+  "categorias": [
+    {
+      "nombre": "Cereales",
+      "mejor": [
+        "Cebada",
+        "arroz basmati",
+        "mijo",
+        "avena",
+        "arroz blanco",
+        "trigo",
+        "trigo integral"
+      ],
+      "pequenas_cantidades": [
+        "Arroz integral (sólo en condiciones agudas de pitta, de lo contrario puede ser utilizado con frecuencia)"
+      ],
+      "evitar": [
+        "Alforfón",
+        "harina de maíz"
+      ],
+      "consejo": "Es mejor comer los cocidos o en forma de pan sin levadura. Los panes con levadura sólo son apropiados si son en pequeñas cantidades. Los cereales deben hacer una gran parte de la dieta."
+    },
+    {
+      "nombre": "Lácteos",
+      "mejor": [
+        "Mantequilla sin sal",
+        "queso cottage",
+        "queso crema",
+        "ghee (mantequilla clarificada)",
+        "leche"
+      ],
+      "pequenas_cantidades": [
+        "Quesos duros sin sal"
+      ],
+      "evitar": [
+        "Quesos salados",
+        "crema agria",
+        "kéfir",
+        "leche cultivada",
+        "yogurt"
+      ],
+      "consejo": "Es mejor utilizar leche cruda o ecológica. La leche debe tomarse caliente con una pequeña cantidad de jengibre y cardamomo."
+    },
+    {
+      "nombre": "Endulzantes",
+      "mejor": [
+        "Maltosa",
+        "jarabe de arce (maple)",
+        "jarabe de arroz"
+      ],
+      "pequenas_cantidades": [
+        "Dextrosa",
+        "fructosa",
+        "miel",
+        "azúcar de mesa"
+      ],
+      "evitar": [
+        "Melaza",
+        "azúcar cruda"
+      ],
+      "consejo": "La moderación es importante, incluso el uso excesivo de los mejores endulzantes aumentará vata."
+    },
+    {
+      "nombre": "Aceites",
+      "mejor": [
+        "Ghee (mantequilla clarificada)",
+        "aceite de oliva"
+      ],
+      "pequenas_cantidades": [
+        "Aguacate",
+        "canola",
+        "maíz",
+        "coco",
+        "soja",
+        "girasol"
+      ],
+      "evitar": [
+        "Almendras",
+        "ricino",
+        "linaza",
+        "margarina",
+        "mostaza",
+        "maní",
+        "cártamo",
+        "sésamo"
+      ],
+      "consejo": ""
+    },
+    {
+      "nombre": "Frutas",
+      "mejor": [
+        "Manzanas",
+        "aguacates",
+        "zarzamoras",
+        "arándanos",
+        "melón",
+        "coco",
+        "dátiles",
+        "frutos secos",
+        "higos",
+        "uvas",
+        "limones",
+        "limas",
+        "nectarinas",
+        "piña",
+        "ciruelas",
+        "pasas",
+        "frambuesas",
+        "fresas"
+      ],
+      "pequenas_cantidades": [
+        "Albaricoques",
+        "bananos (solamente si muy maduros)",
+        "cerezas",
+        "toronjas",
+        "naranjas",
+        "piña"
+      ],
+      "evitar": [
+        "Todas las frutas agrias",
+        "naranja agria",
+        "piña agria",
+        "ciruelas ácidas",
+        "papaya",
+        "aceitunas",
+        "mandarinas",
+        "todas las frutas no maduras"
+      ],
+      "consejo": "Las frutas dulces y maduras son los mejores. Evite frutas agrias."
+    },
+    {
+      "nombre": "Hortalizas",
+      "mejor": [
+        "Brotes de alfalfa",
+        "alcachofa",
+        "espárragos",
+        "raíces chinas",
+        "pimientos",
+        "melón amargo",
+        "brócoli",
+        "Coles de Bruselas",
+        "repollo",
+        "coliflor",
+        "apio",
+        "cilantro",
+        "berro",
+        "pepino",
+        "pimientos verdes",
+        "col rizada",
+        "hojas verdes",
+        "lechuga",
+        "champiñones",
+        "cebolla (bien cocida)",
+        "arvejas/guisantes",
+        "calabaza",
+        "algas marinas",
+        "calabacín"
+      ],
+      "pequenas_cantidades": [
+        "Aguacate",
+        "remolachas",
+        "zanahorias",
+        "maíz",
+        "berenjena",
+        "ajo (bien cocido)",
+        "perejil",
+        "patatas",
+        "espinacas",
+        "patatas dulces",
+        "tomates maduros"
+      ],
+      "evitar": [
+        "Chiles",
+        "mostaza verde",
+        "cebolla (cruda)",
+        "rábanos",
+        "pasta de tomate",
+        "salsa de tomate",
+        "cualquier vegetal picante"
+      ],
+      "consejo": "Las legumbres y hortalizas son ideales si se comen frescas. Usted puede comer grandes cantidades. Comerlos cocidos en el invierno o si la digestión es débil. Comerlos crudos en el verano si su digestión es muy fuerte. Los jugos de verduras verdes y frescas son muy buenos. Las personas con artritis deben evitar todos los solanos (papas, berenjena)."
+    },
+    {
+      "nombre": "Nueces",
+      "mejor": [
+        "Coco",
+        "girasol",
+        "semillas de calabaza"
+      ],
+      "pequenas_cantidades": [
+        "Nueces de piñon",
+        "semillas de sésamo"
+      ],
+      "evitar": [
+        "Almendras",
+        "nueces de Brasil",
+        "anacardos",
+        "avellanas",
+        "nueces de macadamia",
+        "pecanas",
+        "pistachos",
+        "maní/cacahuetes",
+        "nueces de cualquier otro no mencionados"
+      ],
+      "consejo": "Nueces ligeramente tostadas son las mejores. Lo tostado en seco debe evitarse. Nueces saladas están bien. Las mantequillas de nuez son altamente recomendables con excepción de la mantequilla de maní/cacahuete."
+    },
+    {
+      "nombre": "Carnes",
+      "mejor": [
+        "Pollo",
+        "claras de huevo",
+        "peces de agua dulce (trucha)",
+        "pavo"
+      ],
+      "pequenas_cantidades": [
+        "Carne",
+        "pato",
+        "huevo",
+        "cordero",
+        "cerdo",
+        "pescado",
+        "venado o cualquier otra carne roja"
+      ],
+      "evitar": [],
+      "consejo": "Si decide comer carne, limitar el consumo a 2 ó 3 veces por semana."
+    },
+    {
+      "nombre": "Legumbres",
+      "mejor": [
+        "Lentejas negras",
+        "garbanzos",
+        "frijoles mongos",
+        "arvejas/guisantes",
+        "productos de soja",
+        "tofu"
+      ],
+      "pequenas_cantidades": [
+        "Frijoles Aduki",
+        "habichuelas",
+        "frijoles rosados/marinos/pinto"
+      ],
+      "evitar": [
+        "Lentejas rojas y amarillas"
+      ],
+      "consejo": ""
+    },
+    {
+      "nombre": "Especias",
+      "mejor": [
+        "Cardamomo",
+        "nébeda",
+        "manzanilla",
+        "coco",
+        "cilantro",
+        "eneldo",
+        "hinojo",
+        "limón verbena",
+        "azafrán",
+        "menta",
+        "cúrcuma"
+      ],
+      "pequenas_cantidades": [
+        "Albahaca",
+        "laurel",
+        "pimienta negra",
+        "alcaravea",
+        "canela",
+        "comino",
+        "jengibre (fresco)",
+        "orégano",
+        "romero",
+        "tomillo"
+      ],
+      "evitar": [
+        "Anís",
+        "asafétida",
+        "cálamo",
+        "pimienta de Cayena",
+        "clavo de olor",
+        "alholva/fenogreco",
+        "ajo (crudo)",
+        "jengibre (seco)",
+        "rábano picante",
+        "hisopo",
+        "mejorana",
+        "semillas de mostaza",
+        "nuez moscada",
+        "semillas de amapola",
+        "salvia",
+        "anís estrellado"
+      ],
+      "consejo": "Cuando se está cocinando, el picante es más importante que las especias. Incluso algunas especies bajo \"evitar\" se pueden utilizar si se equilibran con otras especias de la lista \"mejor\". Para pitta, los alimentos deben ser condimentados leve/moderadamente y nunca muy picantes o desabridos."
+    },
+    {
+      "nombre": "Condimentos",
+      "mejor": [
+        "Algarroba (carob) endulzado con los mejores endulzantes señalados anteriormente"
+      ],
+      "pequenas_cantidades": [
+        "Mayonesa",
+        "mostaza dulce"
+      ],
+      "evitar": [
+        "Chocolate",
+        "sal",
+        "vinagre"
+      ],
+      "consejo": ""
+    },
+    {
+      "nombre": "Bebidas",
+      "mejor": [
+        "Cinco tazas de agua por día",
+        "Té de hierbas amargo y astringente (alfalfa, achicoria, diente de león, flor de Jamaica, hoja de fresa)",
+        "Bebidas de cereales",
+        "Leche",
+        "Jugo de hierba de trigo",
+        "Té pitta"
+      ],
+      "pequenas_cantidades": [
+        "Té negro o té chai",
+        "zumo de frutas diluido con la mitad de agua"
+      ],
+      "evitar": [
+        "Alcohol",
+        "agua carbonatada",
+        "café",
+        "zumos de fruta dulce",
+        "té de hierbas picantes o fuertes",
+        "bebidas gaseosas",
+        "tomate"
+      ],
+      "consejo": ""
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "appId": "com.vedamci.ayurveda.profesional",
+  "productName": "Ayurveda Consultas",
+  "asar": false,
+  "directories": {
+    "output": "dist-electron"
+  },
+  "files": [
+    "dist/**/*",
+    "server/**/*",
+    "node_modules/**/*",
+    "package.json",
+    "electron-main.mjs",
+    "loading.html",
+    "public/**/*",
+    "LOGO_2020_VEDAMCI.png",
+    ".env",
+    ".env.example"
+  ],
+  "mac": {
+    "target": "dmg",
+    "icon": "LOGO_2020_VEDAMCI.png",
+    "category": "public.app-category.medical"
+  },
+  "dmg": {
+    "title": "Instalar Ayurveda Consultas",
+    "window": {
+      "x": 400,
+      "y": 400,
+      "width": 540,
+      "height": 380
+    },
+    "contents": [
+      {
+        "x": 410,
+        "y": 150,
+        "type": "link",
+        "path": "/Applications"
+      },
+      {
+        "x": 130,
+        "y": 150,
+        "type": "file"
+      }
+    ]
+  }
+}

@@ -1,0 +1,376 @@
+{
+  "dosha": "Vata-Pitta",
+  "sabores": {
+    "mejor": [
+      "Dulce",
+      "Astringente",
+      "Amargo"
+    ],
+    "evitar": [
+      "Salado",
+      "Picante",
+      "Agrio"
+    ]
+  },
+  "categorias": [
+    {
+      "nombre": "Cereales",
+      "mejor": [
+        "Avena cocida",
+        "Trigo",
+        "Arroz basmati blanco"
+      ],
+      "pequenas_cantidades": [
+        "Amaranto",
+        "Cebada",
+        "Mijo",
+        "Quinoa",
+        "Arroz (integral o blanco, de grano corto o largo)",
+        "Centeno"
+      ],
+      "evitar": [
+        "Alforfón",
+        "Productos de harina de maíz",
+        "Avena seca"
+      ],
+      "consejo": "Es mejor comerlos cocidos, o como pan sin levadura"
+    },
+    {
+      "nombre": "Lácteos",
+      "mejor": [
+        "Mantequilla",
+        "Queso cottage",
+        "Queso crema",
+        "Ghee",
+        "Leche (entera)",
+        "Queso",
+        "Paneer (requesón)"
+      ],
+      "pequenas_cantidades": [
+        "Quesos no salados y duros",
+        "Kefir",
+        "Crema agria",
+        "Yogurt"
+      ],
+      "evitar": [
+        "Helados",
+        "Yogurt congelado"
+      ],
+      "consejo": "Es mejor utilizar leche cruda o ecológica. La leche debe tomarse caliente con una pequeña cantidad de jengibre y cardamomo."
+    },
+    {
+      "nombre": "Endulzantes",
+      "mejor": [
+        "Miel de abeja (fresca)",
+        "Maltosa",
+        "Azúcar de maple",
+        "Jarabe de maple",
+        "Jarabe de arroz",
+        "Miel de agave"
+      ],
+      "pequenas_cantidades": [
+        "Azúcar de dátiles",
+        "Dextrosa",
+        "Fructuosa",
+        "Azúcar de uva",
+        "Piloncillo",
+        "Melaza",
+        "Sucanat"
+      ],
+      "evitar": [
+        "Azúcar blanca de mesa"
+      ],
+      "consejo": "El uso excesivo de cualquier endulzante eventualmente provoca un desequilibrio."
+    },
+    {
+      "nombre": "Aceites",
+      "mejor": [
+        "Aguacate",
+        "Coco",
+        "Ghee (mantequilla clarificada)",
+        "Aceite de oliva",
+        "Girasol"
+      ],
+      "pequenas_cantidades": [
+        "Almendras",
+        "Ricino",
+        "Maíz",
+        "Linaza",
+        "Sésamo",
+        "Soja"
+      ],
+      "evitar": [
+        "Canola",
+        "Manteca de cerdo",
+        "Margarina",
+        "Mostaza",
+        "Maní",
+        "Cártamo"
+      ],
+      "consejo": "Los aceites son muy importantes y deben ser utilizados abundantemente si la piel esta seca. Alivian la sequedad y son generalmente pesados y nutritivos."
+    },
+    {
+      "nombre": "Frutas",
+      "mejor": [
+        "Melocotones",
+        "Aguacates",
+        "Plátanos (bien maduros)",
+        "Moras",
+        "Arándanos",
+        "Melón",
+        "Coco",
+        "Dátiles",
+        "Higos",
+        "Jujube (cocido)",
+        "Uvas",
+        "Limones",
+        "Limas",
+        "Mangos",
+        "Nectarinas",
+        "Naranjas (dulces)",
+        "Papaya (dulce)",
+        "Chabacano",
+        "Peras",
+        "Caquis",
+        "Ciruelas (dulces)",
+        "Granada",
+        "Ciruelas pasas",
+        "Frambuesas",
+        "Fresas",
+        "Tunas"
+      ],
+      "pequenas_cantidades": [
+        "Manzana",
+        "Plátanos (no tan maduros)",
+        "Cerezas",
+        "Arándanos (ligeramente ácidos)",
+        "Toronja",
+        "Piña (miel)",
+        "Mandarina",
+        "Sandía"
+      ],
+      "evitar": [
+        "Frutos secos",
+        "Jujube (seco)",
+        "Aceitunas",
+        "Naranjas (ácidas)",
+        "Papaya (ácida)",
+        "Piña (ácida)",
+        "Ciruelas (ácidas)"
+      ],
+      "consejo": "Las frutas son mejores cuando están bien maduras y dulces. Estas traerán el equilibrio a ambos doshas. En general, debido a su ligereza, su consumo debe ser moderado."
+    },
+    {
+      "nombre": "Hortalizas",
+      "mejor": [
+        "Alcachofa",
+        "Aguacate",
+        "Brotes de ejote",
+        "Coliflor",
+        "Cilantro",
+        "Maíz tierno",
+        "Alcachofa de Jerusalén",
+        "Poro",
+        "Okra",
+        "Cebolla (cocida)",
+        "Papa",
+        "Calabazas",
+        "Algas",
+        "Calabacita",
+        "Brotes de girasol",
+        "Jitomate (dulce y maduro)"
+      ],
+      "pequenas_cantidades": [
+        "Brotes de alfalfa",
+        "Espárragos",
+        "Remolacha",
+        "Pimiento",
+        "Melón amargo",
+        "Brócoli",
+        "Coles de Bruselas",
+        "Zanahoria",
+        "Apio",
+        "Pepino",
+        "Berenjena",
+        "Judías verdes",
+        "Col rizada",
+        "Lechuga",
+        "Hongos",
+        "Mostaza verde",
+        "Perejil",
+        "Chícharos",
+        "Espinacas",
+        "Camote",
+        "Tomate (ácido)",
+        "Nabo"
+      ],
+      "evitar": [
+        "Col",
+        "Chiles",
+        "Rábanos",
+        "Cebolla cruda",
+        "Puré de tomate",
+        "Salsa de tomate"
+      ],
+      "consejo": "Las verduras cocidas son mejores ya que son nutritivas y fáciles de digerir. Solo se deben comer hojas verdes y crudas con aderezo. Las comidas crudas como ensaladas se pueden comer en el verano si la digestión es muy fuerte y hay poco gas o estreñimiento."
+    },
+    {
+      "nombre": "Nueces",
+      "mejor": [
+        "Coco",
+        "Piñones",
+        "Semillas de girasol"
+      ],
+      "pequenas_cantidades": [
+        "Almendras",
+        "Nueces de Brasil",
+        "Anacardos",
+        "Semillas de loto",
+        "Macadamia",
+        "Pecanas",
+        "Pistaches (no salados)",
+        "Semillas de calabaza"
+      ],
+      "evitar": [
+        "Cacahuate"
+      ],
+      "consejo": "Se deben comer ligeramente tostadas y secas para ayudar a la digestión. Tan solo ligeramente saladas, aunque son mejores sin sal. Se puede comer mantequilla de nuez, a excepción de cacahuate."
+    },
+    {
+      "nombre": "Carnes",
+      "mejor": [
+        "Pollo (carne blanca)",
+        "Huevos",
+        "Peces de agua dulce",
+        "Carne de cerdo",
+        "Pavo (carne blanca)"
+      ],
+      "pequenas_cantidades": [
+        "Carne",
+        "Pato",
+        "Cordero",
+        "Mariscos",
+        "Venado"
+      ],
+      "evitar": [
+        "La carne oscura de pollo o pavo"
+      ],
+      "consejo": "Repetidas investigaciones muestran que las dietas basadas en vegetales son mas saludables que las dietas basadas en carnes y previenen muchas enfermedades. Yoga y Ayurveda hacen hincapié en una dieta vegetariana principalmente por razones espirituales. Por lo tanto, si es posible, los omnívoros deben evitar el consumo de carne. Los pacientes débiles deben consumirla como caldo de carne."
+    },
+    {
+      "nombre": "Legumbres",
+      "mejor": [
+        "Frijol mongo",
+        "Tofu"
+      ],
+      "pequenas_cantidades": [
+        "Frijoles Aduki",
+        "Lenteja",
+        "Garbanzos",
+        "Frijoles bayos",
+        "Lentejas negras",
+        "Frijoles peruanos",
+        "Frijoles pintos",
+        "Frijol de soja",
+        "Chícharo seco"
+      ],
+      "evitar": [
+        "Habas",
+        "Lentejas rojas",
+        "Lentejas amarillas"
+      ],
+      "consejo": "Los incluidos en pequeñas cantidades son las mejores en forma de dhal y con especias añadidas. Cuando la digestión es débil o hay estreñimiento, incluso los frijoles en pequeñas cantidades deberán ser evitados."
+    },
+    {
+      "nombre": "Especias",
+      "mejor": [
+        "Laurel",
+        "Alcaravea",
+        "Cardamomo",
+        "Nébeda",
+        "Manzanilla",
+        "Cilantro",
+        "Comino",
+        "Eneldo",
+        "Hinojo",
+        "Limón verbena",
+        "Yerbabuena",
+        "Romero",
+        "Azafrán",
+        "Menta",
+        "Cúrcuma"
+      ],
+      "pequenas_cantidades": [
+        "Anís",
+        "Albahaca",
+        "Canela",
+        "Coco",
+        "Alholva",
+        "Jengibre (fresco)",
+        "Mejorana",
+        "Nuez moscada",
+        "Orégano",
+        "Semillas de amapola",
+        "Salvia",
+        "Sal",
+        "Anís estrellado",
+        "Tomillo"
+      ],
+      "evitar": [
+        "Asafétida",
+        "Pimienta negra",
+        "Cálamo",
+        "Pimienta de cayena",
+        "Clavo",
+        "Ajo (crudo)",
+        "Jengibre seco",
+        "Rábano picante",
+        "Semilla mostaza",
+        "Hisopo"
+      ],
+      "consejo": "Las especias ayudan a la digestión y absorción de nutrientes y a mejorar el sabor. Los alimentos deben tener un efecto de calentamiento, pero no picantes. Es el efecto global de las especias el que es importante y no las especias individuales utilizadas. Usted puede utilizar una gran cantidad de especias “mejor”, e incluso cantidades pequeñas de “evitar”. Los alimentos nunca deben ser desabridos."
+    },
+    {
+      "nombre": "Condimentos",
+      "mejor": [],
+      "pequenas_cantidades": [
+        "Algarrobo",
+        "Mayonesa"
+      ],
+      "evitar": [
+        "Salsa de tomate",
+        "Chocolate",
+        "Tamari",
+        "Vinagre"
+      ],
+      "consejo": ""
+    },
+    {
+      "nombre": "Bebidas",
+      "mejor": [
+        "Té de manzanilla",
+        "Té de regaliz",
+        "Té de especias suaves",
+        "Leche",
+        "Té de menta",
+        "Agua"
+      ],
+      "pequenas_cantidades": [
+        "Jugo de zanahoria (diluido)",
+        "Zumos de frutas (diluido)",
+        "Bebidas de gaseosas naturales",
+        "Jugos",
+        "Té (negro o verde)"
+      ],
+      "evitar": [
+        "Alcohol",
+        "Café (con cafeína o descafeinado)",
+        "Bebidas con alcohol",
+        "Té muy picante",
+        "Zumo de tomate",
+        "Jugos de vegetales"
+      ],
+      "consejo": "Se toman a temperatura ambiente o tibia, pero nunca helada."
+    }
+  ]
+}

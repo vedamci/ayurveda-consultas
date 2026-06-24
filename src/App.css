@@ -1,0 +1,4 @@
+/* App-level overrides — cleaned from Vite defaults */
+#root {
+  min-height: 100vh;
+}
