@@ -14,6 +14,7 @@ node_modules
 dist
 dist-ssr
 dist-electron
+dist-verify
 build
 
 # Vite
@@ -37,6 +38,7 @@ server/users.json
 *.db
 
 # === Scratch / pruebas / temporales ===
+scratch/
 scratch-puppeteer/
 scratch-pdf-text/
 scratch-pdf/

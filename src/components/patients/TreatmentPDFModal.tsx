@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
+import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { X, Printer, Plus, Trash2, ChevronDown, Loader2, Sparkles, CheckCircle, AlertCircle, Send, FileText, Salad, Leaf, ClipboardList, Stethoscope, Settings2, Phone, Type, Utensils } from 'lucide-react';
+import { X, Printer, Plus, Trash2, ChevronDown, Loader2, Sparkles, CheckCircle, AlertCircle, Send, FileText, Salad, Leaf, ClipboardList, Stethoscope, Settings2, Phone, Type, Utensils, HeartHandshake, Search } from 'lucide-react';
 
-type EditorTabId = 'documento' | 'ia' | 'alimentacion' | 'hierbas' | 'indicaciones';
+type EditorTabId = 'documento' | 'ia' | 'alimentacion' | 'hierbas' | 'terapias' | 'indicaciones';
 
 const EDITOR_TABS: { id: EditorTabId; label: string; icon: React.ComponentType<{ size?: number | string }> }[] = [
     { id: 'documento', label: 'Documento', icon: FileText },
     { id: 'ia', label: 'IA', icon: Sparkles },
     { id: 'alimentacion', label: 'Comida', icon: Salad },
     { id: 'hierbas', label: 'Hierbas', icon: Leaf },
+    { id: 'terapias', label: 'Terapias', icon: HeartHandshake },
     { id: 'indicaciones', label: 'Notas', icon: ClipboardList },
 ];
 
@@ -38,8 +38,6 @@ const ToggleSwitch: React.FC<{
         </span>
     </button>
 );
-import { toPng } from 'html-to-image';
-import jsPDF from 'jspdf';
 import type { PatientDetail } from '../../types/patient';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -58,6 +56,8 @@ import vataDiet from '../../data/diets/vata.json';
 import herbsList from '../../data/herb.json';
 import recipesList from '../../data/recipes.json';
 import lifestyleList from '../../data/lifestyle.json';
+import healthyHabitsSeed from '../../data/healthy-eating-habits.json';
+import therapiesSeed from '../../data/therapies.json';
 
 interface TreatmentPDFModalProps {
     isOpen: boolean;
@@ -116,21 +116,32 @@ const getGuidanceForCategories = (categories: string[], dosha: string) => {
 const HEALTHY_EATING_GUIDE_TEXT = `Estos hábitos te ayudarán a mejorar la digestión y aprovechar mejor los alimentos. Aplícalos poco a poco, con constancia.`;
 
 // Catálogo de hábitos seleccionables para la "Guía de alimentación saludable".
-// El profesional elige cuáles incluir, igual que las categorías de alimentos.
-const HEALTHY_EATING_HABITS: string[] = [
-    'Antes de comer, hacer un agradecimiento o tomar de 3 a 5 respiraciones lentas.',
-    'Comer en un ambiente tranquilo, sin pantallas, lectura ni distracciones.',
-    'Evitar conversaciones excesivas o emocionalmente intensas durante la comida.',
-    'Masticar bien los alimentos y comer con atención plena.',
-    'Comer a un ritmo moderado, sin prisa.',
-    'Comer hasta sentirse satisfecho, aproximadamente al 75% de la capacidad.',
-    'Después de comer, reposar de 15 a 20 minutos antes de pasar a otra actividad.',
-    'Beber poco líquido durante las comidas, de preferencia agua tibia o a temperatura ambiente, evitando bebidas frías durante el día y especialmente al comer.',
-    'Hacer la comida principal alrededor del mediodía.',
-    'Comer más ligero por la mañana y por la tarde/noche.',
-    'Dejar pasar aproximadamente tres horas entre comidas.',
-    'Comer alimentos preparados con amor, calma y buena intención.'
-];
+// Cada hábito es una plantilla {name, text} editable desde la app y persistida en
+// src/data/healthy-eating-habits.json (endpoints /api/healthy-habits). El profesional
+// elige cuáles incluir, igual que las categorías de alimentos.
+interface HealthyHabit {
+    name: string;
+    text: string;
+}
+// Semilla de plantillas (respaldo si la API no responde). La lista viva se carga al abrir el modal.
+const HEALTHY_EATING_HABITS: HealthyHabit[] = (healthyHabitsSeed as HealthyHabit[]);
+
+// Catálogo de terapias ayurvédicas seleccionables (Abhyanga, Nasya, Basti, etc.).
+// Cada terapia es una plantilla {id, name, emoji, text} editable desde la app y
+// persistida en src/data/therapies.json (endpoints /api/therapies). El profesional
+// elige cuáles asignar al paciente, igual que los hábitos saludables.
+interface TherapyItem {
+    id: string;
+    name: string;
+    emoji?: string;
+    text: string;
+}
+// Semilla generada desde la carpeta "Terapias" (respaldo si la API no responde).
+const THERAPIES_SEED: TherapyItem[] = (therapiesSeed as TherapyItem[]);
+
+const slugifyTherapyName = (name: string) => name.trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
 const DIGESTIVE_RECOVERY_TEXT = `# Recetas de Sopas y Arroces
 
@@ -179,11 +190,33 @@ La sopa de carne se prepara hirviendo carne y huesos, colándolos, y dejando sol
 
 const DEFAULT_FOOD_CATEGORIES = ['Cereales', 'Hortalizas'];
 const MAX_FOOD_CATEGORIES = 12;
-const PDF_TARGET_DPI = 300;
-const MM_PER_INCH = 25.4;
-const A4_WIDTH_MM = 210;
-const PDF_PIXEL_RATIO = 2;
-const PDF_RENDER_STAGE_ID = 'pdf-render-stage';
+
+// Fondo "acuarela" (río en tonos verde/dorado) que va detrás del contenido
+// de cada página del PDF. Se codifica como data URI SVG e inyecta vía CSS
+// background-image, así que aparece tanto en la vista previa como en la
+// impresión nativa (Chromium).
+const PDF_WATERCOLOR_BG_COLOR = '#F5EEDC';
+const PDF_WATERCOLOR_BG_SVG = `
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 700 990' preserveAspectRatio='xMidYMid slice'>
+  <defs>
+    <filter id='wcBlur' x='-60%' y='-60%' width='220%' height='220%'>
+      <feGaussianBlur stdDeviation='24'/>
+    </filter>
+    <linearGradient id='riverGreen' x1='0' y1='0' x2='1' y2='1'>
+      <stop offset='0%' stop-color='#4A7C2F' stop-opacity='0.20'/>
+      <stop offset='100%' stop-color='#2D5016' stop-opacity='0.09'/>
+    </linearGradient>
+    <linearGradient id='riverGold' x1='1' y1='0' x2='0' y2='1'>
+      <stop offset='0%' stop-color='#C9A84C' stop-opacity='0.16'/>
+      <stop offset='100%' stop-color='#C9A84C' stop-opacity='0.06'/>
+    </linearGradient>
+  </defs>
+  <rect x='0' y='0' width='700' height='990' fill='${PDF_WATERCOLOR_BG_COLOR}'/>
+  <path d='M -80,140 C 120,70 170,270 370,230 C 550,195 590,390 780,350 L 780,540 C 590,485 555,310 390,350 C 210,390 170,225 -80,310 Z' fill='url(#riverGreen)' filter='url(#wcBlur)'/>
+  <path d='M -80,600 C 150,555 195,730 410,680 C 590,640 630,800 780,780 L 780,930 C 610,890 590,720 410,760 C 210,805 175,660 -80,725 Z' fill='url(#riverGold)' filter='url(#wcBlur)'/>
+  <circle cx='95' cy='945' r='70' fill='#4A7C2F' fill-opacity='0.10' filter='url(#wcBlur)'/>
+  <circle cx='630' cy='60' r='80' fill='#C9A84C' fill-opacity='0.13' filter='url(#wcBlur)'/>
+</svg>`;
 
 const waitForBrowserPaint = () => new Promise<void>(resolve => {
     requestAnimationFrame(() => {
@@ -194,27 +227,6 @@ const waitForBrowserPaint = () => new Promise<void>(resolve => {
 const yieldToMainThread = (delay = 35) => new Promise<void>(resolve => {
     window.setTimeout(resolve, delay);
 });
-
-const createPdfRenderStage = () => {
-    const existing = document.getElementById(PDF_RENDER_STAGE_ID);
-    if (existing) {
-        existing.remove();
-    }
-
-    const stage = document.createElement('div');
-    stage.id = PDF_RENDER_STAGE_ID;
-    stage.style.position = 'fixed';
-    stage.style.left = '-10000px';
-    stage.style.top = '0';
-    stage.style.width = '210mm';
-    stage.style.height = '297mm';
-    stage.style.overflow = 'hidden';
-    stage.style.background = '#ffffff';
-    stage.style.pointerEvents = 'none';
-    stage.style.zIndex = '-1';
-    document.body.appendChild(stage);
-    return stage;
-};
 
 const normalizeFoodCategories = (categories?: string[]) => {
     const cleanCategories = (categories || []).filter(Boolean);
@@ -343,43 +355,6 @@ const getHerbParts = (h: HerbalFormula) => {
     return { dosage, purpose };
 };
 
-const estimateHerbalFormulaRowLines = (h: HerbalFormula) => {
-    const { dosage, purpose } = getHerbParts(h);
-    const countWrappedLines = (text: string, charsPerLine: number) => {
-        const explicitLines = (text || '').split('\n');
-        return explicitLines.reduce((total, line) => total + Math.max(1, Math.ceil(line.trim().length / charsPerLine)), 0);
-    };
-
-    return Math.max(
-        countWrappedLines(h.formula || '', 18),
-        countWrappedLines(dosage, 28),
-        countWrappedLines(purpose, 42)
-    ) + 1;
-};
-
-const chunkHerbalFormulasForPrint = (items: HerbalFormula[], pdfFontSize: string) => {
-    const maxLines = pdfFontSize === 'sm' ? 40 : pdfFontSize === 'base' ? 36 : pdfFontSize === 'lg' ? 31 : 26;
-    const chunks: HerbalFormula[][] = [];
-    let current: HerbalFormula[] = [];
-    let currentLines = 0;
-
-    items.forEach(item => {
-        const rowLines = estimateHerbalFormulaRowLines(item);
-        const needsExtraBreathingRoom = rowLines >= 16;
-        if (current.length > 0 && currentLines + rowLines + (needsExtraBreathingRoom ? 1 : 0) > maxLines) {
-            chunks.push(current);
-            current = [];
-            currentLines = 0;
-        }
-
-        current.push(item);
-        currentLines += rowLines;
-    });
-
-    if (current.length > 0) chunks.push(current);
-    return chunks;
-};
- 
  const buildPatientDiagnosisFallback = (diagnosis: string, dosha: string) => {
      const clean = stripMarkdownForPatient(diagnosis);
      if (!clean) {
@@ -432,422 +407,11 @@ const chunkHerbalFormulasForPrint = (items: HerbalFormula[], pdfFontSize: string
      }
  };
  
- const getLineCapacity = (fontSize: string): number => {
-    switch (fontSize) {
-        case 'sm': return 100;
-        case 'base': return 85;
-        case 'lg': return 73;
-        case 'xl': return 65;
-        default: return 85;
-    }
-};
+ // (La paginación manual por conteo de caracteres se eliminó: ahora pagina
+// Chromium con CSS de paged media. Ver bloque @media print más abajo.)
 
-const getWeight = (text: string, fontSize: string): number => {
-    if (!text) return 0;
-    const lineCapacity = getLineCapacity(fontSize);
-    const lines = text.split('\n');
-    let weight = 0;
-    for (const line of lines) {
-        const lineLen = line.length;
-        const visualLines = Math.max(1, Math.ceil(lineLen / lineCapacity));
-        weight += visualLines * lineCapacity;
-    }
-    return weight;
-};
-
-const splitOversizedParagraph = (paragraph: string, maxLength: number, fontSize: string): string[] => {
-    if (getWeight(paragraph, fontSize) <= maxLength) return [paragraph];
-
-    const chunks: string[] = [];
-    let remaining = paragraph.trim();
-    const lineCapacity = getLineCapacity(fontSize);
-    const maxChars = Math.floor((maxLength / lineCapacity) * lineCapacity);
-
-    while (getWeight(remaining, fontSize) > maxLength) {
-        const slice = remaining.slice(0, maxChars);
-        const breakIndex = Math.max(
-            slice.lastIndexOf('. '),
-            slice.lastIndexOf('? '),
-            slice.lastIndexOf('! '),
-            slice.lastIndexOf('; '),
-            slice.lastIndexOf(', '),
-            slice.lastIndexOf(' ')
-        );
-        const cutAt = breakIndex > Math.floor(maxChars * 0.45) ? breakIndex + 1 : maxChars;
-        chunks.push(remaining.slice(0, cutAt).trim());
-        remaining = remaining.slice(cutAt).trim();
-    }
-
-    if (remaining) chunks.push(remaining);
-    return chunks;
-};
-
-const isMarkdownSubheading = (paragraph: string) => {
-    const clean = paragraph.trim();
-    if (!clean) return false;
-    return /^#{1,6}\s+\S/.test(clean) || /^\*\*[^*]{2,120}\*\*:?\s*$/.test(clean);
-};
-
-const RECIPE_SECTION_TITLES = new Set(['Datos de la receta', 'Ingredientes', 'Preparación', 'Comentarios']);
-const isRecipeSectionTitle = (paragraph: string) => RECIPE_SECTION_TITLES.has(paragraph.trim());
-
-const isMarkdownDivider = (paragraph: string) => /^-{3,}$/.test(paragraph.trim());
-
-const findNextNonEmptyParagraphIndex = (paragraphs: string[], startIndex: number) => {
-    for (let i = startIndex; i < paragraphs.length; i++) {
-        if (paragraphs[i].trim()) return i;
-    }
-    return -1;
-};
-
-const buildPaginationBlocks = (text: string, maxLength: number, fontSize: string): string[] => {
-    const rawParagraphs = text.split('\n');
-    const blocks: string[] = [];
-
-    for (let i = 0; i < rawParagraphs.length; i++) {
-        const paragraph = rawParagraphs[i];
-        const nextIndex = findNextNonEmptyParagraphIndex(rawParagraphs, i + 1);
-
-        if (isMarkdownDivider(paragraph) && nextIndex !== -1 && isMarkdownSubheading(rawParagraphs[nextIndex])) {
-            const afterHeadingIndex = findNextNonEmptyParagraphIndex(rawParagraphs, nextIndex + 1);
-            if (afterHeadingIndex !== -1) {
-                blocks.push(rawParagraphs.slice(i, afterHeadingIndex + 1).join('\n'));
-                i = afterHeadingIndex;
-                continue;
-            }
-        }
-
-       if ((isMarkdownSubheading(paragraph) || isRecipeSectionTitle(paragraph)) && nextIndex !== -1) {
-            blocks.push(rawParagraphs.slice(i, nextIndex + 1).join('\n'));
-            i = nextIndex;
-            continue;
-        }
-
-        blocks.push(paragraph);
-    }
-
-    return blocks.flatMap(block => splitOversizedParagraph(block, maxLength, fontSize));
-};
-
-// Helper function to split text into pages by paragraph to avoid A4 page overflow
-const paginateParagraphs = (text: string, firstPageMax: number, nextPageMax: number, fontSize: string = 'base'): string[] => {
-    const hardParagraphLimit = Math.min(firstPageMax, nextPageMax);
-    const paragraphs = buildPaginationBlocks(text, hardParagraphLimit, fontSize);
-    const pages: string[] = [];
-    let currentPage = '';
-    let isFirstPage = true;
-    
-    for (const paragraph of paragraphs) {
-        const limit = isFirstPage ? firstPageMax : nextPageMax;
-        if (currentPage && (getWeight(currentPage, fontSize) + getWeight(paragraph, fontSize) > limit)) {
-            pages.push(currentPage.trim());
-            currentPage = paragraph;
-            isFirstPage = false;
-        } else {
-            currentPage = currentPage ? currentPage + '\n' + paragraph : paragraph;
-        }
-    }
-    if (currentPage) {
-        pages.push(currentPage.trim());
-    }
-    return pages;
-};
-
-// ============================================================================
-// PAGINACIÓN POR MEDICIÓN REAL DE ALTURA (DOM)
-// ----------------------------------------------------------------------------
-// Reemplaza el reparto por conteo de caracteres (getWeight/paginateParagraphs),
-// que provocaba páginas medio vacías o contenido cortado porque el conteo de
-// caracteres no predice el alto real (tablas, listas, párrafos largos ocupan
-// distinto). Aquí se mide el alto real de cada bloque renderizado dentro del
-// contexto de estilos de #pdf-content y se empaquetan páginas por altura.
-// La red de seguridad "escala-para-caber" de generatePdfDocument garantiza
-// además que ninguna página se corte aunque la estimación quede algo corta.
-// Si la medición no es posible (DOM no montado), se cae al método anterior.
-// ============================================================================
-const PDF_CONTENT_WIDTH_MM = 170;        // 210 − 2×20mm de padding lateral
-const PDF_USABLE_HEIGHT_MM = 218;        // alto útil de secciones de texto
-const PDF_DIET_USABLE_HEIGHT_MM = 208;   // alto útil de páginas de tablas dietéticas
-
-// Clase representativa del cuerpo markdown en el PDF, para que la medición
-// herede los tamaños de fuente reales (gobernados por CSS scoped a #pdf-content).
-const MEASURE_WRAPPER_CLASS =
-    'text-[11.5px] leading-relaxed text-[#334155] font-sans prose prose-sm max-w-none ' +
-    'prose-p:text-[#334155] prose-p:my-1.5 prose-strong:text-slate-900 prose-em:text-[#475569] ' +
-    'prose-h1:text-[13px] prose-h1:font-bold prose-h2:text-[11.5px] prose-h2:font-bold ' +
-    'prose-ul:my-1 prose-li:my-0.5 pdf-base-text';
-
-// Divide markdown en bloques atómicos separados por líneas en blanco.
-// Mantiene las tablas y encabezados con su contenido sin partirlos.
-const buildAtomicBlocks = (text: string): string[] => {
-    const lines = (text || '').split('\n');
-    const blocks: string[] = [];
-    let cur: string[] = [];
-    const flush = () => {
-        if (cur.join('\n').trim()) blocks.push(cur.join('\n'));
-        cur = [];
-    };
-    for (const line of lines) {
-        if (line.trim() === '') flush();
-        else cur.push(line);
-    }
-    flush();
-    return blocks;
-};
-
-// Píxeles reales por milímetro en este dispositivo/zoom.
-const getPxPerMm = (): number => {
-    if (typeof document === 'undefined') return 96 / 25.4;
-    const probe = document.createElement('div');
-    probe.style.cssText = 'width:100mm;position:absolute;visibility:hidden;left:-99999px;top:0;';
-    document.body.appendChild(probe);
-    const px = probe.getBoundingClientRect().width / 100;
-    probe.remove();
-    return px > 0 ? px : 96 / 25.4;
-};
-
-// Mide el alto real (px) de cada bloque renderizado como markdown, dentro del
-// contexto de estilos de #pdf-content para que coincida con el PDF final.
-const measureMarkdownBlockHeights = (blocks: string[], wrapperClass: string): number[] | null => {
-    if (typeof document === 'undefined') return null;
-    const host = document.getElementById('pdf-content');
-    if (!host || blocks.length === 0) return null;
-    const measurer = document.createElement('div');
-    measurer.style.cssText =
-        `position:absolute;left:-99999px;top:0;width:${PDF_CONTENT_WIDTH_MM}mm;visibility:hidden;pointer-events:none;`;
-    const cells: HTMLElement[] = [];
-    for (const b of blocks) {
-        const cell = document.createElement('div');
-        cell.className = wrapperClass;
-        cell.style.display = 'flow-root'; // contiene los márgenes internos al medir
-        try {
-            cell.innerHTML = renderToStaticMarkup(
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{b}</ReactMarkdown>
-            );
-        } catch {
-            cell.textContent = b;
-        }
-        measurer.appendChild(cell);
-        cells.push(cell);
-    }
-    host.appendChild(measurer);
-    let heights: number[] | null;
-    try {
-        heights = cells.map(c => c.getBoundingClientRect().height);
-    } catch {
-        heights = null;
-    }
-    measurer.remove();
-    return heights;
-};
-
-// Empaqueta bloques en páginas según su alto medido (no por caracteres).
-const packBlocksByHeight = (
-    blocks: string[], heights: number[], usablePx: number, gapPx: number
-): string[] => {
-    const pages: string[] = [];
-    let cur: string[] = [];
-    let curH = 0;
-    for (let i = 0; i < blocks.length; i++) {
-        const h = (heights[i] || 0) + gapPx;
-        if (cur.length > 0 && curH + h > usablePx) {
-            pages.push(cur.join('\n\n'));
-            cur = [];
-            curH = 0;
-        }
-        cur.push(blocks[i]);
-        curH += h;
-    }
-    if (cur.length > 0) pages.push(cur.join('\n\n'));
-    return pages.length > 0 ? pages : [''];
-};
-
-// Detecta la línea separadora de una tabla markdown, p. ej. | --- | :--: |.
-const isTableSeparatorLine = (line: string): boolean => {
-    const t = (line || '').trim();
-    if (!t.includes('-')) return false;
-    return /^\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/.test(t);
-};
-
-// Parsea un bloque que contiene una tabla markdown. Devuelve el texto previo
-// (p. ej. un encabezado pegado a la tabla), la fila de cabecera, el separador
-// y las filas de cuerpo. Devuelve null si el bloque no es una tabla.
-const parseTableBlock = (
-    block: string
-): { pre: string[]; header: string; sep: string; rows: string[] } | null => {
-    const lines = block.split('\n');
-    for (let i = 0; i < lines.length - 1; i++) {
-        if (lines[i].includes('|') && isTableSeparatorLine(lines[i + 1])) {
-            return {
-                pre: lines.slice(0, i),
-                header: lines[i],
-                sep: lines[i + 1],
-                rows: lines.slice(i + 2).filter(l => l.trim() !== ''),
-            };
-        }
-    }
-    return null;
-};
-
-// Parte un bloque más alto que la página para que NUNCA lo recorte overflow-hidden.
-// - Tablas: se reparten por filas, repitiendo la cabecera en cada parte.
-// - Otros bloques largos: se reparten por líneas.
-// Cada parte candidata se mide en vivo para garantizar que cabe.
-const splitOversizedBlock = (
-    block: string, usablePx: number, wrapperClass: string
-): string[] => {
-    const measure = (s: string): number =>
-        measureMarkdownBlockHeights([s], wrapperClass)?.[0] ?? Infinity;
-
-    const table = parseTableBlock(block);
-    if (table && table.rows.length > 1) {
-        const { pre, header, sep, rows } = table;
-        const preTxt = pre.join('\n').trim();
-        const build = (rws: string[], first: boolean): string =>
-            (first && preTxt ? preTxt + '\n' : '') + [header, sep, ...rws].join('\n');
-        const chunks: string[] = [];
-        let curRows: string[] = [];
-        for (const row of rows) {
-            const trial = [...curRows, row];
-            if (curRows.length > 0 && measure(build(trial, chunks.length === 0)) > usablePx) {
-                chunks.push(build(curRows, chunks.length === 0));
-                curRows = [row];
-            } else {
-                curRows = trial;
-            }
-        }
-        if (curRows.length > 0) chunks.push(build(curRows, chunks.length === 0));
-        if (chunks.length > 0) return chunks;
-    }
-
-    // Bloque no-tabla (o tabla no parseable): repartir por líneas.
-    const lines = block.split('\n').filter(l => l.trim() !== '');
-    if (lines.length <= 1) return [block];
-    const chunks: string[] = [];
-    let cur: string[] = [];
-    for (const line of lines) {
-        const trial = [...cur, line];
-        if (cur.length > 0 && measure(trial.join('\n')) > usablePx) {
-            chunks.push(cur.join('\n'));
-            cur = [line];
-        } else {
-            cur = trial;
-        }
-    }
-    if (cur.length > 0) chunks.push(cur.join('\n'));
-    return chunks.length > 0 ? chunks : [block];
-};
-
-// Paginación medida con respaldo automático al método por caracteres.
-const measuredPaginate = (
-    text: string, wrapperClass: string, usableHeightMm: number, fallback: () => string[]
-): string[] => {
-    const clean = (text || '').trim();
-    if (!clean) return [''];
-    const blocks = buildAtomicBlocks(clean);
-    const heights = measureMarkdownBlockHeights(blocks, wrapperClass);
-    if (!heights || heights.length !== blocks.length || heights.some(h => !isFinite(h))) {
-        return fallback();
-    }
-    const total = heights.reduce((a, b) => a + b, 0);
-    if (total <= 0) return fallback();
-    const usablePx = usableHeightMm * getPxPerMm();
-
-    // Si algún bloque (típicamente una tabla larga) supera el alto de página, se
-    // subdivide para que ninguna parte quede recortada. Margen del 4% para
-    // absorber pequeñas diferencias entre la medición y el render final.
-    const splitLimitPx = usablePx * 0.96;
-    const finalBlocks: string[] = [];
-    let didSplit = false;
-    for (let i = 0; i < blocks.length; i++) {
-        if ((heights[i] || 0) > splitLimitPx) {
-            const parts = splitOversizedBlock(blocks[i], splitLimitPx, wrapperClass);
-            finalBlocks.push(...parts);
-            if (parts.length > 1) didSplit = true;
-        } else {
-            finalBlocks.push(blocks[i]);
-        }
-    }
-
-    if (!didSplit) {
-        return packBlocksByHeight(blocks, heights, usablePx, 8);
-    }
-    const finalHeights = measureMarkdownBlockHeights(finalBlocks, wrapperClass);
-    if (!finalHeights || finalHeights.length !== finalBlocks.length || finalHeights.some(h => !isFinite(h))) {
-        return packBlocksByHeight(blocks, heights, usablePx, 8);
-    }
-    return packBlocksByHeight(finalBlocks, finalHeights, usablePx, 8);
-};
-
-// Mide el alto real de cada tarjeta de categoría dietética (cabecera + tabla
-// de 3 columnas) replicando su estructura dentro del contexto de #pdf-content.
-const measureCategoryCardHeights = (cats: any[]): number[] | null => {
-    if (typeof document === 'undefined') return null;
-    const host = document.getElementById('pdf-content');
-    if (!host || !cats || cats.length === 0) return null;
-    const measurer = document.createElement('div');
-    measurer.style.cssText =
-        `position:absolute;left:-99999px;top:0;width:${PDF_CONTENT_WIDTH_MM}mm;visibility:hidden;pointer-events:none;`;
-    const cells: HTMLElement[] = [];
-    const esc = (s: string) => String(s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    for (const cat of cats) {
-        const mejor = ((cat.mejor || []) as string[]).join(', ') || '—';
-        const mod = (((cat.pequenas_cantidades || cat.moderacion) || []) as string[]).join(', ') || '—';
-        const evitar = ((cat.evitar || []) as string[]).join(', ') || '—';
-        const cell = document.createElement('div');
-        cell.style.display = 'flow-root';
-        cell.style.marginBottom = '24px'; // equivalente a space-y-6 entre tarjetas
-        cell.innerHTML =
-            `<div class="border border-[#e2e8f0] rounded-xl overflow-hidden shadow-sm">
-                <div class="bg-[#f8fafc] border-b border-[#e2e8f0] px-4 py-2.5">
-                    <span class="text-[13px] font-bold font-sans text-[#334155] pdf-base-text">Categoría — ${esc(cat.nombre)}</span>
-                    ${cat.consejo ? `<div class="text-[10px] text-[#475569] font-sans italic pdf-subtitle">${esc(cat.consejo)}</div>` : ''}
-                </div>
-                <table class="w-full text-[12px] font-sans" style="table-layout:fixed">
-                    <thead><tr>
-                        <th class="px-4 py-2 text-left pdf-meta" style="width:33.33%">MEJOR</th>
-                        <th class="px-4 py-2 text-left pdf-meta" style="width:33.33%">MODERACIÓN</th>
-                        <th class="px-4 py-2 text-left pdf-meta" style="width:33.33%">EVITAR</th>
-                    </tr></thead>
-                    <tbody><tr style="vertical-align:top">
-                        <td class="px-4 py-3 text-[11.5px] pdf-base-text" style="width:33.33%">${esc(mejor)}</td>
-                        <td class="px-4 py-3 text-[11.5px] pdf-base-text" style="width:33.33%">${esc(mod)}</td>
-                        <td class="px-4 py-3 text-[11.5px] pdf-base-text" style="width:33.33%">${esc(evitar)}</td>
-                    </tr></tbody>
-                </table>
-            </div>`;
-        measurer.appendChild(cell);
-        cells.push(cell);
-    }
-    host.appendChild(measurer);
-    let heights: number[] | null;
-    try {
-        heights = cells.map(c => c.getBoundingClientRect().height);
-    } catch {
-        heights = null;
-    }
-    measurer.remove();
-    return heights;
-};
-
-// Empaqueta categorías dietéticas en páginas según su alto medido.
-const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number): any[][] => {
-    const pages: any[][] = [];
-    let cur: any[] = [];
-    let curH = 0;
-    for (let i = 0; i < cats.length; i++) {
-        const h = heights[i] || 0;
-        if (cur.length > 0 && curH + h > usablePx) {
-            pages.push(cur);
-            cur = [];
-            curH = 0;
-        }
-        cur.push(cats[i]);
-        curH += h;
-    }
-    if (cur.length > 0) pages.push(cur);
-    return pages.length > 0 ? pages : [cats];
-};
+// (Los motores de paginación por medición de DOM se eliminaron: la paginación
+// real la hace ahora el motor de impresión de Chromium.)
 
  const normalizeRecipeOcrText = (text: string) => text
      .replace(/\b(\d+)-(\d)\s+(\d)\b/g, '$1-$2$3')
@@ -1095,8 +659,25 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
              : parseRecipeTextForPrint(recipe.text || '')
      };
  };
- 
- 
+
+ // Builds a plain-text fallback (used for search/DB storage) from the structured
+ // ingredient/preparation fields, so "Preparación" always stays under its own
+ // heading regardless of what the professional types.
+ const buildRecipeTextFromStructured = (structured: { prepTime?: string; yield?: string; ingredients?: string[]; preparation?: string; comments?: string }) => {
+     const prepTime = (structured.prepTime || '').trim();
+     const yieldText = (structured.yield || '').trim();
+     const ingredients = (structured.ingredients || []).map(s => s.trim()).filter(Boolean);
+     const preparation = (structured.preparation || '').trim();
+     const comments = (structured.comments || '').trim();
+     return [
+         [prepTime && `Tiempo de preparación: ${prepTime}`, yieldText && `Porciones: ${yieldText}`].filter(Boolean).join(' · '),
+         ingredients.length > 0 ? `Ingredientes:\n${ingredients.join('\n')}` : '',
+         preparation ? `Preparación:\n${preparation}` : '',
+         comments ? `Comentarios:\n${comments}` : ''
+     ].filter(Boolean).join('\n\n').trim();
+ };
+
+
  const FONT_SIZE_PRESETS = {
      sm: {
          label: 'Pequeño',
@@ -1154,6 +735,11 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
      // re-ejecutaba la inicialización y pisaba todo lo que el profesional estaba
      // editando ("el PDF se reiniciaba").
      const initKeyRef = useRef<string | null>(null);
+     // Autoguardado (ver efecto junto a handleSavePlan): autosaveSkipRef evita que
+     // la siembra inicial de datos dispare un guardado; autosaveTimeoutRef guarda
+     // el temporizador con debounce entre una edición y el guardado real.
+     const autosaveSkipRef = useRef(false);
+     const autosaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
      const [activeTab, setActiveTab] = useState<EditorTabId>('documento');
      // Panel "Notas de consulta" dentro del editor del PDF (fix #2): permite
      // consultar las notas y síntomas del paciente mientras se redacta el PDF.
@@ -1178,13 +764,259 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
     const [showDiagnosis, setShowDiagnosis] = useState(true);
     // Sección "Guía de alimentación saludable" en el PDF (fix #6).
     const [showHealthyEatingGuide, setShowHealthyEatingGuide] = useState(true);
+    // Permite quitar la sección de recetas recomendadas del PDF sin borrar las recetas seleccionadas.
+    const [showRecipesSection, setShowRecipesSection] = useState(true);
     const [healthyEatingGuide, setHealthyEatingGuide] = useState(HEALTHY_EATING_GUIDE_TEXT);
-    // Hábitos seleccionables (el profesional elige cuáles incluir, como las categorías).
-    const [selectedHealthyHabits, setSelectedHealthyHabits] = useState<string[]>([...HEALTHY_EATING_HABITS]);
-    const toggleHealthyHabit = (habit: string) => {
-        setSelectedHealthyHabits(prev => prev.includes(habit) ? prev.filter(h => h !== habit) : [...prev, habit]);
+    // Catálogo vivo de plantillas de hábitos (se refresca desde la API al abrir el modal).
+    const [healthyHabitsList, setHealthyHabitsList] = useState<HealthyHabit[]>([...HEALTHY_EATING_HABITS]);
+    // Hábitos seleccionados: se guardan por NOMBRE de plantilla (el profesional elige cuáles incluir).
+    const allHabitNames = (list: HealthyHabit[]) => list.map(h => h.name);
+    const [selectedHealthyHabits, setSelectedHealthyHabits] = useState<string[]>(allHabitNames(HEALTHY_EATING_HABITS));
+    const toggleHealthyHabit = (habitName: string) => {
+        setSelectedHealthyHabits(prev => prev.includes(habitName) ? prev.filter(h => h !== habitName) : [...prev, habitName]);
     };
-    
+    // Estados para editar / agregar plantillas de hábitos dentro del modal.
+    const [editingHabitName, setEditingHabitName] = useState<string | null>(null);
+    const [habitDraftName, setHabitDraftName] = useState('');
+    const [habitDraftText, setHabitDraftText] = useState('');
+    const [isAddingHabit, setIsAddingHabit] = useState(false);
+    const [savingHabit, setSavingHabit] = useState(false);
+
+    // Carga el catálogo más reciente de hábitos desde la API (con respaldo a la semilla).
+    const refreshHealthyHabits = async () => {
+        try {
+            const res = await fetch('/api/healthy-habits', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && Array.isArray(data.habits) && data.habits.length > 0) {
+                    setHealthyHabitsList(data.habits);
+                }
+            }
+        } catch (err) {
+            console.error('Error cargando hábitos saludables:', err);
+        }
+    };
+
+    const startEditHabit = (habit: HealthyHabit) => {
+        setIsAddingHabit(false);
+        setEditingHabitName(habit.name);
+        setHabitDraftName(habit.name);
+        setHabitDraftText(habit.text);
+    };
+
+    const startAddHabit = () => {
+        setEditingHabitName(null);
+        setIsAddingHabit(true);
+        setHabitDraftName('');
+        setHabitDraftText('');
+    };
+
+    const cancelHabitEdit = () => {
+        setEditingHabitName(null);
+        setIsAddingHabit(false);
+        setHabitDraftName('');
+        setHabitDraftText('');
+    };
+
+    const saveHabitTemplate = async () => {
+        const name = habitDraftName.trim();
+        const text = habitDraftText.trim();
+        if (!name || !text) return;
+        setSavingHabit(true);
+        try {
+            const res = await fetch('/api/healthy-habits/update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({ name, text, originalName: editingHabitName || undefined })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                const newList: HealthyHabit[] = Array.isArray(data.habits) ? data.habits : healthyHabitsList;
+                setHealthyHabitsList(newList);
+                // Si se renombró una plantilla seleccionada, conserva la selección con el nuevo nombre.
+                if (editingHabitName && editingHabitName !== name) {
+                    setSelectedHealthyHabits(prev => prev.map(n => n === editingHabitName ? name : n));
+                } else if (isAddingHabit) {
+                    setSelectedHealthyHabits(prev => prev.includes(name) ? prev : [...prev, name]);
+                }
+                cancelHabitEdit();
+            } else {
+                alert(data.error || 'No se pudo guardar el hábito.');
+            }
+        } catch (err) {
+            console.error('Error guardando hábito:', err);
+            alert('Error de conexión al guardar el hábito.');
+        } finally {
+            setSavingHabit(false);
+        }
+    };
+
+    const deleteHabitTemplate = async (name: string) => {
+        if (!window.confirm(`¿Eliminar la plantilla "${name}"?`)) return;
+        try {
+            const res = await fetch('/api/healthy-habits/delete', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({ name })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                const newList: HealthyHabit[] = Array.isArray(data.habits) ? data.habits : healthyHabitsList.filter(h => h.name !== name);
+                setHealthyHabitsList(newList);
+                setSelectedHealthyHabits(prev => prev.filter(n => n !== name));
+                if (editingHabitName === name) cancelHabitEdit();
+            } else {
+                alert(data.error || 'No se pudo eliminar el hábito.');
+            }
+        } catch (err) {
+            console.error('Error eliminando hábito:', err);
+            alert('Error de conexión al eliminar el hábito.');
+        }
+    };
+
+    // ============ Terapias (catálogo editable + selección por paciente) ============
+    // Catálogo vivo de terapias (se refresca desde la API al abrir el modal).
+    const [therapiesList, setTherapiesList] = useState<TherapyItem[]>([...THERAPIES_SEED]);
+    // Terapias seleccionadas para este paciente: se guardan por ID de plantilla.
+    const [selectedTherapies, setSelectedTherapies] = useState<string[]>([]);
+    // Controla si la sección "Terapias Recomendadas" aparece en el PDF.
+    const [showTherapiesSection, setShowTherapiesSection] = useState(false);
+    const [therapyFrequency, setTherapyFrequency] = useState('');
+    const [therapyCount, setTherapyCount] = useState('');
+    const [therapyNoteTitle, setTherapyNoteTitle] = useState('');
+    const [therapyNoteBody, setTherapyNoteBody] = useState('');
+    const [therapySearchQuery, setTherapySearchQuery] = useState('');
+    const [expandedTherapyId, setExpandedTherapyId] = useState<string | null>(null);
+    // Estados para editar / agregar plantillas de terapias dentro del modal.
+    const [editingTherapyId, setEditingTherapyId] = useState<string | null>(null);
+    const [isAddingTherapy, setIsAddingTherapy] = useState(false);
+    const [therapyDraftName, setTherapyDraftName] = useState('');
+    const [therapyDraftEmoji, setTherapyDraftEmoji] = useState('');
+    const [therapyDraftText, setTherapyDraftText] = useState('');
+    const [savingTherapy, setSavingTherapy] = useState(false);
+
+    const toggleTherapy = (therapyId: string) => {
+        setSelectedTherapies(prev => prev.includes(therapyId) ? prev.filter(t => t !== therapyId) : [...prev, therapyId]);
+    };
+
+    // Carga el catálogo más reciente de terapias desde la API (con respaldo a la semilla).
+    const refreshTherapies = async () => {
+        try {
+            const res = await fetch('/api/therapies', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && Array.isArray(data.therapies) && data.therapies.length > 0) {
+                    setTherapiesList(data.therapies);
+                }
+            }
+        } catch (err) {
+            console.error('Error cargando terapias:', err);
+        }
+    };
+
+    const startEditTherapy = (therapy: TherapyItem) => {
+        setIsAddingTherapy(false);
+        setEditingTherapyId(therapy.id);
+        setTherapyDraftName(therapy.name);
+        setTherapyDraftEmoji(therapy.emoji || '');
+        setTherapyDraftText(therapy.text);
+    };
+
+    const startAddTherapy = () => {
+        setEditingTherapyId(null);
+        setIsAddingTherapy(true);
+        setTherapyDraftName('');
+        setTherapyDraftEmoji('');
+        setTherapyDraftText('');
+    };
+
+    const cancelTherapyEdit = () => {
+        setEditingTherapyId(null);
+        setIsAddingTherapy(false);
+        setTherapyDraftName('');
+        setTherapyDraftEmoji('');
+        setTherapyDraftText('');
+    };
+
+    const saveTherapyTemplate = async () => {
+        const name = therapyDraftName.trim();
+        const text = therapyDraftText.trim();
+        if (!name || !text) return;
+        setSavingTherapy(true);
+        try {
+            const newId = slugifyTherapyName(name);
+            const res = await fetch('/api/therapies/update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                    id: newId,
+                    name,
+                    emoji: therapyDraftEmoji.trim(),
+                    text,
+                    originalId: editingTherapyId || undefined
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                const newList: TherapyItem[] = Array.isArray(data.therapies) ? data.therapies : therapiesList;
+                setTherapiesList(newList);
+                // Si se renombró una terapia seleccionada, conserva la selección con el nuevo id.
+                if (editingTherapyId && editingTherapyId !== newId) {
+                    setSelectedTherapies(prev => prev.map(t => t === editingTherapyId ? newId : t));
+                } else if (isAddingTherapy) {
+                    setSelectedTherapies(prev => prev.includes(newId) ? prev : [...prev, newId]);
+                }
+                cancelTherapyEdit();
+            } else {
+                alert(data.error || 'No se pudo guardar la terapia.');
+            }
+        } catch (err) {
+            console.error('Error guardando terapia:', err);
+            alert('Error de conexión al guardar la terapia.');
+        } finally {
+            setSavingTherapy(false);
+        }
+    };
+
+    const deleteTherapyTemplate = async (therapy: TherapyItem) => {
+        if (!window.confirm(`¿Eliminar la terapia "${therapy.name}" del catálogo?`)) return;
+        try {
+            const res = await fetch('/api/therapies/delete', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({ id: therapy.id })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                const newList: TherapyItem[] = Array.isArray(data.therapies) ? data.therapies : therapiesList.filter(t => t.id !== therapy.id);
+                setTherapiesList(newList);
+                setSelectedTherapies(prev => prev.filter(t => t !== therapy.id));
+                if (editingTherapyId === therapy.id) cancelTherapyEdit();
+            } else {
+                alert(data.error || 'No se pudo eliminar la terapia.');
+            }
+        } catch (err) {
+            console.error('Error eliminando terapia:', err);
+            alert('Error de conexión al eliminar la terapia.');
+        }
+    };
+
     // Recipe states
     const [selectedRecipes, setSelectedRecipes] = useState<any[]>([]);
     const [editingRecipeId, setEditingRecipeId] = useState<string | null>(null);
@@ -1192,7 +1024,15 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
     const [recipeDoshaFilter, setRecipeDoshaFilter] = useState<string>('Todos');
     const [recipeSearchQuery, setRecipeSearchQuery] = useState<string>('');
     const [selectedRecipeToAdd, setSelectedRecipeToAdd] = useState<any | null>(null);
-    
+    const [showManualRecipeForm, setShowManualRecipeForm] = useState(false);
+    const [manualRecipeTitle, setManualRecipeTitle] = useState('');
+    const [manualRecipePrepTime, setManualRecipePrepTime] = useState('');
+    const [manualRecipeYield, setManualRecipeYield] = useState('');
+    const [manualRecipeIngredients, setManualRecipeIngredients] = useState('');
+    const [manualRecipePreparation, setManualRecipePreparation] = useState('');
+    const [manualRecipeComments, setManualRecipeComments] = useState('');
+    const [isSavingManualRecipe, setIsSavingManualRecipe] = useState(false);
+
     // Add herb states
     const [newHerbName, setNewHerbName] = useState('');
     const [newHerbDosage, setNewHerbDosage] = useState('');
@@ -1297,8 +1137,6 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
     const [selectedCategories, setSelectedCategories] = useState<string[]>(DEFAULT_FOOD_CATEGORIES);
     // Páginas calculadas por medición real de altura (ver helpers arriba).
     // Mientras no estén listas, el render usa el respaldo por caracteres.
-    const [measuredPages, setMeasuredPages] = useState<Record<string, string[]>>({});
-    const [measuredCategoryChunks, setMeasuredCategoryChunks] = useState<any[][] | null>(null);
 
     const toggleCategory = (cat: string) => {
         let newCategories;
@@ -1324,6 +1162,11 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
             return;
         }
 
+        // Al abrir, refrescamos el catálogo de plantillas de hábitos desde la API.
+        refreshHealthyHabits();
+        // Y el catálogo de terapias.
+        refreshTherapies();
+
         // Clave de inicialización: identidad del registro editado (o 'new') +
         // diagnóstico inicial sólo para tratamientos nuevos (para sembrarlo cuando
         // la IA lo devuelve de forma asíncrona). NO incluye el objeto `patient`,
@@ -1331,6 +1174,11 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
         const initKey = `${editingRecord?.record?.id ?? 'new'}::${editingRecord ? 'edit' : (initialDiagnosis || '')}`;
         if (initKeyRef.current === initKey) return;
         initKeyRef.current = initKey;
+
+        // El resto de este efecto llena el editor con datos existentes (o valores
+        // por defecto). Esos cambios de estado NO son una edición del profesional,
+        // así que el próximo disparo del efecto de autoguardado debe ignorarse.
+        autosaveSkipRef.current = true;
 
         setSaveMessage('');
         setAutosaveMessage('');
@@ -1401,8 +1249,17 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
             // profesional lo active explícitamente y se haya guardado así.
             setShowDiagnosis(rec.showDiagnosis !== undefined ? rec.showDiagnosis : !inferredIsFollowUp);
             setShowHealthyEatingGuide(rec.showHealthyEatingGuide !== undefined ? rec.showHealthyEatingGuide : true);
+            setShowRecipesSection(rec.showRecipesSection !== undefined ? rec.showRecipesSection : true);
             setHealthyEatingGuide(rec.healthyEatingGuide || HEALTHY_EATING_GUIDE_TEXT);
-            setSelectedHealthyHabits(Array.isArray(rec.healthyEatingHabits) ? rec.healthyEatingHabits : [...HEALTHY_EATING_HABITS]);
+            setSelectedHealthyHabits(Array.isArray(rec.healthyEatingHabits) ? rec.healthyEatingHabits : allHabitNames(healthyHabitsList));
+            // Terapias guardadas en el registro (por id de plantilla).
+            const recTherapies = Array.isArray(rec.therapies) ? rec.therapies : [];
+            setSelectedTherapies(recTherapies);
+            setShowTherapiesSection(rec.showTherapiesSection !== undefined ? rec.showTherapiesSection : recTherapies.length > 0);
+            setTherapyFrequency(rec.therapyFrequency || '');
+            setTherapyCount(rec.therapyCount || '');
+            setTherapyNoteTitle(rec.therapyNoteTitle || '');
+            setTherapyNoteBody(rec.therapyNoteBody || '');
 
             // Herbs — en una visita de seguimiento sin fórmulas propias, reutilizamos
             // automáticamente las del último tratamiento para no recapturarlas (fix #3).
@@ -1454,8 +1311,15 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
             setShowDigestiveRecoveryPage(false);
             setShowDiagnosis(true);
             setShowHealthyEatingGuide(true);
+            setShowRecipesSection(true);
             setHealthyEatingGuide(HEALTHY_EATING_GUIDE_TEXT);
-            setSelectedHealthyHabits([...HEALTHY_EATING_HABITS]);
+            setSelectedHealthyHabits(allHabitNames(healthyHabitsList));
+            setSelectedTherapies([]);
+            setShowTherapiesSection(false);
+            setTherapyFrequency('');
+            setTherapyCount('');
+            setTherapyNoteTitle('');
+            setTherapyNoteBody('');
 
             // Pre-fill indications from AI diagnosis text if available
             if (effectiveDiagnosis) {
@@ -1649,14 +1513,15 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
         }
     };
 
-    const handleSaveRecipeToDatabase = async (recipe: any) => {
+    const handleSaveRecipeToDatabase = async (recipe: any, options: { silent?: boolean } = {}) => {
+        const { silent = false } = options;
         if (!recipe.title.trim()) {
-            alert('Por favor introduce un nombre/título para la receta.');
-            return;
+            if (!silent) alert('Por favor introduce un nombre/título para la receta.');
+            return false;
         }
         if (!recipe.text.trim()) {
-            alert('El texto de la receta está vacío.');
-            return;
+            if (!silent) alert('El texto de la receta está vacío.');
+            return false;
         }
 
         try {
@@ -1666,7 +1531,13 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                 body: JSON.stringify({
                     id: recipe.id,
                     title: recipe.title,
-                    text: recipe.text
+                    text: recipe.text,
+                    category: recipe.category,
+                    doshas: recipe.doshas,
+                    vata_effect: recipe.vata_effect,
+                    pitta_effect: recipe.pitta_effect,
+                    kapha_effect: recipe.kapha_effect,
+                    structured: recipe.structured
                 })
             });
             const data = await res.json();
@@ -1676,15 +1547,27 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                 if (existing) {
                     existing.title = recipe.title;
                     existing.text = recipe.text;
-                    delete existing.structured;
+                    if (recipe.structured) {
+                        existing.structured = recipe.structured;
+                    } else {
+                        delete existing.structured;
+                    }
+                    if (recipe.category) existing.category = recipe.category;
+                    if (Array.isArray(recipe.doshas)) existing.doshas = recipe.doshas;
+                } else if (data.recipe) {
+                    // New recipe created on the server (e.g. a manual recipe) — reflect it locally too.
+                    (recipesList as any[]).push(data.recipe);
                 }
-                alert('Receta guardada exitosamente en la base de datos.');
+                if (!silent) alert('Receta guardada exitosamente en la base de datos.');
+                return true;
             } else {
-                alert(`Error al guardar receta: ${data.error || 'Desconocido'}`);
+                if (!silent) alert(`Error al guardar receta: ${data.error || 'Desconocido'}`);
+                return false;
             }
         } catch (err: any) {
             console.error('Error saving recipe:', err);
-            alert(`Error al guardar receta: ${err.message}`);
+            if (!silent) alert(`Error al guardar receta: ${err.message}`);
+            return false;
         }
     };
 
@@ -1786,123 +1669,119 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
         }
     }, [isOpen, initialDiagnosis, patient, editingRecord, hasAutoDrafted]);
 
-    const generatePdfDocument = async (onProgress?: (progress: number, status?: string) => void): Promise<jsPDF | null> => {
-        const container = document.getElementById('pdf-content');
-        if (!container) {
-            return null;
+    // Convierte bytes a base64 sin reventar el call-stack con archivos grandes.
+    const bytesToBase64 = (bytes: Uint8Array): string => {
+        let binary = '';
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)) as unknown as number[]);
         }
-
-        console.log('Iniciando generacion de PDF con html-to-image por páginas separadas...');
-        
-        const pdf = new jsPDF({
-            orientation: 'portrait',
-            unit: 'mm',
-            format: 'a4'
-        });
-
-        const pages = Array.from(container.querySelectorAll('.pdf-page')) as HTMLElement[];
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = pdf.internal.pageSize.getHeight();
-        const totalPages = Math.max(pages.length, 1);
-        const renderStage = createPdfRenderStage();
-
-        try {
-            for (let i = 0; i < pages.length; i++) {
-                const sourcePageEl = pages[i];
-                const pageEl = sourcePageEl.cloneNode(true) as HTMLElement;
-                pageEl.classList.remove('shadow-xl', 'rounded-sm');
-                pageEl.style.margin = '0';
-                pageEl.style.boxShadow = 'none';
-                pageEl.style.borderRadius = '0';
-                pageEl.style.transform = 'none';
-                pageEl.style.opacity = '1';
-
-                renderStage.replaceChildren(pageEl);
-
-                onProgress?.(Math.round((i / totalPages) * 86) + 4, `Renderizando página ${i + 1} de ${totalPages}`);
-                await waitForBrowserPaint();
-                await yieldToMainThread();
-
-                // ── Red de seguridad: escala-para-caber (medición real) ──────────
-                // Si el contenido de la página supera el alto A4, se reduce
-                // proporcionalmente para que NUNCA se corte. Con la paginación por
-                // medición esto casi nunca se activa; es una garantía final.
-                try {
-                    const boxH = pageEl.getBoundingClientRect().height || pageEl.offsetHeight;
-                    const prevOverflow = pageEl.style.overflow;
-                    pageEl.style.overflow = 'visible';
-                    const naturalH = pageEl.scrollHeight;
-                    pageEl.style.overflow = prevOverflow || 'hidden';
-                    if (boxH > 0 && naturalH > boxH + 4) {
-                        const scale = Math.max(0.55, (boxH / naturalH) * 0.985);
-                        const fitWrap = document.createElement('div');
-                        fitWrap.style.transformOrigin = 'top center';
-                        fitWrap.style.transform = `scale(${scale})`;
-                        fitWrap.style.width = '100%';
-                        while (pageEl.firstChild) fitWrap.appendChild(pageEl.firstChild);
-                        pageEl.appendChild(fitWrap);
-                        await waitForBrowserPaint();
-                    }
-                } catch (fitErr) {
-                    console.warn('PDF auto-fit (red de seguridad) omitido:', fitErr);
-                }
-
-                const pageWidthPx = pageEl.getBoundingClientRect().width || pageEl.offsetWidth;
-                const targetWidthPx = (A4_WIDTH_MM / MM_PER_INCH) * PDF_TARGET_DPI;
-                const pixelRatio = Math.max(PDF_PIXEL_RATIO, targetWidthPx / pageWidthPx);
-                const dataUrl = await toPng(pageEl, { 
-                    pixelRatio,
-                    backgroundColor: '#ffffff',
-                    cacheBust: false,
-                    style: {
-                        transform: 'none',
-                        margin: '0',
-                        boxShadow: 'none',
-                        borderRadius: '0',
-                        opacity: '1'
-                    }
-                });
-
-                if (i > 0) {
-                    pdf.addPage();
-                }
-
-                pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
-
-                // Add clickable links manually over the generated page image
-                try {
-                    const pageRect = pageEl.getBoundingClientRect();
-                    const scaleX = pdfWidth / pageRect.width;
-                    const scaleY = pdfHeight / pageRect.height;
-                    const links = pageEl.querySelectorAll('a');
-                    
-                    links.forEach(link => {
-                        const url = link.getAttribute('href');
-                        if (url) {
-                            const linkRect = link.getBoundingClientRect();
-                            const x = (linkRect.left - pageRect.left) * scaleX;
-                            const y = (linkRect.top - pageRect.top) * scaleY;
-                            const w = linkRect.width * scaleX;
-                            const h = linkRect.height * scaleY;
-                            pdf.link(x, y, w, h, { url });
-                        }
-                    });
-                } catch (linkErr) {
-                    console.warn('Error overlaying link in PDF page:', linkErr);
-                }
-
-                onProgress?.(Math.round(((i + 1) / totalPages) * 86) + 4, `Página ${i + 1} de ${totalPages} lista`);
-                await waitForBrowserPaint();
-                await yieldToMainThread(70);
-            }
-        } finally {
-            renderStage.remove();
-        }
-        return pdf;
+        return btoa(binary);
     };
 
-    const handleSavePlan = async (options: { saveFlatPdf?: boolean; isAutoSave?: boolean; existingPdf?: jsPDF } = {}) => {
-        const { saveFlatPdf = true, isAutoSave = false, existingPdf } = options;
+    // Dispara la descarga de un PDF a partir de bytes (sin jsPDF).
+    const downloadPdfBytes = (bytes: Uint8Array, filename: string) => {
+        const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+        const blob = new Blob([ab], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+    };
+
+    // Reúne el CSS de la página (Tailwind incluido) para enviarlo al servidor Puppeteer.
+    const collectDocumentCss = (): string => {
+        let css = '';
+        for (const sheet of Array.from(document.styleSheets)) {
+            try {
+                const rules = (sheet as CSSStyleSheet).cssRules;
+                if (!rules) continue;
+                for (const rule of Array.from(rules)) css += rule.cssText + '\n';
+            } catch {
+                /* hoja cross-origin: se ignora */
+            }
+        }
+        return css;
+    };
+
+    // ── Motor unificado de PDF (raíz del arreglo) ─────────────────────────────
+    // La plantilla continua (#pdf-print-content) es la ÚNICA fuente del PDF:
+    // Chromium pagina de verdad (texto vectorial, sin cortes, página llena).
+    //  1) App de escritorio → Chromium nativo (webContents.printToPDF).
+    //  2) Web → Puppeteer en el servidor (Chromium headless), misma plantilla.
+    //  3) Último recurso → diálogo de impresión del navegador (sin bytes).
+    const generatePdfBytes = async (
+        onProgress?: (progress: number, status?: string) => void
+    ): Promise<Uint8Array | null> => {
+        const electronPrint = (typeof window !== 'undefined') ? (window as any).vedamciPrint : undefined;
+
+        // 1) Escritorio (Electron)
+        if (electronPrint?.isElectron) {
+            try {
+                onProgress?.(15, 'Imprimiendo con Chromium...');
+                if ((document as any).fonts?.ready) {
+                    try { await (document as any).fonts.ready; } catch { /* noop */ }
+                }
+                await waitForBrowserPaint();
+                const buf: ArrayBuffer = await electronPrint.toPDF({
+                    // Margen 0: el fondo crema cubre toda la hoja. El encabezado y
+                    // el pie de marca se repiten por página vía thead/tfoot de la
+                    // plantilla de impresión.
+                    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+                });
+                onProgress?.(90, 'PDF listo');
+                return new Uint8Array(buf);
+            } catch (e) {
+                console.warn('printToPDF (Electron) falló, intentando respaldo:', e);
+            }
+        }
+
+        // 2) Web (Puppeteer en el servidor)
+        try {
+            const node = document.getElementById('pdf-print-content') || document.getElementById('pdf-content');
+            if (node) {
+                onProgress?.(20, 'Generando PDF en el servidor...');
+                const html = node.outerHTML;
+                const css = collectDocumentCss();
+                const token = localStorage.getItem('token');
+                const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                const res = await fetch('/api/print/treatment-pdf', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ html, css, origin: window.location.origin }),
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data?.success && data.pdfBase64) {
+                        onProgress?.(90, 'PDF listo');
+                        const binary = atob(data.pdfBase64);
+                        const bytes = new Uint8Array(binary.length);
+                        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                        return bytes;
+                    }
+                } else {
+                    console.warn('Endpoint Puppeteer no disponible (', res.status, '), usando el último recurso.');
+                }
+            }
+        } catch (e) {
+            console.warn('PDF por servidor falló:', e);
+        }
+
+        // 3) Último recurso: sin Chromium disponible se abre el diálogo de
+        // impresión del navegador (misma plantilla y paginación nativa); el
+        // usuario puede «Guardar como PDF» desde ahí. No devuelve bytes.
+        onProgress?.(60, 'Abriendo el diálogo de impresión del navegador...');
+        try { window.print(); } catch { /* noop */ }
+        return null;
+    };
+
+    const handleSavePlan = async (options: { saveFlatPdf?: boolean; isAutoSave?: boolean; existingBytes?: Uint8Array } = {}) => {
+        const { saveFlatPdf = true, isAutoSave = false, existingBytes } = options;
         const targetPatientId = patient.id || patientId || null;
         if (!targetPatientId) {
             const message = 'No se pudo guardar: abre el PDF desde un paciente seleccionado para enlazarlo a su carpeta local.';
@@ -1973,8 +1852,15 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                 showDigestiveRecoveryPage,
                 showDiagnosis,
                 showHealthyEatingGuide,
+                showRecipesSection,
                 healthyEatingGuide,
-                healthyEatingHabits: selectedHealthyHabits
+                healthyEatingHabits: selectedHealthyHabits,
+                therapies: selectedTherapies,
+                showTherapiesSection,
+                therapyFrequency,
+                therapyCount,
+                therapyNoteTitle,
+                therapyNoteBody
             };
 
             if (editingRecord && editingRecord.type === 'visit') {
@@ -2015,9 +1901,9 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
             if (recordId && saveFlatPdf) {
                 try {
                     setSaveMessage('Generando y guardando copia PDF plana en la carpeta del paciente...');
-                    const pdf = existingPdf || await generatePdfDocument();
-                    if (pdf) {
-                        const pdfBase64 = pdf.output('datauristring').split(',')[1];
+                    const bytes = existingBytes || await generatePdfBytes();
+                    if (bytes) {
+                        const pdfBase64 = bytesToBase64(bytes);
                         const uploadRes = await fetch(`/api/patients/${targetPatientId}/pdf/${recordId}`, {
                             method: 'POST',
                             headers,
@@ -2056,6 +1942,45 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
         }
     };
 
+    // Autoguardado: cada edición real del profesional (texto, hábitos, hierbas,
+    // recetas, categorías, toggles de secciones, etc.) programa un guardado del
+    // registro editable con debounce, sin regenerar el PDF plano (saveFlatPdf:
+    // false) para que sea rápido y silencioso. El PDF plano se sigue regenerando
+    // al descargar/imprimir o al pulsar "Guardar" manualmente.
+    useEffect(() => {
+        if (!isOpen) return;
+
+        if (autosaveSkipRef.current) {
+            // Este disparo del efecto vino de sembrar el editor (abrir un registro
+            // existente o preparar uno nuevo), no de una edición real: se ignora.
+            autosaveSkipRef.current = false;
+            return;
+        }
+
+        setAutosaveMessage('Cambios pendientes...');
+        if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current);
+        autosaveTimeoutRef.current = setTimeout(() => {
+            autosaveTimeoutRef.current = null;
+            handleSavePlan({ isAutoSave: true, saveFlatPdf: false });
+        }, 1500);
+
+        return () => {
+            if (autosaveTimeoutRef.current) {
+                clearTimeout(autosaveTimeoutRef.current);
+                autosaveTimeoutRef.current = null;
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        isOpen,
+        title, subtitle, selectedDosha, pdfFontSize,
+        mainIndication, lifestyleIndication, clinicalTreatmentIndication, patientDiagnosisText,
+        cerealGuidance, cerealRecipe, herbs, selectedCategories, selectedRecipes,
+        isFollowUp, visitNumber, visitDate,
+        showLifestylePage, showDigestiveRecoveryPage, showDiagnosis, showHealthyEatingGuide, showRecipesSection,
+        healthyEatingGuide, selectedHealthyHabits
+    ]);
+
     const handlePrint = async () => {
         setDownloadProgress(0);
         setDownloadStatus('Preparando el PDF...');
@@ -2064,23 +1989,25 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
         await yieldToMainThread(240);
 
         try {
-            const pdf = await generatePdfDocument((progress, status) => {
+            const bytes = await generatePdfBytes((progress, status) => {
                 setDownloadProgress(progress);
                 if (status) setDownloadStatus(status);
             });
-            if (!pdf) {
+            if (!bytes) {
+                // Motores Chromium no disponibles: se abrió el diálogo de impresión.
+                setSaveMessage('Se abrió el diálogo de impresión del navegador; guarda el PDF desde ahí.');
                 setIsDownloading(false);
                 return;
             }
-            
+
             const filename = `Tratamiento_${patient.name?.replace(/\s+/g, '_') || 'Ayurveda'}.pdf`;
             setDownloadProgress(94);
             setDownloadStatus('Preparando descarga...');
             await waitForBrowserPaint();
-            pdf.save(filename);
+            downloadPdfBytes(bytes, filename);
             setDownloadProgress(98);
             setDownloadStatus('Guardando copia local...');
-            await handleSavePlan({ existingPdf: pdf });
+            await handleSavePlan({ existingBytes: bytes });
             setShowTreatmentPage(true);
             
             console.log('PDF generado exitosamente');
@@ -2093,56 +2020,6 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
             setDownloadStatus('Preparando el PDF...');
         }
     };
-
-    // Recalcula las páginas por medición real de altura cada vez que cambian
-    // el contenido o el tamaño de fuente. Cae al método por caracteres si la
-    // medición no es posible. Debe ir antes del early-return para cumplir las
-    // reglas de hooks de React.
-    useLayoutEffect(() => {
-        if (!isOpen) return;
-        let cancelled = false;
-        const raf = requestAnimationFrame(() => {
-            if (cancelled) return;
-            const fs = pdfFontSize;
-            const dietData = DIET_DATABASES[selectedDosha] || vataPittaDiet;
-            const focused = normalizeFoodCategories(selectedCategories);
-            const cats = (dietData.categorias || []).filter((cat: any) => focused.includes(cat.nombre));
-            const treatmentTxt = removeHerbalFormulaItems(mainIndication || '');
-            const recDiag = editingRecord?.record?.diagnosis || '';
-            const diagTxt = (
-                patientDiagnosisText
-                || recDiag
-                || buildPatientDiagnosisFallback(initialDiagnosis || getLatestLocalDiagnosis(patient), selectedDosha)
-            ).trim();
-            const wrap = MEASURE_WRAPPER_CLASS;
-
-            const next: Record<string, string[]> = {
-                treatment: measuredPaginate(treatmentTxt, wrap, PDF_USABLE_HEIGHT_MM,
-                    () => paginateParagraphs(treatmentTxt, 2200, 2200, fs)),
-                lifestyle: measuredPaginate(lifestyleIndication || '', wrap, PDF_USABLE_HEIGHT_MM,
-                    () => paginateParagraphs(lifestyleIndication || '', 1800, 2400, fs)),
-                digestive: measuredPaginate(DIGESTIVE_RECOVERY_TEXT, wrap, PDF_USABLE_HEIGHT_MM,
-                    () => paginateParagraphs(DIGESTIVE_RECOVERY_TEXT, 1200, 1500, fs)),
-                diagnosis: measuredPaginate(diagTxt, wrap, PDF_USABLE_HEIGHT_MM,
-                    () => paginateParagraphs(diagTxt, 1650, 1750, fs)),
-            };
-            setMeasuredPages(next);
-
-            const catHeights = measureCategoryCardHeights(cats);
-            if (catHeights && catHeights.length === cats.length) {
-                const usablePx = PDF_DIET_USABLE_HEIGHT_MM * getPxPerMm();
-                setMeasuredCategoryChunks(packCategoriesByHeight(cats, catHeights, usablePx));
-            } else {
-                setMeasuredCategoryChunks(null);
-            }
-        });
-        return () => { cancelled = true; cancelAnimationFrame(raf); };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [
-        isOpen, mainIndication, lifestyleIndication, patientDiagnosisText,
-        selectedDosha, selectedCategories, pdfFontSize, initialDiagnosis,
-        editingRecord?.record?.id, editingRecord?.record?.diagnosis, patient?.id,
-    ]);
 
     if (!isOpen) return null;
 
@@ -2189,37 +2066,61 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
         focusedCategories.includes(cat.nombre)
     );
 
-    // Group active categories into chunks of 2 for pagination
-    const chunkCategories = (cats: any[], size: number) => {
-        const chunks = [];
-        for (let i = 0; i < cats.length; i += size) {
-            chunks.push(cats.slice(i, i + size));
-        }
-        return chunks;
-    };
-
-    const categoryChunksFallback = chunkCategories(activeCategories, 2);
-    const categoryChunks = measuredCategoryChunks ?? categoryChunksFallback;
-    const herbalFormulaPages = chunkHerbalFormulasForPrint(herbs, pdfFontSize);
+    // ── Contenido por sección (sin paginación manual) ─────────────────────────
+    // Cada sección se renderiza UNA sola vez con su contenido completo; los
+    // saltos de página reales los decide Chromium al imprimir. Los arrays de
+    // "páginas" quedan con un solo elemento para la vista previa en pantalla.
+    const categoryChunks = activeCategories.length > 0 ? [activeCategories] : [];
+    const herbalFormulaPages: HerbalFormula[][] = herbs.filter(h =>
+        h.formula?.trim() || h.dosage?.trim() || h.purpose?.trim()
+    ).length > 0 ? [herbs.filter(h => h.formula?.trim() || h.dosage?.trim() || h.purpose?.trim())] : [];
 
     const printableTreatmentText = removeHerbalFormulaItems(mainIndication || '');
-    const nextPageMax = pdfFontSize === 'sm' ? 2400 : pdfFontSize === 'base' ? 2200 : pdfFontSize === 'lg' ? 1750 : 1350;
-    // Since treatment starts on Page 2, we use nextPageMax for all pages of treatment.
-    const treatmentPagesFallback = paginateParagraphs(printableTreatmentText, nextPageMax, nextPageMax, pdfFontSize);
-    if (treatmentPagesFallback.length === 0) {
-        treatmentPagesFallback.push('');
-    }
-    const lifestyleFirstPageMax = pdfFontSize === 'sm' ? 2000 : pdfFontSize === 'base' ? 1800 : pdfFontSize === 'lg' ? 1400 : 1100;
-    const lifestyleNextPageMax = pdfFontSize === 'sm' ? 2600 : pdfFontSize === 'base' ? 2400 : pdfFontSize === 'lg' ? 1900 : 1500;
-    const lifestylePagesFallback = paginateParagraphs(lifestyleIndication || '', lifestyleFirstPageMax, lifestyleNextPageMax, pdfFontSize);
-    const digestiveRecoveryPagesFallback = paginateParagraphs(DIGESTIVE_RECOVERY_TEXT, 1200, 1500, pdfFontSize);
-    // Contenido de la guía = texto introductorio + hábitos seleccionados como viñetas.
+    // Contenido de la guía = texto introductorio + plantillas de hábitos seleccionadas.
+    // Cada hábito se imprime como título (nombre de la plantilla) + su texto completo.
+    // Para registros antiguos que guardaron el texto del hábito directamente (no el nombre),
+    // se mantiene compatibilidad imprimiéndolos como viñeta.
+    const healthyHabitsRendered = selectedHealthyHabits.map(sel => {
+        const tpl = healthyHabitsList.find(h => h.name === sel);
+        if (tpl) return `## ${tpl.name}\n${tpl.text.trim()}`;
+        return `- ${sel}`;
+    }).join('\n\n');
     const healthyEatingContent = [
         (healthyEatingGuide || '').trim(),
-        selectedHealthyHabits.length > 0 ? selectedHealthyHabits.map(h => `- ${h}`).join('\n') : ''
+        healthyHabitsRendered.trim()
     ].filter(Boolean).join('\n\n');
     const healthyEatingGuidePages = healthyEatingContent.trim()
-        ? paginateParagraphs(healthyEatingContent, 1400, 1800, pdfFontSize)
+        ? [healthyEatingContent]
+        : [];
+    // Contenido de la sección "Terapias Recomendadas": cada terapia seleccionada
+    // se imprime como título (emoji + nombre) + su texto completo en Markdown.
+    const selectedTherapyItems = selectedTherapies
+        .map(sel => therapiesList.find(t => t.id === sel || t.name === sel))
+        .filter(Boolean) as TherapyItem[];
+
+    let therapiesIntro = '';
+    if (therapyCount || therapyFrequency || (therapyNoteTitle && therapyNoteBody)) {
+        therapiesIntro += `## Planificación de las Terapias\n\n`;
+        if (therapyCount) {
+            therapiesIntro += `**Cantidad de terapias programadas:** ${therapyCount}\n\n`;
+        }
+        if (therapyFrequency) {
+            therapiesIntro += `**Frecuencia:** ${therapyFrequency}\n\n`;
+        }
+        if (therapyNoteTitle && therapyNoteBody) {
+            therapiesIntro += `### ${therapyNoteTitle}\n${therapyNoteBody}\n\n`;
+        }
+        therapiesIntro += `---\n\n`;
+    }
+
+    const therapiesContent = [
+        therapiesIntro.trim(),
+        selectedTherapyItems
+            .map(t => `# ${t.emoji ? `${t.emoji} ` : ''}${t.name}\n\n${t.text.trim()}`)
+            .join('\n\n')
+    ].filter(Boolean).join('\n\n');
+    const therapiesPages = showTherapiesSection && therapiesContent.trim()
+        ? [therapiesContent]
         : [];
     // The PDF "Diagnóstico Base" must reflect the editable field (patientDiagnosisText)
     // so the professional can change what appears in the PDF. We fall back to the saved
@@ -2230,17 +2131,12 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
         || recordDiagnosisPreview
         || buildPatientDiagnosisFallback(initialDiagnosis || getLatestLocalDiagnosis(patient), selectedDosha)
     ).trim();
-    // Paginate diagnosis preview to ensure it never overflows a page.
-    const diagnosisFirstPageMax = pdfFontSize === 'sm' ? 1900 : pdfFontSize === 'base' ? 1650 : pdfFontSize === 'lg' ? 1300 : 980;
-    const diagnosisNextPageMax = pdfFontSize === 'sm' ? 2050 : pdfFontSize === 'base' ? 1750 : pdfFontSize === 'lg' ? 1400 : 1080;
-    const diagnosisPagesFallback = paginateParagraphs(diagnosisPreview, diagnosisFirstPageMax, diagnosisNextPageMax, pdfFontSize);
-
-    // Versiones medidas (alto real). Si la medición aún no se ha ejecutado o no
-    // fue posible, se usa el respaldo por caracteres — nunca queda indefinido.
-    const treatmentPages = measuredPages.treatment ?? treatmentPagesFallback;
-    const lifestylePages = measuredPages.lifestyle ?? lifestylePagesFallback;
-    const digestiveRecoveryPages = measuredPages.digestive ?? digestiveRecoveryPagesFallback;
-    const diagnosisPages = measuredPages.diagnosis ?? diagnosisPagesFallback;
+    // Cada sección se muestra completa en una sola tarjeta de la vista previa;
+    // la paginación real la hace Chromium al generar el PDF.
+    const treatmentPages = [printableTreatmentText];
+    const lifestylePages = (lifestyleIndication || '').trim() ? [lifestyleIndication] : [];
+    const digestiveRecoveryPages = [DIGESTIVE_RECOVERY_TEXT];
+    const diagnosisPages = diagnosisPreview ? [diagnosisPreview] : [];
     const rawTreatmentPreviewText = mainIndication.trim();
     const isTreatmentPreviewLoading = isDrafting || rawTreatmentPreviewText.toLowerCase().startsWith('generando');
     const professionalWhatsAppUrl = professionalContact.phone
@@ -2279,8 +2175,18 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                             <h2 className="font-bold text-lg text-slate-900">Editor de Tratamiento</h2>
                             <p className="text-xs text-slate-500">Personaliza la hoja imprimible</p>
                         </div>
-                        <button 
-                            onClick={onClose} 
+                        <button
+                            onClick={() => {
+                                // Si había una edición reciente esperando el debounce del
+                                // autoguardado, dispararla ahora mismo antes de cerrar para
+                                // no perder el último cambio.
+                                if (autosaveTimeoutRef.current) {
+                                    clearTimeout(autosaveTimeoutRef.current);
+                                    autosaveTimeoutRef.current = null;
+                                    handleSavePlan({ isAutoSave: true, saveFlatPdf: false });
+                                }
+                                onClose();
+                            }}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
                         >
                             <X size={18} />
@@ -2472,6 +2378,11 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                 checked={showDiagnosis}
                                 label="Incluir diagnóstico base"
                                 onChange={setShowDiagnosis}
+                            />
+                            <ToggleSwitch
+                                checked={showRecipesSection}
+                                label="Incluir sección de recetas"
+                                onChange={setShowRecipesSection}
                             />
                         </div>
 
@@ -2850,7 +2761,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                 </button>
                             </div>
 
-                            {/* Selección de hábitos para la guía (como las categorías de comida) */}
+                            {/* Plantillas de hábitos: seleccionar, editar texto y agregar/eliminar */}
                             <div className="space-y-2 pt-3">
                                 <div className="flex items-center justify-between gap-2">
                                     <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Hábitos para comer saludablemente</label>
@@ -2859,7 +2770,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                 <div className="flex flex-wrap gap-1.5 mb-2">
                                     <button
                                         type="button"
-                                        onClick={() => setSelectedHealthyHabits([...HEALTHY_EATING_HABITS])}
+                                        onClick={() => setSelectedHealthyHabits(allHabitNames(healthyHabitsList))}
                                         className="text-[10px] font-bold text-slate-600 border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded-lg px-2 py-0.5 transition-colors"
                                     >
                                         Seleccionar todos
@@ -2871,31 +2782,402 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                     >
                                         Ninguno
                                     </button>
+                                    <button
+                                        type="button"
+                                        onClick={startAddHabit}
+                                        className="text-[10px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 rounded-lg px-2 py-0.5 transition-colors ml-auto"
+                                    >
+                                        + Nueva plantilla
+                                    </button>
                                 </div>
-                                <div className="space-y-1 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                                    {HEALTHY_EATING_HABITS.map((habit) => {
-                                        const isSelected = selectedHealthyHabits.includes(habit);
+
+                                {/* Formulario para agregar una nueva plantilla */}
+                                {isAddingHabit && (
+                                    <div className="space-y-2 bg-emerald-50 p-3 rounded-xl border border-emerald-200">
+                                        <input
+                                            type="text"
+                                            value={habitDraftName}
+                                            onChange={(e) => setHabitDraftName(e.target.value)}
+                                            placeholder="Título del hábito (p. ej. Masticar bien y comer sin distracciones)"
+                                            className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500"
+                                        />
+                                        <SpeechTextarea
+                                            value={habitDraftText}
+                                            onValueChange={setHabitDraftText}
+                                            rows={5}
+                                            className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 resize-y font-sans"
+                                            placeholder="Texto de la plantilla (admite Markdown: - viñetas)..."
+                                        />
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                disabled={savingHabit || !habitDraftName.trim() || !habitDraftText.trim()}
+                                                onClick={saveHabitTemplate}
+                                                className="text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg px-3 py-1 transition-colors"
+                                            >
+                                                {savingHabit ? 'Guardando…' : 'Guardar plantilla'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={cancelHabitEdit}
+                                                className="text-[11px] font-bold text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 rounded-lg px-3 py-1 transition-colors"
+                                            >
+                                                Cancelar
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="space-y-1.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                    {healthyHabitsList.map((habit) => {
+                                        const isSelected = selectedHealthyHabits.includes(habit.name);
+                                        const isEditing = editingHabitName === habit.name;
                                         return (
-                                            <label key={habit} className="flex items-start gap-2 text-xs select-none cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={isSelected}
-                                                    onChange={() => toggleHealthyHabit(habit)}
-                                                    className="mt-0.5 rounded border-slate-200 bg-white text-emerald-600 focus:ring-0 cursor-pointer w-3.5 h-3.5 shrink-0"
-                                                />
-                                                <span className={isSelected ? 'text-emerald-700 font-medium leading-snug' : 'text-slate-500 leading-snug'}>
-                                                    {habit}
-                                                </span>
-                                            </label>
+                                            <div key={habit.name} className="border-b border-slate-100 last:border-b-0 pb-1.5 last:pb-0">
+                                                <div className="flex items-start gap-2 text-xs">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => toggleHealthyHabit(habit.name)}
+                                                        className="mt-0.5 rounded border-slate-200 bg-white text-emerald-600 focus:ring-0 cursor-pointer w-3.5 h-3.5 shrink-0"
+                                                    />
+                                                    <span className={`flex-1 leading-snug ${isSelected ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                                        {habit.name}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => isEditing ? cancelHabitEdit() : startEditHabit(habit)}
+                                                        className="text-[10px] font-bold text-slate-500 hover:text-emerald-700 shrink-0"
+                                                    >
+                                                        {isEditing ? 'Cerrar' : 'Editar'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => deleteHabitTemplate(habit.name)}
+                                                        className="text-[10px] font-bold text-slate-400 hover:text-red-600 shrink-0"
+                                                    >
+                                                        Eliminar
+                                                    </button>
+                                                </div>
+                                                {isEditing && (
+                                                    <div className="mt-2 ml-5 space-y-2">
+                                                        <input
+                                                            type="text"
+                                                            value={habitDraftName}
+                                                            onChange={(e) => setHabitDraftName(e.target.value)}
+                                                            placeholder="Título del hábito"
+                                                            className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500"
+                                                        />
+                                                        <SpeechTextarea
+                                                            value={habitDraftText}
+                                                            onValueChange={setHabitDraftText}
+                                                            rows={6}
+                                                            className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 resize-y font-sans"
+                                                            placeholder="Texto de la plantilla..."
+                                                        />
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                type="button"
+                                                                disabled={savingHabit || !habitDraftName.trim() || !habitDraftText.trim()}
+                                                                onClick={saveHabitTemplate}
+                                                                className="text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg px-3 py-1 transition-colors"
+                                                            >
+                                                                {savingHabit ? 'Guardando…' : 'Guardar'}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={cancelHabitEdit}
+                                                                className="text-[11px] font-bold text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 rounded-lg px-3 py-1 transition-colors"
+                                                            >
+                                                                Cancelar
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
                                         );
                                     })}
                                 </div>
                                 <p className="text-[11px] leading-snug text-slate-400">
-                                    Marca los hábitos que quieres incluir en la guía del PDF.
+                                    Marca los hábitos a incluir en el PDF. Cada hábito es una plantilla editable: los cambios se guardan y quedan disponibles para todos los pacientes.
                                 </p>
                             </div>
                         </div>
 
+                        </>)}
+
+                        {activeTab === 'terapias' && (<>
+                        <div className="space-y-3">
+                            {/* Encabezado + toggle de visibilidad en PDF */}
+                            <div className="flex items-center justify-between gap-2">
+                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                                    <HeartHandshake size={14} className="text-emerald-600" />
+                                    Terapias Recomendadas
+                                </label>
+                                <ToggleSwitch
+                                    checked={showTherapiesSection}
+                                    onChange={setShowTherapiesSection}
+                                    label="Mostrar en PDF"
+                                />
+                            </div>
+
+                            {/* Campos de frecuencia, cantidad y anotación especial */}
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                                <div className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">
+                                    Planificación para el Paciente
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                            Frecuencia de las terapias
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={therapyFrequency}
+                                            onChange={(e) => setTherapyFrequency(e.target.value)}
+                                            placeholder="Ej. 3 veces por semana"
+                                            className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-900 focus:outline-none focus:border-emerald-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                            ¿Cuántas terapias serán?
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={therapyCount}
+                                            onChange={(e) => setTherapyCount(e.target.value)}
+                                            placeholder="Ej. 10 sesiones"
+                                            className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-900 focus:outline-none focus:border-emerald-500"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5 pt-1.5 border-t border-slate-200/60">
+                                    <div className="text-[9px] font-bold text-slate-500">
+                                        Anotación Especial (Título y Cuerpo)
+                                    </div>
+                                    <input
+                                        type="text"
+                                        value={therapyNoteTitle}
+                                        onChange={(e) => setTherapyNoteTitle(e.target.value)}
+                                        placeholder="Título (ej. Recomendación de aplicación)"
+                                        className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500"
+                                    />
+                                    <SpeechTextarea
+                                        value={therapyNoteBody}
+                                        onValueChange={setTherapyNoteBody}
+                                        rows={2}
+                                        className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 resize-y"
+                                        placeholder="Detalles del procedimiento o recomendación especial..."
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Resumen de selección */}
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] font-bold text-emerald-600">{selectedTherapies.length} seleccionadas</span>
+                                <div className="flex gap-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedTherapies([])}
+                                        className="text-[10px] font-bold text-slate-600 border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded-lg px-2 py-0.5 transition-colors"
+                                    >
+                                        Ninguna
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={startAddTherapy}
+                                        className="text-[10px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 rounded-lg px-2 py-0.5 transition-colors"
+                                    >
+                                        + Nueva terapia
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Buscador */}
+                            <div className="relative">
+                                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="text"
+                                    value={therapySearchQuery}
+                                    onChange={(e) => setTherapySearchQuery(e.target.value)}
+                                    placeholder="Buscar terapia (Abhyanga, Nasya, Basti...)"
+                                    className="w-full text-xs bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-slate-900 focus:outline-none focus:border-emerald-500"
+                                />
+                            </div>
+
+                            {/* Formulario para agregar una nueva terapia */}
+                            {isAddingTherapy && (
+                                <div className="space-y-2 bg-emerald-50 p-3 rounded-xl border border-emerald-200">
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={therapyDraftEmoji}
+                                            onChange={(e) => setTherapyDraftEmoji(e.target.value)}
+                                            placeholder="🌿"
+                                            className="w-14 text-center text-sm bg-white border border-slate-200 rounded-lg px-1 py-1.5 focus:outline-none focus:border-emerald-500"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={therapyDraftName}
+                                            onChange={(e) => setTherapyDraftName(e.target.value)}
+                                            placeholder="Nombre de la terapia (p. ej. Shirodhara)"
+                                            className="flex-1 text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500"
+                                        />
+                                    </div>
+                                    <SpeechTextarea
+                                        value={therapyDraftText}
+                                        onValueChange={setTherapyDraftText}
+                                        rows={7}
+                                        className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 resize-y font-sans"
+                                        placeholder="Descripción, beneficios y procedimiento (admite Markdown: ## títulos, - viñetas, **negrita**)..."
+                                    />
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={savingTherapy || !therapyDraftName.trim() || !therapyDraftText.trim()}
+                                            onClick={saveTherapyTemplate}
+                                            className="text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg px-3 py-1 transition-colors"
+                                        >
+                                            {savingTherapy ? 'Guardando…' : 'Guardar terapia'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={cancelTherapyEdit}
+                                            className="text-[11px] font-bold text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 rounded-lg px-3 py-1 transition-colors"
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Catálogo de terapias */}
+                            <div className="space-y-2">
+                                {therapiesList
+                                    .filter(t => {
+                                        const q = therapySearchQuery.trim().toLowerCase();
+                                        if (!q) return true;
+                                        return t.name.toLowerCase().includes(q) || t.text.toLowerCase().includes(q);
+                                    })
+                                    .map((therapy) => {
+                                        const isSelected = selectedTherapies.includes(therapy.id);
+                                        const isEditing = editingTherapyId === therapy.id;
+                                        const isExpanded = expandedTherapyId === therapy.id || isEditing;
+                                        return (
+                                            <div
+                                                key={therapy.id}
+                                                className={`rounded-xl border transition-colors ${isSelected ? 'border-emerald-300 bg-emerald-50/60' : 'border-slate-200 bg-white'}`}
+                                            >
+                                                <div className="flex items-center gap-2.5 px-3 py-2.5">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => toggleTherapy(therapy.id)}
+                                                        className="rounded border-slate-300 bg-white text-emerald-600 focus:ring-0 cursor-pointer w-4 h-4 shrink-0"
+                                                    />
+                                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0 ${isSelected ? 'bg-emerald-100' : 'bg-slate-100'}`}>
+                                                        {therapy.emoji || '🌿'}
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setExpandedTherapyId(isExpanded && !isEditing ? null : therapy.id)}
+                                                        className="flex-1 text-left min-w-0"
+                                                    >
+                                                        <p className={`text-xs leading-snug truncate ${isSelected ? 'text-emerald-800 font-bold' : 'text-slate-700 font-semibold'}`}>
+                                                            {therapy.name}
+                                                        </p>
+                                                        <p className="text-[10px] text-slate-400 truncate">
+                                                            {therapy.text.replace(/[#*_>\-]/g, '').trim().slice(0, 70)}…
+                                                        </p>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setExpandedTherapyId(isExpanded && !isEditing ? null : therapy.id)}
+                                                        className="shrink-0 text-slate-400 hover:text-emerald-600 transition-colors"
+                                                        title={isExpanded ? 'Cerrar' : 'Ver contenido'}
+                                                    >
+                                                        <ChevronDown size={15} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                                                    </button>
+                                                </div>
+                                                {isExpanded && (
+                                                    <div className="border-t border-slate-100 px-3 py-2.5 space-y-2">
+                                                        {isEditing ? (
+                                                            <>
+                                                                <div className="flex gap-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={therapyDraftEmoji}
+                                                                        onChange={(e) => setTherapyDraftEmoji(e.target.value)}
+                                                                        placeholder="🌿"
+                                                                        className="w-14 text-center text-sm bg-white border border-slate-200 rounded-lg px-1 py-1.5 focus:outline-none focus:border-emerald-500"
+                                                                    />
+                                                                    <input
+                                                                        type="text"
+                                                                        value={therapyDraftName}
+                                                                        onChange={(e) => setTherapyDraftName(e.target.value)}
+                                                                        placeholder="Nombre de la terapia"
+                                                                        className="flex-1 text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500"
+                                                                    />
+                                                                </div>
+                                                                <SpeechTextarea
+                                                                    value={therapyDraftText}
+                                                                    onValueChange={setTherapyDraftText}
+                                                                    rows={10}
+                                                                    className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 resize-y font-sans"
+                                                                    placeholder="Descripción de la terapia..."
+                                                                />
+                                                                <div className="flex gap-2">
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={savingTherapy || !therapyDraftName.trim() || !therapyDraftText.trim()}
+                                                                        onClick={saveTherapyTemplate}
+                                                                        className="text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg px-3 py-1 transition-colors"
+                                                                    >
+                                                                        {savingTherapy ? 'Guardando…' : 'Guardar'}
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={cancelTherapyEdit}
+                                                                        className="text-[11px] font-bold text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 rounded-lg px-3 py-1 transition-colors"
+                                                                    >
+                                                                        Cancelar
+                                                                    </button>
+                                                                </div>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <div className="max-h-56 overflow-y-auto bg-slate-50 rounded-lg p-3 prose prose-sm max-w-none text-[11px] leading-relaxed text-slate-600 prose-headings:text-emerald-700 prose-headings:text-xs prose-headings:font-bold prose-headings:my-1.5 prose-p:my-1 prose-li:my-0.5 prose-strong:text-slate-800">
+                                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{therapy.text}</ReactMarkdown>
+                                                                </div>
+                                                                <div className="flex gap-2 justify-end">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => startEditTherapy(therapy)}
+                                                                        className="text-[10px] font-bold text-slate-500 hover:text-emerald-700 transition-colors"
+                                                                    >
+                                                                        Editar
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => deleteTherapyTemplate(therapy)}
+                                                                        className="text-[10px] font-bold text-slate-400 hover:text-red-600 transition-colors"
+                                                                    >
+                                                                        Eliminar
+                                                                    </button>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                            </div>
+                            <p className="text-[11px] leading-snug text-slate-400">
+                                Marca las terapias a incluir en el PDF del paciente. Cada terapia es una plantilla editable: los cambios se guardan en el catálogo y quedan disponibles para todos los pacientes.
+                            </p>
+                        </div>
                         </>)}
 
                         {activeTab === 'hierbas' && (<>
@@ -3074,8 +3356,15 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                         {activeTab === 'alimentacion' && (<>
                         {/* Recetas Recomendadas Section */}
                         <div className="space-y-3 pt-3 border-t border-slate-200">
-                            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Recetas Recomendadas</label>
-                            
+                            <div className="flex items-center justify-between gap-2">
+                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Recetas Recomendadas</label>
+                                <ToggleSwitch
+                                    checked={showRecipesSection}
+                                    onChange={setShowRecipesSection}
+                                    label="Mostrar en PDF"
+                                />
+                            </div>
+
                             {/* Selected Recipes List */}
                             {selectedRecipes.length > 0 && (
                                 <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
@@ -3123,19 +3412,66 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                                                 className="w-full text-xs bg-slate-50 border border-slate-200 rounded p-1.5 text-slate-800 outline-none focus:border-emerald-500 font-sans font-bold"
                                                             />
                                                         </div>
-                                                        <div>
-                                                            <label className="text-[10px] font-semibold text-emerald-600 block mb-0.5">Modificar Texto de la Receta:</label>
-                                                            <textarea
-                                                                value={r.text || ''}
-                                                                onChange={(e) => {
-                                                                    const updated = [...selectedRecipes];
-                                                                    updated[idx] = { ...updated[idx], text: e.target.value, structured: undefined };
-                                                                    setSelectedRecipes(updated);
-                                                                }}
-                                                                rows={8}
-                                                                className="w-full text-xs bg-slate-50 border border-slate-200 rounded p-2 text-slate-800 outline-none focus:border-emerald-500 font-sans resize-y leading-relaxed"
-                                                            />
-                                                        </div>
+                                                        {(() => {
+                                                            const structured = r.structured || { prepTime: '', yield: '', ingredients: r.text ? [] : [], preparation: r.text || '', comments: '' };
+                                                            const updateStructured = (patch: Record<string, any>) => {
+                                                                const nextStructured = { ...structured, ...patch };
+                                                                const updated = [...selectedRecipes];
+                                                                updated[idx] = { ...updated[idx], structured: nextStructured, text: buildRecipeTextFromStructured(nextStructured) };
+                                                                setSelectedRecipes(updated);
+                                                            };
+                                                            return (
+                                                                <>
+                                                                    <div className="grid grid-cols-2 gap-1.5">
+                                                                        <div>
+                                                                            <label className="text-[10px] font-semibold text-emerald-600 block mb-0.5">Tiempo de preparación:</label>
+                                                                            <input
+                                                                                type="text"
+                                                                                value={structured.prepTime || ''}
+                                                                                onChange={(e) => updateStructured({ prepTime: e.target.value })}
+                                                                                className="w-full text-xs bg-slate-50 border border-slate-200 rounded p-1.5 text-slate-800 outline-none focus:border-emerald-500 font-sans"
+                                                                            />
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="text-[10px] font-semibold text-emerald-600 block mb-0.5">Porciones:</label>
+                                                                            <input
+                                                                                type="text"
+                                                                                value={structured.yield || ''}
+                                                                                onChange={(e) => updateStructured({ yield: e.target.value })}
+                                                                                className="w-full text-xs bg-slate-50 border border-slate-200 rounded p-1.5 text-slate-800 outline-none focus:border-emerald-500 font-sans"
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-[10px] font-semibold text-emerald-600 block mb-0.5">Ingredientes (uno por línea):</label>
+                                                                        <textarea
+                                                                            value={(structured.ingredients || []).join('\n')}
+                                                                            onChange={(e) => updateStructured({ ingredients: e.target.value.split('\n') })}
+                                                                            rows={4}
+                                                                            className="w-full text-xs bg-slate-50 border border-slate-200 rounded p-2 text-slate-800 outline-none focus:border-emerald-500 font-sans resize-y leading-relaxed"
+                                                                        />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-[10px] font-semibold text-emerald-600 block mb-0.5">Preparación:</label>
+                                                                        <textarea
+                                                                            value={structured.preparation || ''}
+                                                                            onChange={(e) => updateStructured({ preparation: e.target.value })}
+                                                                            rows={4}
+                                                                            className="w-full text-xs bg-slate-50 border border-slate-200 rounded p-2 text-slate-800 outline-none focus:border-emerald-500 font-sans resize-y leading-relaxed"
+                                                                        />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-[10px] font-semibold text-emerald-600 block mb-0.5">Comentarios:</label>
+                                                                        <textarea
+                                                                            value={structured.comments || ''}
+                                                                            onChange={(e) => updateStructured({ comments: e.target.value })}
+                                                                            rows={2}
+                                                                            className="w-full text-xs bg-slate-50 border border-slate-200 rounded p-2 text-slate-800 outline-none focus:border-emerald-500 font-sans resize-y leading-relaxed"
+                                                                        />
+                                                                    </div>
+                                                                </>
+                                                            );
+                                                        })()}
                                                         <button
                                                             type="button"
                                                             onClick={() => handleSaveRecipeToDatabase(r)}
@@ -3163,6 +3499,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                             className="w-full text-[11px] bg-white border border-slate-200 rounded px-2 py-1 text-slate-900 outline-none focus:border-emerald-500"
                                         >
                                             <option value="Todos">Todas</option>
+                                            <option value="Recetas Propias">Recetas Propias</option>
                                             <option value="Recuperación Digestiva">Recuperación Digestiva</option>
                                             <option value="Desayuno">Desayuno</option>
                                             <option value="Comida">Comida</option>
@@ -3252,6 +3589,120 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                     <Plus size={14} />
                                     Agregar Receta
                                 </button>
+
+                                {/* Manual Recipe Form */}
+                                <div className="pt-2 border-t border-slate-200">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowManualRecipeForm(v => !v)}
+                                        className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-800 py-1.5"
+                                    >
+                                        <Plus size={13} className={`transition-transform ${showManualRecipeForm ? 'rotate-45' : ''}`} />
+                                        {showManualRecipeForm ? 'Cancelar receta manual' : 'Añadir receta manual'}
+                                    </button>
+                                    {showManualRecipeForm && (
+                                        <div className="space-y-2 mt-1.5">
+                                            <input
+                                                type="text"
+                                                value={manualRecipeTitle}
+                                                onChange={(e) => setManualRecipeTitle(e.target.value)}
+                                                placeholder="Título de la receta"
+                                                className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500"
+                                            />
+                                            <div className="grid grid-cols-2 gap-1.5">
+                                                <input
+                                                    type="text"
+                                                    value={manualRecipePrepTime}
+                                                    onChange={(e) => setManualRecipePrepTime(e.target.value)}
+                                                    placeholder="Tiempo de preparación (opcional)"
+                                                    className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={manualRecipeYield}
+                                                    onChange={(e) => setManualRecipeYield(e.target.value)}
+                                                    placeholder="Porciones (opcional)"
+                                                    className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-semibold text-slate-500 block mb-0.5">Ingredientes (uno por línea)</label>
+                                                <textarea
+                                                    value={manualRecipeIngredients}
+                                                    onChange={(e) => setManualRecipeIngredients(e.target.value)}
+                                                    rows={4}
+                                                    placeholder={'1 taza de leche\n1/4 cdta de canela\n...'}
+                                                    className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 resize-y leading-relaxed"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-semibold text-slate-500 block mb-0.5">Preparación</label>
+                                                <textarea
+                                                    value={manualRecipePreparation}
+                                                    onChange={(e) => setManualRecipePreparation(e.target.value)}
+                                                    rows={4}
+                                                    placeholder="Pasos de preparación..."
+                                                    className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 resize-y leading-relaxed"
+                                                />
+                                            </div>
+                                            <textarea
+                                                value={manualRecipeComments}
+                                                onChange={(e) => setManualRecipeComments(e.target.value)}
+                                                rows={2}
+                                                placeholder="Comentarios (opcional)"
+                                                className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 resize-y leading-relaxed"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    const title = manualRecipeTitle.trim();
+                                                    const ingredients = manualRecipeIngredients.split('\n').map(s => s.trim()).filter(Boolean);
+                                                    const preparation = manualRecipePreparation.trim();
+                                                    if (!title || ingredients.length === 0 || !preparation) return;
+
+                                                    const prepTime = manualRecipePrepTime.trim();
+                                                    const yieldText = manualRecipeYield.trim();
+                                                    const comments = manualRecipeComments.trim();
+                                                    const structured = { prepTime, yield: yieldText, ingredients, preparation, comments };
+                                                    const combinedText = buildRecipeTextFromStructured(structured);
+
+                                                    const manualRecipe = {
+                                                        id: `manual-${Date.now()}`,
+                                                        title,
+                                                        category: 'Recetas Propias',
+                                                        doshas: [] as string[],
+                                                        vata_effect: 'No especificado',
+                                                        pitta_effect: 'No especificado',
+                                                        kapha_effect: 'No especificado',
+                                                        text: combinedText,
+                                                        structured
+                                                    };
+
+                                                    setSelectedRecipes([...selectedRecipes, manualRecipe]);
+                                                    setIsSavingManualRecipe(true);
+                                                    await handleSaveRecipeToDatabase(manualRecipe, { silent: true });
+                                                    setIsSavingManualRecipe(false);
+
+                                                    setManualRecipeTitle('');
+                                                    setManualRecipePrepTime('');
+                                                    setManualRecipeYield('');
+                                                    setManualRecipeIngredients('');
+                                                    setManualRecipePreparation('');
+                                                    setManualRecipeComments('');
+                                                    setShowManualRecipeForm(false);
+                                                }}
+                                                disabled={!manualRecipeTitle.trim() || !manualRecipeIngredients.trim() || !manualRecipePreparation.trim() || isSavingManualRecipe}
+                                                className="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white font-bold text-xs py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5"
+                                            >
+                                                {isSavingManualRecipe ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                                                Agregar Receta Manual
+                                            </button>
+                                            <p className="text-[10px] text-slate-400 leading-snug">
+                                                Se guardará en tu base de datos bajo la categoría <span className="font-semibold text-slate-500">"Recetas Propias"</span> para reutilizarla en futuros pacientes.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                         </>)}
@@ -3295,7 +3746,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
 
                 {/* Printable Document Preview Area */}
                 <div 
-                    className={`flex-1 bg-[#cbd5e1] overflow-y-auto p-8 flex flex-col items-center gap-8 print:bg-white print:p-0 print:overflow-visible ${
+                    className={`print-area flex-1 bg-[#cbd5e1] overflow-y-auto p-8 flex flex-col items-center gap-8 print:bg-white print:p-0 print:overflow-visible ${
                         isDownloading ? 'opacity-0 pointer-events-none' : ''
                     }`}
                     id="pdf-content"
@@ -3311,7 +3762,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                 >
                     
                     {/* PAGE 1: Intro and General Instructions */}
-                    <div className="pdf-page w-[210mm] h-[297mm] overflow-hidden shrink-0 bg-[#ffffff] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
+                    <div className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
                         
                         {/* Document Header */}
                         <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
@@ -3440,7 +3891,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
 
                     {/* PAGE 2: Base Diagnosis Pages */}
                     {showDiagnosis && (!isFollowUp || recordDiagnosisPreview.trim() || patientDiagnosisText.trim()) && diagnosisPreview && diagnosisPages.map((pageText, idx) => (
-                        <div key={`diagnosis-${idx}`} className="pdf-page w-[210mm] h-[297mm] overflow-hidden shrink-0 bg-[#ffffff] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
+                        <div key={`diagnosis-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
                             {/* Document Header */}
                             <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
                                 <div className="flex items-center gap-3">
@@ -3484,7 +3935,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
 
                     {/* PAGES 3+: Treatment Pages */}
                     {treatmentPages.length > 0 && treatmentPages.map((pageText, idx) => (
-                        <div key={`treatment-${idx}`} className="pdf-page w-[210mm] h-[297mm] overflow-hidden shrink-0 bg-[#ffffff] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
+                        <div key={`treatment-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
                             
                             {/* Document Header */}
                             <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
@@ -3497,7 +3948,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                 </div>
                                 <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
                                     <p className="font-semibold text-[#334155]">Tratamiento e Indicaciones</p>
-                                    <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {treatmentPages.length}</p>
+                                    {treatmentPages.length > 1 && <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {treatmentPages.length}</p>}
                                     <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
                                 </div>
                             </div>
@@ -3531,7 +3982,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
 
                     {/* Lifestyle Pages */}
                     {showLifestylePage && lifestylePages.length > 0 && lifestylePages.map((pageText, idx) => (
-                        <div key={`lifestyle-${idx}`} className="pdf-page w-[210mm] h-[297mm] overflow-hidden shrink-0 bg-[#ffffff] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
+                        <div key={`lifestyle-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
                             
                             {/* Document Header */}
                             <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
@@ -3544,7 +3995,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                 </div>
                                 <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
                                     <p className="font-semibold text-[#334155]">Estilo de Vida</p>
-                                    <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {lifestylePages.length}</p>
+                                    {lifestylePages.length > 1 && <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {lifestylePages.length}</p>}
                                     <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
                                 </div>
                             </div>
@@ -3576,7 +4027,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
 
                     {/* Digestive Recovery Pages */}
                     {showDigestiveRecoveryPage && digestiveRecoveryPages.map((pageText, idx) => (
-                        <div key={`digestive-recovery-${idx}`} className="pdf-page w-[210mm] h-[297mm] overflow-hidden shrink-0 bg-[#ffffff] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                        <div key={`digestive-recovery-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                             <div className="flex-1 flex flex-col">
                                 {/* Document Header */}
                                 <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
@@ -3589,7 +4040,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                     </div>
                                     <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
                                         <p className="font-semibold text-[#334155]">Recuperación Digestiva</p>
-                                        <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {digestiveRecoveryPages.length}</p>
+                                        {digestiveRecoveryPages.length > 1 && <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {digestiveRecoveryPages.length}</p>}
                                         <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
                                     </div>
                                 </div>
@@ -3619,7 +4070,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
 
                     {/* Guía de alimentación saludable (fix #6) */}
                     {showHealthyEatingGuide && healthyEatingGuidePages.map((pageText, idx) => (
-                        <div key={`healthy-eating-${idx}`} className="pdf-page w-[210mm] h-[297mm] overflow-hidden shrink-0 bg-[#ffffff] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                        <div key={`healthy-eating-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                             <div className="flex-1 flex flex-col">
                                 <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
                                     <div className="flex items-center gap-3">
@@ -3658,9 +4109,50 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                         </div>
                     ))}
 
+                    {/* Terapias Recomendadas */}
+                    {showTherapiesSection && therapiesPages.map((pageText, idx) => (
+                        <div key={`therapies-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                            <div className="flex-1 flex flex-col">
+                                <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
+                                    <div className="flex items-center gap-3">
+                                        <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
+                                        <div>
+                                            <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
+                                            <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
+                                        <p className="font-semibold text-[#334155]">Terapias Recomendadas</p>
+                                        {therapiesPages.length > 1 && <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {therapiesPages.length}</p>}
+                                        <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
+                                    </div>
+                                </div>
+
+                                <div className="mt-5 space-y-4 flex-1 flex flex-col">
+                                    <div className="space-y-1.5 flex-1 bg-[#fffbeb] p-5 rounded-xl border border-[#fde68a] overflow-hidden">
+                                        <div className="text-[11.5px] leading-relaxed text-[#334155] font-sans prose prose-sm max-w-none prose-p:text-[#334155] prose-p:my-1.5 prose-strong:text-slate-900 prose-em:text-[#475569] prose-h1:text-[13px] prose-h1:font-bold prose-h1:uppercase prose-h1:tracking-wider prose-h1:text-[#b45309] prose-h1:mt-3 prose-h1:mb-2 prose-h1:first:mt-0 prose-h2:text-[11.5px] prose-h2:font-bold prose-h2:text-[#15803d] prose-h2:mt-2.5 prose-h2:mb-1 prose-h3:text-[11px] prose-h3:font-bold prose-h3:text-[#334155] prose-h3:mt-2 prose-h3:mb-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 pdf-base-text">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{pageText}</ReactMarkdown>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="border-t border-[#22c55e]/25 pt-3 mt-4 flex justify-between items-center text-[9px] font-sans text-[#64748b] shrink-0 pdf-meta">
+                                <div>
+                                    <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                    <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                                    {professionalContactLine}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+
                     {/* PAGES 3+: Dynamic Diet Category Tables (Paged in pairs) */}
                     {categoryChunks.map((chunk, chunkIdx) => (
-                        <div key={chunkIdx} className="pdf-page w-[210mm] h-[297mm] overflow-hidden shrink-0 bg-[#ffffff] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                        <div key={chunkIdx} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                             <div className="space-y-6 flex-1">
                                 {/* Header */}
                                 <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
@@ -3673,7 +4165,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                     </div>
                                     <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
                                         <p className="font-semibold text-[#334155]">Pautas Dietéticas {selectedDosha}</p>
-                                        <p className="text-[10px] text-[#64748b]">Parte {chunkIdx + 1} de {categoryChunks.length}</p>
+                                        {categoryChunks.length > 1 && <p className="text-[10px] text-[#64748b]">Parte {chunkIdx + 1} de {categoryChunks.length}</p>}
                                         <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
                                     </div>
                                 </div>
@@ -3742,7 +4234,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                     ))}
 
                     {/* Cereals and manual recipes page */}
-                    <div className="pdf-page w-[210mm] h-[297mm] overflow-hidden shrink-0 bg-[#ffffff] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                    <div className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                         <div className="space-y-6 flex-1">
                             {/* Header */}
                             <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
@@ -3774,7 +4266,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                     <h4 className="text-[12px] font-bold uppercase tracking-wider text-[#b45309] font-sans mb-3 pdf-subtitle">
                                         Recetas recomendadas
                                     </h4>
-                                    {selectedRecipes.length > 0 ? (
+                                    {showRecipesSection && selectedRecipes.length > 0 ? (
                                         <div className="flex-1 flex flex-col justify-center items-center text-center p-6 bg-white/60 rounded-xl border border-dashed border-[#fde68a] text-slate-600 font-sans">
                                             <p className="font-bold text-[#b45309] text-[12.5px] mb-2">
                                                 Se han adjuntado las siguientes recetas personalizadas en las páginas siguientes:
@@ -3834,12 +4326,11 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                     </div>
 
                     {/* Dedicated page for each selected recipe */}
-                    {selectedRecipes.map((recipe, index) => {
+                    {showRecipesSection && selectedRecipes.map((recipe, index) => {
                         const printableRecipe = getPrintableRecipe(recipe);
-                        const recipePageLimit = pdfFontSize === 'sm' ? 2100 : pdfFontSize === 'base' ? 1750 : pdfFontSize === 'lg' ? 1350 : 1050;
-                        const recipePages = paginateParagraphs(printableRecipe.printableText, recipePageLimit - 300, recipePageLimit, pdfFontSize);
+                        const recipePages = [printableRecipe.printableText];
                         return recipePages.map((pageText, pageIdx) => (
-                            <div key={`recipe-page-${recipe.id}-${index}-${pageIdx}`} className="pdf-page w-[210mm] h-[297mm] overflow-hidden shrink-0 bg-[#ffffff] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                            <div key={`recipe-page-${recipe.id}-${index}-${pageIdx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                                 <div className="space-y-6 flex-1">
                                     {/* Header */}
                                     <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
@@ -3883,7 +4374,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
 
                                             {/* Recipe Content - Large and Readable */}
                                             <div className="text-[13.5px] leading-relaxed text-[#334155] mt-4 font-sans pdf-base-text">
-                                                {pageText.split('\n').map((line, lineIdx) => {
+                                                {pageText.split('\n').map((line: string, lineIdx: number) => {
                                                     const isSectionTitle = ['Datos de la receta', 'Ingredientes', 'Preparación', 'Comentarios'].includes(line.trim());
                                                     if (isSectionTitle) {
                                                         return (
@@ -3928,7 +4419,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
 
                     {/* Final pages: Herbal formulas, only when manually added */}
                     {herbalFormulaPages.map((herbalPage, herbalPageIdx) => (
-                        <div key={`herbal-formulas-${herbalPageIdx}`} className="pdf-page w-[210mm] h-[297mm] overflow-hidden shrink-0 bg-[#ffffff] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                        <div key={`herbal-formulas-${herbalPageIdx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                             <div className="space-y-6 flex-1">
                                 {/* Header */}
                                 <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
@@ -3991,6 +4482,259 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                     ))}
                 </div>
 
+
+                {/* Continuous Chromium print template (hidden on screen, sole source for real PDF output) */}
+                <div
+                    id="pdf-print-content"
+                    className="print-area print-flow hidden bg-[#F5EEDC] text-[#1e293b] font-serif"
+                    style={{
+                        '--pdf-font-base': FONT_SIZE_PRESETS[pdfFontSize].base,
+                        '--pdf-font-title': FONT_SIZE_PRESETS[pdfFontSize].title,
+                        '--pdf-font-subtitle': FONT_SIZE_PRESETS[pdfFontSize].subtitle,
+                        '--pdf-font-heading': FONT_SIZE_PRESETS[pdfFontSize].heading,
+                        '--pdf-font-table-header': FONT_SIZE_PRESETS[pdfFontSize].tableHeader,
+                        '--pdf-font-table-body': FONT_SIZE_PRESETS[pdfFontSize].tableBody,
+                        '--pdf-font-meta': FONT_SIZE_PRESETS[pdfFontSize].meta,
+                    } as React.CSSProperties}
+                >
+                    {/* Estructura de tabla: thead y tfoot se REPITEN en cada hoja
+                        impresa → encabezado y pie de marca por página, y con
+                        @page margin:0 el fondo crema cubre la hoja completa. */}
+                    <table className="print-layout-table">
+                    <thead className="print-layout-head">
+                    <tr><td className="plt-head">
+                    <div className="print-flow-header">
+                        <div className="flex items-center gap-3">
+                            <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-12 w-auto object-contain shrink-0" />
+                            <div>
+                                <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
+                                <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                            </div>
+                        </div>
+                        <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
+                            <p className="font-semibold text-[#334155]">Paciente: <span className="font-bold text-[#0f172a] font-serif text-sm">{patient.name}</span></p>
+                            <p>Edad: {patient.age ? `${String(patient.age).replace(/\s*años?\s*$/i, '')} años` : 'N/A'}</p>
+                            <p>Fecha: {new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                            <p>Dosha principal: <span className="font-semibold text-[#16a34a]">{selectedDosha}</span></p>
+                            <p>Profesional: <span className="font-semibold text-[#334155]">{professionalContact.name}</span></p>
+                        </div>
+                    </div>
+                    </td></tr>
+                    </thead>
+                    <tbody className="print-layout-rows">
+                    <tr><td className="plt-body">
+
+                    <section className="print-flow-section print-avoid text-center bg-[#22c55e]/5 py-4 px-6 rounded-xl border border-[#22c55e]/10">
+                        <h2 className="font-bold text-[#1e293b] mb-1 pdf-title">{title}</h2>
+                        <p className="text-[#64748b] font-sans italic pdf-subtitle">{subtitle}</p>
+                    </section>
+
+                    <section className="print-flow-section print-avoid">
+                        {!isFollowUp ? (
+                            <div className="space-y-5">
+                                <div>
+                                    <h3 className="print-flow-title">Cómo seguir las indicaciones</h3>
+                                    <ol className="list-decimal pl-5 space-y-1.5 text-[#334155] font-sans pdf-base-text">
+                                        <li>Lee las indicaciones generales que vienen en este documento.</li>
+                                        <li>Descarga y revisa los archivos adjuntos. A lado de tratamientos se indicará si hay anexo.</li>
+                                        <li>Mantente en contacto conmigo; no esperes hasta la consulta para resolver dudas o reportar cambios.</li>
+                                        <li>Aplica los cambios de forma gradual y constante.</li>
+                                    </ol>
+                                </div>
+                                <div>
+                                    <h3 className="print-flow-title">Cómo seguir la alimentación</h3>
+                                    <p className="font-sans text-[#475569] pdf-base-text">
+                                        En la alimentación la clave es hacer cambios graduales para permitir al cuerpo adaptarse. Empezaremos haciendo cambios en las categorías marcadas; las demás pueden seguir sin cambio por ahora.
+                                    </p>
+                                    <div className="grid grid-cols-3 gap-2.5 bg-[#f8fafc] p-2 rounded-lg border border-[#f1f5f9] text-[10px] font-sans mt-3 pdf-meta print-avoid">
+                                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-[#22c55e] inline-block shrink-0"></span><div><span className="font-bold text-[#15803d]">Mejor:</span> Sin reservas.</div></div>
+                                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-[#f59e0b] inline-block shrink-0"></span><div><span className="font-bold text-[#b45309]">Moderación:</span> Porción pequeña.</div></div>
+                                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-[#ef4444] inline-block shrink-0"></span><div><span className="font-bold text-[#b91c1c]">Evitar:</span> Raras ocasiones.</div></div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="rounded-xl border border-[#d4a853] bg-[#fffbeb]/60 p-5 text-center font-sans print-avoid">
+                                <h3 className="print-flow-title">Indicación de seguimiento importante</h3>
+                                <p className="text-[#334155] font-medium pdf-base-text">
+                                    Es importante continuar con las pautas y tratamientos indicados en las visitas anteriores, sumando de manera gradual el nuevo tratamiento y las modificaciones detalladas en este documento.
+                                </p>
+                            </div>
+                        )}
+                    </section>
+
+                    {showDiagnosis && (!isFollowUp || recordDiagnosisPreview.trim() || patientDiagnosisText.trim()) && diagnosisPreview && (
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title">Diagnóstico base</h3>
+                            <div className="print-flow-card diagnosis-markdown prose prose-sm max-w-none font-sans pdf-base-text">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{diagnosisPreview}</ReactMarkdown>
+                            </div>
+                        </section>
+                    )}
+
+                    {printableTreatmentText.trim() && (
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title">Tratamiento e indicaciones</h3>
+                            <div className="print-flow-card prose prose-sm prose-emerald max-w-none font-sans pdf-base-text">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{printableTreatmentText}</ReactMarkdown>
+                            </div>
+                        </section>
+                    )}
+
+                    {showLifestylePage && lifestyleIndication.trim() && (
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title">Estilo de vida</h3>
+                            <div className="print-flow-card bg-[#ecfdf5] border-[#bbf7d0] whitespace-pre-line font-sans pdf-base-text">
+                                {lifestyleIndication}
+                            </div>
+                        </section>
+                    )}
+
+                    {showDigestiveRecoveryPage && (
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title">Recuperación digestiva</h3>
+                            <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{DIGESTIVE_RECOVERY_TEXT}</ReactMarkdown>
+                            </div>
+                        </section>
+                    )}
+
+                    {showHealthyEatingGuide && healthyEatingContent.trim() && (
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title">Guía de alimentación saludable</h3>
+                            <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{healthyEatingContent}</ReactMarkdown>
+                            </div>
+                        </section>
+                    )}
+
+                    {showTherapiesSection && therapiesContent.trim() && (
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title">Terapias recomendadas</h3>
+                            <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{therapiesContent}</ReactMarkdown>
+                            </div>
+                        </section>
+                    )}
+
+                    {activeCategories.length > 0 && (
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title">Pautas dietéticas {selectedDosha}</h3>
+                            <div className="space-y-5">
+                                {activeCategories.map((cat: any, catIdx: number) => (
+                                    <div key={catIdx} className="print-flow-table-card print-avoid">
+                                        <div className="bg-[#f8fafc]/85 border-b border-[#e2e8f0] px-4 py-2.5">
+                                            <span className="font-bold font-sans text-[#334155] pdf-base-text">Categoría — {cat.nombre}</span>
+                                            {cat.consejo && <div className="text-[#475569] font-sans italic pdf-meta mt-1">{cat.consejo}</div>}
+                                        </div>
+                                        <table className="w-full font-sans">
+                                            <thead>
+                                                <tr>
+                                                    <th className="w-1/3 diet-th-best">■ MEJOR</th>
+                                                    <th className="w-1/3 diet-th-mod">■■ MODERACIÓN</th>
+                                                    <th className="w-1/3 diet-th-avoid">■ EVITAR</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td>{cat.mejor && cat.mejor.length > 0 ? cat.mejor.join(', ') : '-'}</td>
+                                                    <td>{((cat.pequenas_cantidades || cat.moderacion) && (cat.pequenas_cantidades || cat.moderacion).length > 0) ? (cat.pequenas_cantidades || cat.moderacion).join(', ') : '-'}</td>
+                                                    <td>{cat.evitar && cat.evitar.length > 0 ? cat.evitar.join(', ') : '-'}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
+                    {cerealGuidance.trim() && (
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title">Guía práctica de alimentos</h3>
+                            <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{cerealGuidance}</ReactMarkdown>
+                            </div>
+                        </section>
+                    )}
+
+                    {(showRecipesSection && selectedRecipes.length > 0) || cerealRecipe.trim() ? (
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title">Recetas recomendadas</h3>
+                            {showRecipesSection && selectedRecipes.length > 0 ? (
+                                <div className="space-y-5">
+                                    {selectedRecipes.map((recipe: any, index: number) => {
+                                        const printableRecipe = getPrintableRecipe(recipe);
+                                        return (
+                                            <article key={'print-recipe-' + (recipe.id || index)} className="print-flow-card print-avoid">
+                                                <h4 className="font-bold text-[#1e293b] font-sans pdf-heading">{recipe.title}</h4>
+                                                <p className="uppercase tracking-wider text-[#b45309] font-bold mt-1 font-sans pdf-meta">
+                                                    Categoría: {recipe.category} · Doshas: {printableRecipe.doshaLabel}
+                                                </p>
+                                                <div className="grid grid-cols-3 gap-2 bg-white/60 p-2.5 rounded-lg border border-[#fde68a]/50 text-[#475569] mt-3 font-sans pdf-meta print-avoid">
+                                                    <div><span className="font-bold text-[#334155]">Vata:</span> {printableRecipe.vataEffect}</div>
+                                                    <div><span className="font-bold text-[#334155]">Pitta:</span> {printableRecipe.pittaEffect}</div>
+                                                    <div><span className="font-bold text-[#334155]">Kapha:</span> {printableRecipe.kaphaEffect}</div>
+                                                </div>
+                                                <div className="mt-4 whitespace-pre-line font-sans pdf-base-text">{printableRecipe.printableText}</div>
+                                            </article>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="print-flow-card whitespace-pre-line font-sans pdf-base-text">{cerealRecipe}</div>
+                            )}
+                        </section>
+                    ) : null}
+
+                    {herbs.length > 0 && (
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title">Fórmulas herbales recomendadas</h3>
+                            <div className="print-flow-table-card">
+                                <table className="w-full font-sans">
+                                    <thead>
+                                        <tr>
+                                            <th className="w-3/12">Fórmula / Hierba</th>
+                                            <th className="w-4/12">Dosis e indicaciones</th>
+                                            <th className="w-5/12">¿Para qué sirve?</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {herbs.map((h, idx) => {
+                                            const { dosage, purpose } = getHerbParts(h);
+                                            return (
+                                                <tr key={idx} className="align-top print-avoid">
+                                                    <td className="font-bold text-[#1e293b]">{h.formula}</td>
+                                                    <td className="whitespace-pre-line">{dosage}</td>
+                                                    <td className="whitespace-pre-line">{purpose}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+                    )}
+
+                    </td></tr>
+                    </tbody>
+                    <tfoot className="print-layout-foot">
+                    <tr><td className="plt-foot">
+                    <div className="print-flow-footer">
+                        <div>
+                            <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                            <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
+                        </div>
+                        <div className="text-right">
+                            <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                            {professionalContactLine}
+                        </div>
+                    </div>
+                    </td></tr>
+                    </tfoot>
+                    </table>
+                </div>
+
                 <AnimatePresence>
                     {isDownloading && (
                         <motion.div
@@ -4021,7 +4765,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                     />
                                 </div>
                                 <p className="text-xs font-semibold text-slate-400 mt-3">
-                                    El PDF se crea en alta calidad; cada página puede pausar la interfaz por un momento.
+                                    El PDF se genera con texto real (seleccionable) usando el motor de impresión de Chromium.
                                 </p>
                             </motion.div>
                         </motion.div>
@@ -4087,7 +4831,7 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                                             </div>
                                         </section>
                                     )}
-                                    {selectedRecipes.length > 0 && (
+                                    {showRecipesSection && selectedRecipes.length > 0 && (
                                         <section>
                                             <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-600 mb-2">Recetas recomendadas</h4>
                                             <div className="grid grid-cols-1 gap-2">
@@ -4203,31 +4947,259 @@ const packCategoriesByHeight = (cats: any[], heights: number[], usablePx: number
                 #pdf-content tr:nth-child(even) {
                     background-color: rgba(248, 250, 252, 0.5) !important;
                 }
-                
+
+                /* Fondo "acuarela" (río verde/dorado sobre beige) en cada página */
+                #pdf-content .pdf-page {
+                    background-color: ${PDF_WATERCOLOR_BG_COLOR} !important;
+                    background-image: url("data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_BG_SVG)}") !important;
+                    background-size: cover !important;
+                    background-position: center !important;
+                    background-repeat: no-repeat !important;
+                    print-color-adjust: exact !important;
+                    -webkit-print-color-adjust: exact !important;
+                }
+
+
+                #pdf-print-content {
+                    font-size: var(--pdf-font-base) !important;
+                    line-height: 1.5 !important;
+                    color: #1e293b !important;
+                    background-color: #F5EEDC !important;
+                    print-color-adjust: exact !important;
+                    -webkit-print-color-adjust: exact !important;
+                }
+                #pdf-print-content .pdf-base-text { font-size: var(--pdf-font-base) !important; }
+                #pdf-print-content .pdf-title { font-size: var(--pdf-font-title) !important; }
+                #pdf-print-content .pdf-subtitle { font-size: var(--pdf-font-subtitle) !important; }
+                #pdf-print-content .pdf-heading { font-size: var(--pdf-font-heading) !important; }
+                #pdf-print-content .pdf-meta { font-size: var(--pdf-font-meta) !important; }
+                #pdf-print-content .print-flow-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 16px;
+                    border-bottom: 1px solid rgba(34, 197, 94, 0.22);
+                    padding-bottom: 12px;
+                    margin-bottom: 18px;
+                }
+                #pdf-print-content .print-flow-footer {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 16px;
+                    border-top: 1px solid rgba(34, 197, 94, 0.25);
+                    padding-top: 10px;
+                    margin-top: 16px;
+                    color: #64748b;
+                    font-family: ui-sans-serif, system-ui, sans-serif;
+                    font-size: var(--pdf-font-meta) !important;
+                }
+                #pdf-print-content .print-flow-section { margin: 0 0 10mm 0; }
+                #pdf-print-content .print-flow-title {
+                    display: block;
+                    margin: 0 0 8px 0;
+                    color: #16a34a;
+                    font-family: ui-sans-serif, system-ui, sans-serif;
+                    font-size: var(--pdf-font-heading) !important;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                    letter-spacing: 0;
+                }
+                #pdf-print-content .print-flow-card,
+                #pdf-print-content .print-flow-table-card {
+                    border: 1px solid #e2e8f0;
+                    border-radius: 10px;
+                    background: rgba(255, 255, 255, 0.72);
+                    padding: 14px;
+                    box-shadow: none !important;
+                }
+                #pdf-print-content .print-flow-table-card { overflow: hidden; padding: 0; }
+                #pdf-print-content .prose p,
+                #pdf-print-content .prose li {
+                    font-size: var(--pdf-font-base) !important;
+                    line-height: 1.5 !important;
+                    color: #334155 !important;
+                }
+                #pdf-print-content .prose h1,
+                #pdf-print-content .prose h2,
+                #pdf-print-content .prose h3,
+                #pdf-print-content .prose h4 {
+                    font-size: var(--pdf-font-heading) !important;
+                    color: #0f172a !important;
+                    line-height: 1.25 !important;
+                }
+                #pdf-print-content table {
+                    width: 100% !important;
+                    border-collapse: collapse !important;
+                    font-size: var(--pdf-font-table-body) !important;
+                    line-height: 1.35 !important;
+                }
+                #pdf-print-content th {
+                    background-color: #f1f5f9 !important;
+                    color: #1e293b !important;
+                    font-weight: 700 !important;
+                    text-align: left !important;
+                    padding: 7px 9px !important;
+                    border: 1px solid #cbd5e1 !important;
+                    font-size: var(--pdf-font-table-header) !important;
+                }
+                /* Colores de marca en las cabeceras de las tablas dietéticas */
+                #pdf-print-content th.diet-th-best { color: #15803d !important; background-color: #ffffff !important; }
+                #pdf-print-content th.diet-th-mod { color: #b45309 !important; background-color: #ffffff !important; }
+                #pdf-print-content th.diet-th-avoid { color: #b91c1c !important; background-color: #ffffff !important; }
+
+                /* ── Tabla de LAYOUT de impresión ─────────────────────────────
+                   No es una tabla de datos: sus celdas no llevan bordes ni
+                   estilos de tabla. Sus paddings son los márgenes visuales de
+                   la hoja (la impresión va con @page margin: 0 para que el
+                   fondo crema cubra la página completa). */
+                #pdf-print-content table.print-layout-table {
+                    width: 100% !important;
+                    border-collapse: collapse !important;
+                    margin: 0 !important;
+                }
+                #pdf-print-content td.plt-head,
+                #pdf-print-content td.plt-body,
+                #pdf-print-content td.plt-foot {
+                    border: none !important;
+                    background: transparent !important;
+                    vertical-align: top !important;
+                }
+                #pdf-print-content td.plt-head { padding: 10mm 18mm 0 18mm !important; }
+                #pdf-print-content td.plt-body { padding: 2mm 18mm 0 18mm !important; }
+                #pdf-print-content td.plt-foot { padding: 0 18mm 8mm 18mm !important; }
+                #pdf-print-content td {
+                    padding: 8px 9px !important;
+                    border: 1px solid #e2e8f0 !important;
+                    color: #334155 !important;
+                    vertical-align: top !important;
+                    white-space: normal !important;
+                    font-size: var(--pdf-font-table-body) !important;
+                }
+
                 @media print {
                     body * {
                         visibility: hidden;
                     }
-                    .print-area, .print-area * {
+                    /* Fondo crema a PÁGINA COMPLETA: el fondo del body pinta toda
+                       la hoja (incluidos los márgenes), eliminando el marco blanco
+                       alrededor del contenido. */
+                    html, body {
+                        background: ${PDF_WATERCOLOR_BG_COLOR} !important;
+                        print-color-adjust: exact !important;
+                        -webkit-print-color-adjust: exact !important;
+                    }
+                    #pdf-print-content, #pdf-print-content * {
                         visibility: visible;
                     }
-                    .print-area {
-                        position: absolute;
-                        left: 0;
-                        top: 0;
+                    #pdf-content {
+                        display: none !important;
+                    }
+                    #pdf-print-content {
+                        display: block !important;
+                        /* Absoluto para escapar del layout flex del modal: si no,
+                           los paneles ocultos (visibility) siguen ocupando espacio. */
+                        position: absolute !important;
+                        left: 0 !important;
+                        top: 0 !important;
                         width: 100% !important;
-                        height: 100% !important;
+                        height: auto !important;
                         margin: 0 !important;
                         padding: 0 !important;
                         border: none !important;
                         box-shadow: none !important;
-                        font-size: 12pt;
-                        line-height: 1.5;
+                        gap: 0 !important;
+                        opacity: 1 !important;
+                        pointer-events: auto !important;
                     }
-                    /* Remove print header/footer injected by browsers */
+
+                    /* Vista previa vieja: queda solo como respaldo visual; la salida real usa #pdf-print-content. */
+                    #pdf-content .pdf-page {
+                        width: 100% !important;
+                        height: auto !important;
+                        min-height: 0 !important;
+                        max-height: none !important;
+                        overflow: visible !important;
+                        box-shadow: none !important;
+                        border-radius: 0 !important;
+                        transform: none !important;
+                        margin: 0 !important;
+                        break-after: page;
+                        page-break-after: always;
+                        break-inside: auto;
+                    }
+                    #pdf-content .pdf-page:last-child {
+                        break-after: auto;
+                        page-break-after: avoid;
+                    }
+
+                    /* No partir filas, cabeceras de tabla, tarjetas pequeñas ni títulos.
+                       OJO: las tarjetas y tablas GRANDES no llevan avoid — deben poder
+                       fluir entre hojas; si no, dejan medias páginas vacías. */
+                    #pdf-print-content thead,
+                    #pdf-print-content tr,
+                    #pdf-print-content .print-avoid,
+                    #pdf-print-content h1,
+                    #pdf-print-content h2,
+                    #pdf-print-content h3,
+                    #pdf-print-content h4,
+                    #pdf-print-content h5 {
+                        break-inside: avoid;
+                    }
+                    /* Control de líneas huérfanas/viudas en párrafos */
+                    #pdf-print-content p {
+                        orphans: 3;
+                        widows: 3;
+                    }
+                    /* Un encabezado nunca queda solo al pie de página */
+                    #pdf-print-content h1, #pdf-print-content h2, #pdf-print-content h3,
+                    #pdf-print-content h4, #pdf-print-content h5 {
+                        break-after: avoid;
+                    }
+                    /* Subtítulos en negrita (párrafos tipo "**Título:**" del markdown)
+                       tampoco quedan huérfanos al pie de la hoja */
+                    #pdf-print-content p:has(> strong:only-child) {
+                        break-after: avoid;
+                        break-inside: avoid;
+                    }
+                    /* No partir un elemento de lista por la mitad */
+                    #pdf-print-content li {
+                        break-inside: avoid;
+                    }
+                    /* Repetir la cabecera de las tablas si una se parte entre hojas */
+                    #pdf-print-content thead {
+                        display: table-header-group;
+                    }
+                    /* Encabezado y pie de marca REPETIDOS en cada hoja impresa */
+                    #pdf-print-content .print-layout-head {
+                        display: table-header-group;
+                    }
+                    #pdf-print-content .print-layout-foot {
+                        display: table-footer-group;
+                    }
+                    /* La fila de contenido del layout SÍ debe poder fluir entre
+                       hojas (anula el break-inside:avoid genérico de tr) */
+                    #pdf-print-content table.print-layout-table > tbody > tr,
+                    #pdf-print-content td.plt-body {
+                        break-inside: auto !important;
+                    }
+                    #pdf-print-content .print-page-break-before {
+                        break-before: page;
+                        page-break-before: always;
+                    }
+                    /* Enlaces visibles y clicables (PDF de texto, no imagen) */
+                    #pdf-print-content a {
+                        color: #047857 !important;
+                        text-decoration: underline;
+                    }
+
+                    /* Margen 0: es la ÚNICA manera de que Chromium pinte el fondo
+                       crema hasta el borde de la hoja (el área de márgenes de
+                       impresión siempre queda blanca). Los márgenes visuales los
+                       ponen los paddings de plt-head / plt-body / plt-foot. */
                     @page {
-                        margin: 1.5cm;
-                        size: portrait;
+                        size: A4 portrait;
+                        margin: 0;
                     }
                 }
 

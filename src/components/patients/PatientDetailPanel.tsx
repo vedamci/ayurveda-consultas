@@ -1,7 +1,7 @@
 // ReactMarkdown className fix applied
 import { useState, useEffect, useMemo, type ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, User, Calendar, Brain, Sparkles, Send, Loader2, ClipboardCheck, History, Activity, StickyNote, Plus, Clock, Printer, Phone, MapPin, Briefcase, Leaf, Heart, UtensilsCrossed, Dumbbell, Pill, AlertCircle, ShieldCheck, Mic, FileText, Info, Thermometer, Moon, Droplets, Scale, MessageCircle, FolderOpen, Maximize2, Columns2, Save, Camera, Upload, Trash2, ExternalLink, Copy, Check } from 'lucide-react';
+import { X, User, Calendar, Brain, Sparkles, Send, Loader2, ClipboardCheck, History, Activity, StickyNote, Plus, Clock, Printer, Phone, MapPin, Briefcase, Leaf, Heart, UtensilsCrossed, Dumbbell, Pill, AlertCircle, ShieldCheck, Mic, FileText, Info, Thermometer, Moon, Droplets, Scale, MessageCircle, FolderOpen, Maximize2, Columns2, Save, Camera, Upload, Trash2, ExternalLink, Copy, Check, ChevronDown, LayoutGrid, List, ClipboardPaste } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Badge } from '../ui/Badge';
@@ -9,6 +9,9 @@ import { TreatmentPDFModal } from './TreatmentPDFModal';
 import { SpeechTextarea } from '../ui/SpeechTextarea';
 import { buildWhatsAppUrl } from '../../utils/whatsapp';
 import herbsList from '../../data/herb.json';
+import { useAutosave } from '../../hooks/useAutosave';
+import { AutosaveIndicator } from '../ui/AutosaveIndicator';
+import { useDraftPersist, readDraft, clearDraft } from '../../hooks/useDraftPersist';
 
 const FOOD_CATEGORIES = [
     'Cereales', 'Lácteos', 'Endulzantes', 'Aceites', 'Frutas',
@@ -19,7 +22,85 @@ const HERB_SUGGESTIONS: string[] = Array.from(
     new Set((herbsList as Array<{ name?: string }>).map(h => (h?.name || '').trim()).filter(Boolean))
 ).sort((a, b) => a.localeCompare(b, 'es'));
 
-import { type PatientDetail, type DoctorNote, type TreatmentPlan, type Visit, type TonguePhoto, type PulseReading, type PulsePositionReading, type SymptomCalibration, type TreatmentAdherence, type TreatmentAdherenceItem, type ContextDocument } from '../../types/patient';
+// Mapa nombre (en minúsculas) -> dosis/uso, tomado de la base de datos de fórmulas
+// (src/data/herb.json, que incluye tanto hierbas como fórmulas personalizadas).
+// Se usa para autocompletar la dosis cuando se elige una fórmula ya conocida.
+const HERB_USAGE_MAP: Record<string, string> = {};
+// Mapa nombre (en minúsculas) -> para qué sirve (preview), tomado de la base de datos.
+const HERB_PURPOSE_MAP: Record<string, string> = {};
+
+(herbsList as Array<{ name?: string; usage?: string; preview?: string }>).forEach(h => {
+    const name = (h?.name || '').trim().toLowerCase();
+    if (name) {
+        if (h?.usage) {
+            HERB_USAGE_MAP[name] = h.usage;
+        }
+        if (h?.preview) {
+            HERB_PURPOSE_MAP[name] = h.preview;
+        }
+    }
+});
+
+const lookupHerbUsage = (name: string): string | undefined => {
+    return HERB_USAGE_MAP[name.trim().toLowerCase()];
+};
+
+const lookupHerbPurpose = (name: string): string | undefined => {
+    return HERB_PURPOSE_MAP[name.trim().toLowerCase()];
+};
+
+const mapHerbsWithPurpose = (herbsArray: Array<{ formula: string; dosage: string; purpose?: string }>) => {
+    return (herbsArray || []).map(h => {
+        const formulaName = h.formula || '';
+        const purpose = h.purpose || lookupHerbPurpose(formulaName) || '';
+        return {
+            ...h,
+            purpose
+        };
+    });
+};
+
+// Conteo local (por dispositivo) de cuántas veces se agregó cada fórmula, para
+// mostrar un accesos rápidos de "Fórmulas más usadas" al editar un caso.
+const FORMULA_USAGE_STORAGE_KEY = 'vedamci-formula-usage-counts';
+
+const readFormulaUsageCounts = (): Record<string, { name: string; count: number }> => {
+    try {
+        const raw = localStorage.getItem(FORMULA_USAGE_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch {
+        return {};
+    }
+};
+
+const recordFormulaUsage = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    try {
+        const counts = readFormulaUsageCounts();
+        const key = trimmed.toLowerCase();
+        const existing = counts[key];
+        counts[key] = { name: existing?.name || trimmed, count: (existing?.count || 0) + 1 };
+        localStorage.setItem(FORMULA_USAGE_STORAGE_KEY, JSON.stringify(counts));
+    } catch {
+        // localStorage puede fallar (modo privado, cuota); no es crítico.
+    }
+};
+
+// Categorías para agrupar la ficha de ingreso que llenó el paciente, mostrada en modo
+// toggle/acordeón dentro de "Editar Caso". Los nombres de campo coinciden con las
+// llaves que arma el servidor en clinicalData (server/index.js, addField(...)).
+const INTAKE_CATEGORIES: { key: string; title: string; fields: string[] }[] = [
+    { key: 'sintomas', title: 'Síntomas', fields: ['Síntomas', 'Otros Síntomas', 'Propósito de Consulta'] },
+    { key: 'enfermedades', title: 'Enfermedades y Antecedentes', fields: ['Enfermedades Previas', 'Hospitalizaciones', 'Cirugías', 'Embarazo', 'Sustancias', 'Alergias'] },
+    { key: 'estiloVida', title: 'Estilo de Vida', fields: ['Ejercicio', 'Energía (1-10)', 'Sueño', 'Temperatura Corporal', 'Sudor'] },
+    { key: 'alimentacion', title: 'Alimentación', fields: ['Desayuno', 'Comida', 'Cena', 'Horarios Regulares', 'Comidas al Día', 'Hábitos Alimenticios', 'Suplementos'] },
+    { key: 'perfilAyurvedico', title: 'Perfil Ayurvédico', fields: ['Apetito', 'Tendencia de Peso', 'Menstruación'] },
+    { key: 'personal', title: 'Datos Personales', fields: ['Dirección', 'Ciudad', 'Edad', 'Estado Civil', 'Hijos', 'Contacto Emergencia', 'Profesión', 'Peso', 'Altura'] },
+    { key: 'admin', title: 'Administrativo', fields: ['Profesional', 'Grabación Educativa', 'Consentimiento', 'Observaciones', 'Notas del Profesional'] },
+];
+
+import { type PatientDetail, type DoctorNote, type TreatmentPlan, type Visit, type TonguePhoto, type PulseReading, type PulsePositionReading, type SymptomCalibration, type TreatmentAdherence, type TreatmentAdherenceItem, type ContextDocument, type AiDiagnosisRecord } from '../../types/patient';
 
 interface Props {
     patientId: string | null;
@@ -96,6 +177,53 @@ const getTrendMeta = (delta: number) => {
     return { label: 'Igual', className: 'bg-slate-50 text-slate-600 border-slate-200', color: '#64748b' };
 };
 
+// Nota de una foto de lengua ya existente: edita un campo de un registro que ya
+// vive en el backend (PATCH por id), así que es un candidato seguro para autosave
+// continuo. Se aísla en su propio componente para poder usar el hook de autosave
+// por cada foto dentro de un .map() sin romper las reglas de hooks.
+const TonguePhotoNoteEditor = ({
+    initialNote,
+    onSave
+}: {
+    initialNote: string;
+    onSave: (note: string) => Promise<void>;
+}) => {
+    const [value, setValue] = useState(initialNote);
+    const status = useAutosave(value, onSave, { delay: 900 });
+
+    return (
+        <div className="space-y-1.5">
+            <SpeechTextarea
+                value={value}
+                onValueChange={setValue}
+                rows={2}
+                placeholder="Nota de la lengua: color, saburra, marcas, grietas..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-[11px] resize-none focus:ring-2 focus:ring-primary/15 focus:border-primary/30 outline-none"
+            />
+            <AutosaveIndicator status={status} />
+        </div>
+    );
+};
+
+const convertIntensityScaleValue = (value: number, fromScale: number, toScale: number): number => {
+    const from = Number(fromScale) || 3;
+    const to = Number(toScale) || 3;
+    const v = Math.max(1, Math.min(from, Number(value) || 1));
+    if (from === to) return v;
+    const ratio = (v - 1) / (from - 1 || 1);
+    return Math.max(1, Math.min(to, Math.round(1 + ratio * (to - 1))));
+};
+
+const getIntensityLabelText = (val: number, scale: number): string => {
+    if (scale <= 3) {
+        return { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' }[val] || 'Moderado';
+    }
+    const ratio = (val - 1) / (scale - 1 || 1);
+    if (ratio <= 1 / 3) return 'Suave';
+    if (ratio <= 2 / 3) return 'Moderado';
+    return 'Fuerte';
+};
+
 export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
     const [patient, setPatient] = useState<PatientDetail | null>(null);
     const [loading, setLoading] = useState(false);
@@ -126,13 +254,14 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
     const [savingPulseReading, setSavingPulseReading] = useState(false);
     const [pulseError, setPulseError] = useState('');
     const [activeTonguePhoto, setActiveTonguePhoto] = useState<TonguePhoto | null>(null);
-    const [tongueNoteDrafts, setTongueNoteDrafts] = useState<Record<string, string>>({});
-    const [savingTongueNoteId, setSavingTongueNoteId] = useState<string | null>(null);
     const [uploadingContextDoc, setUploadingContextDoc] = useState(false);
     const [contextDocError, setContextDocError] = useState('');
     // Importación de síntomas desde .txt (fix #8/#9)
     const [importingSymptoms, setImportingSymptoms] = useState(false);
     const [symptomImportMsg, setSymptomImportMsg] = useState('');
+    // Pegar tabla de síntomas (cualquier formato: Excel/Word/Markdown/CSV) para autorellenar
+    const [showSymptomPasteBox, setShowSymptomPasteBox] = useState(false);
+    const [pasteSymptomTableText, setPasteSymptomTableText] = useState('');
 
     // Grouping and active sub-tabs state
     const [activeUploadGroupDate, setActiveUploadGroupDate] = useState<string | null>(null);
@@ -162,7 +291,33 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
     const [newRecordSymptomName, setNewRecordSymptomName] = useState('');
     const [newVisitHerbName, setNewVisitHerbName] = useState('');
     const [newVisitHerbDosage, setNewVisitHerbDosage] = useState('');
-    
+    // Se incrementa cada vez que se registra el uso de una fórmula, para refrescar
+    // el listado de "Fórmulas más usadas" leído desde localStorage.
+    const [formulaUsageVersion, setFormulaUsageVersion] = useState(0);
+    const mostUsedFormulas = useMemo(() => {
+        const counts = readFormulaUsageCounts();
+        const list = Object.values(counts)
+            .sort((a, b) => b.count - a.count)
+            .map(c => c.name);
+        // Mientras se acumula uso real (el conteo se guarda por dispositivo y arranca
+        // vacío), se completa con las fórmulas personalizadas ya creadas en la base de
+        // datos (herb.json / custom_formulas.json), para que el selector no aparezca
+        // vacío desde el primer momento.
+        if (list.length < 8) {
+            const fallback = (herbsList as Array<{ name?: string; isCustom?: boolean }>)
+                .filter(h => h.isCustom && h.name)
+                .map(h => (h.name || '').trim());
+            for (const name of fallback) {
+                if (list.length >= 8) break;
+                if (name && !list.some(n => n.toLowerCase() === name.toLowerCase())) {
+                    list.push(name);
+                }
+            }
+        }
+        return list.slice(0, 8);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [formulaUsageVersion]);
+
     // Edit Case States
     const [isEditingCase, setIsEditingCase] = useState(false);
     const [editName, setEditName] = useState('');
@@ -175,14 +330,30 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
     const [newEditSymptomName, setNewEditSymptomName] = useState('');
     const [savingCase, setSavingCase] = useState(false);
     const [caseError, setCaseError] = useState('');
+    const [editIntensityScale, setEditIntensityScale] = useState<3 | 10>(3);
+    const [visitIntensityScale, setVisitIntensityScale] = useState<3 | 10>(3);
+
+    // Ficha del paciente dentro de "Editar Caso" (fix: ver lo que llenó el paciente,
+    // categorizado y en vista toggle, sin salir del modal de edición del caso).
+    const [showIntakeSummary, setShowIntakeSummary] = useState(false);
+    const [intakeViewMode, setIntakeViewMode] = useState<'categorized' | 'list'>('categorized');
+    const [openIntakeCategories, setOpenIntakeCategories] = useState<Record<string, boolean>>({ sintomas: true });
 
     const [savingVisit, setSavingVisit] = useState(false);
+    const [visitAutosaveError, setVisitAutosaveError] = useState('');
     const [savingRecordId, setSavingRecordId] = useState<string | null>(null);
     const [openRecord, setOpenRecord] = useState<{ type: 'plan'; record: TreatmentPlan } | { type: 'visit'; record: Visit } | null>(null);
     const [recordEditorMode, setRecordEditorMode] = useState<'full' | 'half'>('full');
+    const [recordSaveError, setRecordSaveError] = useState('');
 
     // View modes for markdown previews in editable overlays
     const [diagnosisViewMode, setDiagnosisViewMode] = useState<'edit' | 'preview'>('edit');
+    // Modo de edición del informe diagnóstico generado por IA (antes de guardarlo).
+    const [aiDiagnosisViewMode, setAiDiagnosisViewMode] = useState<'edit' | 'preview'>('preview');
+    // Historial de diagnósticos generados con IA (desplegable).
+    const [aiHistoryOpen, setAiHistoryOpen] = useState(false);
+    const [expandedAiDiagnosisId, setExpandedAiDiagnosisId] = useState<string | null>(null);
+    const [deletingAiDiagnosisId, setDeletingAiDiagnosisId] = useState<string | null>(null);
     const [treatmentViewMode, setTreatmentViewMode] = useState<'edit' | 'preview'>('edit');
     const [lifestyleViewMode, setLifestyleViewMode] = useState<'edit' | 'preview'>('edit');
 
@@ -190,7 +361,12 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         setDiagnosisViewMode('edit');
         setTreatmentViewMode('edit');
         setLifestyleViewMode('edit');
-    }, [openRecord]);
+        setRecordSaveError('');
+    }, [openRecord?.record.id]);
+
+    useEffect(() => {
+        if (isAddingVisit) setVisitAutosaveError('');
+    }, [isAddingVisit]);
 
 
 
@@ -205,8 +381,41 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             setActiveVisitTabs({});
             setAddingPulseGroupId(null);
             setActiveUploadGroupDate(null);
+            // Las notas nuevas y la lectura de pulso son registros que se CREAN (no se
+            // editan en sitio), así que no se autoguardan contra el servidor tecla a
+            // tecla — eso duplicaría entradas. En su lugar, restauramos aquí el
+            // borrador local (si el profesional cerró el panel a medio escribir) y
+            // se sigue guardando de verdad solo con el botón "Guardar".
+            const notesDraft = readDraft(`draft:notes:${patientId}`);
+            setNewNotes(notesDraft ? JSON.parse(notesDraft) : {});
+            const pulseDraft = readDraft(`draft:pulse:${patientId}`);
+            if (pulseDraft) {
+                try {
+                    const parsed = JSON.parse(pulseDraft);
+                    setPulseNotes(parsed.notes || '');
+                    if (Array.isArray(parsed.positions) && parsed.positions.length === PULSE_SCHEMA.length) {
+                        setPulsePositions(parsed.positions);
+                    }
+                } catch {
+                    // borrador corrupto: se ignora
+                }
+            } else {
+                setPulseNotes('');
+                setPulsePositions(PULSE_SCHEMA);
+            }
         }
     }, [patientId]);
+
+    // Borradores locales (no van al servidor) para las cajas de "nueva nota" y
+    // "nueva lectura de pulso": protegen contra pérdida de texto si cierras el
+    // panel antes de darle clic a Guardar, sin crear entradas duplicadas.
+    useDraftPersist(patientId ? `draft:notes:${patientId}` : null, JSON.stringify(newNotes));
+    useDraftPersist(
+        patientId ? `draft:pulse:${patientId}` : null,
+        (pulseNotes.trim() || pulsePositions.some(p => p.superficialStatus || p.deepStatus))
+            ? JSON.stringify({ notes: pulseNotes, positions: pulsePositions })
+            : ''
+    );
 
     const fetchPatientDetails = async () => {
         setLoading(true);
@@ -479,6 +688,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         setIsAddingVisit(true);
         setEditingVisitId(null);
         setVisitDate(new Date().toISOString().split('T')[0]);
+        setVisitIntensityScale(patient?.intensityScale || 3);
         setVisitNote('');
         // Prepobla el diagnóstico de la visita con el generado por IA (o el último
         // diagnóstico local) para no tener que copiarlo a mano (fix #10).
@@ -522,6 +732,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         setIsAddingVisit(true);
         setEditingVisitId(visit.id);
         setVisitDate((visit.date || new Date().toISOString()).slice(0, 10));
+        setVisitIntensityScale(patient?.intensityScale || 3);
         setVisitNote(visit.note || '');
         setVisitDiagnosis(visit.diagnosis || '');
         setVisitTreatment(visit.treatment || '');
@@ -532,7 +743,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         );
         setVisitSymptoms({ ...(visit.symptoms || {}) });
         setVisitTrackedCategories([...(visit.categories || [])]);
-        setVisitTrackedHerbs((visit.herbs || []).map(herb => ({ ...herb })));
+        setVisitTrackedHerbs(mapHerbsWithPurpose(visit.herbs || []));
         setVisitAdherence({
             categories: visit.adherence?.categories ? [...visit.adherence.categories] : [],
             herbs: visit.adherence?.herbs ? [...visit.adherence.herbs] : [],
@@ -575,6 +786,8 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             if (res.ok && data.success) {
                 setDoctorNotes(prev => [...prev, data.note]);
                 if (typeof customText !== 'string') {
+                    // El estado newNotes ya queda sin este grupo; el borrador local se
+                    // re-escribe solo (con debounce) reflejando ese mismo estado.
                     setNewNotes(prev => ({ ...prev, [groupId]: '' }));
                 }
             } else {
@@ -694,7 +907,6 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
     const handleUpdateTonguePhotoNote = async (photo: TonguePhoto, note: string) => {
         if (!patientId) return;
         setTonguePhotoError('');
-        setSavingTongueNoteId(photo.id);
         try {
             const res = await fetch(`/api/patients/${patientId}/tongue-photos/${photo.id}`, {
                 method: 'PATCH',
@@ -711,15 +923,9 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                     item.id === photo.id ? { ...item, note, updatedAt: data.photo?.updatedAt } : item
                 )
             } : prev);
-            setTongueNoteDrafts(prev => {
-                const next = { ...prev };
-                delete next[photo.id];
-                return next;
-            });
         } catch (error) {
             setTonguePhotoError(error instanceof Error ? error.message : 'No se pudo guardar la nota.');
-        } finally {
-            setSavingTongueNoteId(null);
+            throw error;
         }
     };
 
@@ -842,6 +1048,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             setPulsePositions(PULSE_SCHEMA);
             setPulseNotes('');
             setPulseDate(new Date().toISOString().split('T')[0]);
+            clearDraft(`draft:pulse:${patientId}`);
         } catch (error) {
             setPulseError(error instanceof Error ? error.message : 'No se pudo guardar el pulso.');
         } finally {
@@ -889,6 +1096,12 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 if (data.dosha && !patient.dosha?.trim()) {
                     setPatient(prev => prev ? { ...prev, dosha: data.dosha } : null);
                 }
+                if (data.savedAiDiagnosis) {
+                    setPatient(prev => prev ? {
+                        ...prev,
+                        aiDiagnoses: [data.savedAiDiagnosis, ...(prev.aiDiagnoses || [])]
+                    } : prev);
+                }
             } else {
                 setDiagnosis(`Error: ${data.error || 'No se pudo generar el diagnóstico.'}`);
             }
@@ -897,6 +1110,29 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             setDiagnosis('Error de conexión al generar el diagnóstico.');
         } finally {
             setAiLoading(false);
+        }
+    };
+
+    const handleDeleteAiDiagnosis = async (entry: AiDiagnosisRecord) => {
+        if (!patientId) return;
+        setDeletingAiDiagnosisId(entry.id);
+        try {
+            const res = await fetch(`/api/patients/${patientId}/ai-diagnoses/${entry.id}`, {
+                method: 'DELETE'
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || 'No se pudo borrar el diagnóstico.');
+            }
+            setPatient(prev => prev ? {
+                ...prev,
+                aiDiagnoses: (prev.aiDiagnoses || []).filter(item => item.id !== entry.id)
+            } : prev);
+            setExpandedAiDiagnosisId(prev => prev === entry.id ? null : prev);
+        } catch (error) {
+            console.error('Error deleting AI diagnosis:', error);
+        } finally {
+            setDeletingAiDiagnosisId(null);
         }
     };
 
@@ -978,7 +1214,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                     cerealGuidance: plan.cerealGuidance,
                     cerealRecipe: plan.cerealRecipe,
                     dosha: plan.dosha,
-                    herbs: plan.herbs,
+                    herbs: mapHerbsWithPurpose(plan.herbs),
                     categories: plan.categories,
                     recipes: plan.recipes,
                     adherence: plan.adherence
@@ -986,17 +1222,22 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             });
             const data = await res.json();
             if (data.success) {
+                setRecordSaveError('');
                 patchPatientPlan(plan.id, data.plan);
                 setOpenRecord({ type: 'plan', record: data.plan });
+            } else {
+                throw new Error(data.error || 'No se pudo guardar el tratamiento.');
             }
         } catch (error) {
             console.error('Error updating local treatment plan:', error);
+            setRecordSaveError(error instanceof Error ? error.message : 'No se pudo guardar el tratamiento.');
+            throw error;
         } finally {
             setSavingRecordId(null);
         }
     };
 
-    const handleUpdateVisitRecord = async (visit: Visit) => {
+    const handleUpdateVisitRecord = async (visit: Visit, options: { silent?: boolean } = {}) => {
         if (!patientId || !visit.id) return;
 
         setSavingRecordId(visit.id);
@@ -1019,7 +1260,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                     patientLifestyle: visit.patientLifestyle,
                     cerealGuidance: visit.cerealGuidance,
                     cerealRecipe: visit.cerealRecipe,
-                    herbs: visit.herbs,
+                    herbs: mapHerbsWithPurpose(visit.herbs || []),
                     categories: visit.categories,
                     recipes: visit.recipes,
                     adherence: visit.adherence
@@ -1027,20 +1268,46 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             });
             const data = await res.json();
             if (data.success) {
+                setRecordSaveError('');
                 patchPatientVisit(visit.id, data.visit);
                 setOpenRecord({ type: 'visit', record: data.visit });
+            } else {
+                throw new Error(data.error || 'No se pudo guardar la visita. Intenta de nuevo.');
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error updating local visit:', error);
+            const message = error?.message || 'No se pudo guardar la visita. Revisa tu conexión e intenta de nuevo.';
+            if (options.silent) {
+                setRecordSaveError(message);
+            } else {
+                alert(message);
+            }
+            throw error;
         } finally {
             setSavingRecordId(null);
         }
     };
 
+    // Si el usuario escribió un síntoma nuevo en el campo "Agregar síntoma nuevo..."
+    // pero nunca le dio clic a "Agregar" (ni Enter), ese texto nunca entraba a
+    // visitSymptoms y "Guardar" lo descartaba en silencio. Esta función lo incluye
+    // igual, para que Guardar nunca pierda lo que el usuario acaba de escribir.
+    // El autosave (silent) pasa includePending=false: si lo incluyera, una pausa
+    // breve mientras se escribe el nombre del síntoma lo guardaría a medias.
+    const resolveVisitSymptomsForSave = (includePending = true): Record<string, { frequency: string; intensity: number; note?: string }> => {
+        if (!includePending) return visitSymptoms;
+        const pendingName = normalizeSymptomName(newVisitSymptomName);
+        if (!pendingName) return visitSymptoms;
+        return {
+            ...visitSymptoms,
+            [pendingName]: visitSymptoms[pendingName] || { frequency: 'Diaria', intensity: 1 }
+        };
+    };
+
     // Guarda el "Editar Caso" (modo Nueva Visita) en la consulta inicial del paciente:
     // actualiza la ficha (calibración de síntomas) sin perder lo demás, y guarda los
     // campos clínicos en el plan base (PATCH si existe, POST si no). (fix #12)
-    const handleSaveCaseFromVisit = async (options: { openPdf?: boolean } = {}) => {
+    const handleSaveCaseFromVisit = async (options: { openPdf?: boolean; silent?: boolean } = {}) => {
         const targetPatientId = patientId || patient?.id;
         if (!targetPatientId || !patient) return null;
         setSavingVisit(true);
@@ -1050,11 +1317,14 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             if (token) headers['Authorization'] = `Bearer ${token}`;
 
             // 1) Ficha del paciente: actualizar síntomas calibrados conservando datos.
-            const calibrations = Object.entries(visitSymptoms).map(([symptom, d]) => ({
-                symptom, frequency: d.frequency, intensity: d.intensity
+            const includePending = !options.silent;
+            const hadPendingSymptom = includePending && !!normalizeSymptomName(newVisitSymptomName);
+            const resolvedSymptoms = resolveVisitSymptomsForSave(includePending);
+            const calibrations = Object.entries(resolvedSymptoms).map(([symptom, d]) => ({
+                symptom, frequency: d.frequency, intensity: d.intensity, note: d.note
             }));
-            const plain = Object.keys(visitSymptoms);
-            await fetch(`/api/patients/${targetPatientId}`, {
+            const plain = Object.keys(resolvedSymptoms);
+            const patientRes = await fetch(`/api/patients/${targetPatientId}`, {
                 method: 'PATCH',
                 headers,
                 body: JSON.stringify({
@@ -1064,9 +1334,16 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                     phone: patient.phone,
                     dosha: patient.dosha,
                     symptomCalibrations: calibrations,
-                    plainSymptoms: plain
+                    plainSymptoms: plain,
+                    intensityScale: visitIntensityScale
                 })
             });
+            const patientData = await patientRes.json().catch(() => ({}));
+            if (!patientRes.ok || !patientData.success) {
+                throw new Error(patientData.error || 'No se pudo guardar la ficha del paciente (síntomas).');
+            }
+            setVisitSymptoms(resolvedSymptoms);
+            if (hadPendingSymptom) setNewVisitSymptomName('');
 
             // 2) Campos clínicos en el plan base (consulta inicial).
             const initial = getInitialPlan();
@@ -1076,7 +1353,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 lifestyle: visitLifestyle,
                 tongue: visitTongue,
                 dosha: patient.dosha,
-                herbs: visitTrackedHerbs,
+                herbs: mapHerbsWithPurpose(visitTrackedHerbs),
                 categories: visitTrackedCategories,
                 patientTreatment: visitNote
             };
@@ -1105,26 +1382,40 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 if (data.success) planRecord = data.plan as TreatmentPlan;
             }
 
+            // El autosave (silent) refresca los datos del paciente (para que la
+            // consulta inicial recién creada quede disponible como PATCH la próxima
+            // vez) pero NO cierra el modal ni borra lo que el profesional sigue
+            // editando, y tampoco abre el PDF.
             await fetchPatientDetails();
-            setIsAddingVisit(false);
-            setEditCaseMode(false);
-            setVisitNote(''); setVisitDiagnosis(''); setVisitTreatment(''); setVisitLifestyle(''); setVisitTongue('');
-            setVisitTonguePhotos([]);
-            setVisitSymptoms({}); setVisitAdherence({ categories: [], herbs: [], generalNote: '' });
-            setVisitTrackedCategories([]); setVisitTrackedHerbs([]);
+            setVisitAutosaveError('');
+            if (!options.silent) {
+                setIsAddingVisit(false);
+                setEditCaseMode(false);
+                setVisitNote(''); setVisitDiagnosis(''); setVisitTreatment(''); setVisitLifestyle(''); setVisitTongue('');
+                setVisitTonguePhotos([]);
+                setVisitSymptoms({}); setVisitAdherence({ categories: [], herbs: [], generalNote: '' });
+                setVisitTrackedCategories([]); setVisitTrackedHerbs([]);
 
-            if (options.openPdf && planRecord) {
-                openTreatmentPDFEditor(planRecord.diagnosis || visitDiagnosis || getLatestLocalDiagnosis(), { type: 'plan', record: planRecord });
+                if (options.openPdf && planRecord) {
+                    openTreatmentPDFEditor(planRecord.diagnosis || visitDiagnosis || getLatestLocalDiagnosis(), { type: 'plan', record: planRecord });
+                }
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error saving case:', error);
+            const message = error?.message || 'No se pudo guardar el caso. Revisa tu conexión e intenta de nuevo.';
+            if (options.silent) {
+                setVisitAutosaveError(message);
+            } else {
+                alert(message);
+            }
+            if (options.silent) throw error;
         } finally {
             setSavingVisit(false);
         }
         return null;
     };
 
-    const handleSaveVisit = async (options: { openPdf?: boolean } = {}) => {
+    const handleSaveVisit = async (options: { openPdf?: boolean; silent?: boolean } = {}) => {
         if (editCaseMode) {
             return handleSaveCaseFromVisit(options);
         }
@@ -1143,6 +1434,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             const url = isEditing
                 ? `/api/patients/${patientId}/visits/${editingVisitId}`
                 : `/api/patients/${patientId}/visits`;
+            const resolvedSymptoms = resolveVisitSymptomsForSave(!options.silent);
             const payload: Record<string, unknown> = {
                 date: visitDate,
                 patientName: patient.name,
@@ -1152,9 +1444,9 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 lifestyle: visitLifestyle,
                 tongue: visitTongue,
                 dosha: patient.dosha,
-                symptoms: visitSymptoms,
+                symptoms: resolvedSymptoms,
                 categories: visitTrackedCategories,
-                herbs: visitTrackedHerbs,
+                herbs: mapHerbsWithPurpose(visitTrackedHerbs),
                 adherence: nextAdherence
             };
             if (!isEditing) {
@@ -1169,6 +1461,19 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             });
             const data = await res.json();
             if (data.success) {
+                setVisitAutosaveError('');
+                if (options.silent) {
+                    // Autosave: si esta visita se acaba de crear (aún no tenía id),
+                    // seguimos editando el mismo registro con PATCH en el próximo
+                    // autosave en vez de crear una visita nueva cada vez.
+                    if (!isEditing && data.visit?.id) {
+                        setEditingVisitId(data.visit.id);
+                    }
+                    // Refresca la lista de visitas del paciente en segundo plano, sin
+                    // tocar los campos que el profesional sigue editando.
+                    fetchPatientDetails();
+                    return data.visit as Visit;
+                }
                 // Refresh patient data to see the new/updated visit
                 await fetchPatientDetails();
                 setIsAddingVisit(false);
@@ -1188,14 +1493,42 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                     openTreatmentPDFEditor(visitRecord.diagnosis || diagnosis || getLatestLocalDiagnosis(), { type: 'visit', record: visitRecord });
                 }
                 return data.visit as Visit;
+            } else {
+                const message = data.error || 'No se pudo guardar la visita. Intenta de nuevo.';
+                if (options.silent) {
+                    setVisitAutosaveError(message);
+                    throw new Error(message);
+                }
+                alert(message);
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error saving visit:', error);
+            const message = error?.message || 'No se pudo guardar la visita. Revisa tu conexión e intenta de nuevo.';
+            if (options.silent) {
+                setVisitAutosaveError(message);
+                throw error;
+            }
+            alert(message);
         } finally {
             setSavingVisit(false);
         }
         return null;
     };
+
+    // Autosave en segundo plano del formulario "Nueva Visita / Editar Caso". Los
+    // botones explícitos (que además generan el PDF y cierran el modal) se
+    // mantienen, pero así no se pierde nada si el profesional cierra el modal con
+    // "Cancelar"/la X sin haber llegado a darle clic a un botón de guardado.
+    const visitFormFingerprint = useMemo(() => JSON.stringify({
+        visitDate, visitNote, visitDiagnosis, visitTreatment, visitLifestyle, visitTongue,
+        visitSymptoms, visitTrackedCategories, visitTrackedHerbs, visitAdherence
+    }), [visitDate, visitNote, visitDiagnosis, visitTreatment, visitLifestyle, visitTongue, visitSymptoms, visitTrackedCategories, visitTrackedHerbs, visitAdherence]);
+
+    const visitAutosaveStatus = useAutosave(
+        visitFormFingerprint,
+        () => handleSaveVisit({ silent: true }),
+        { enabled: isAddingVisit, delay: 1500 }
+    );
 
     const handleDeleteVisit = async (visit: Visit) => {
         if (!patientId || !visit?.id) return;
@@ -1353,6 +1686,147 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         return result;
     };
 
+    // Reconoce palabras de frecuencia/intensidad en español (y variantes cortas) para
+    // poder autorellenar la calibración al pegar una tabla de síntomas.
+    const mapFrequencyWord = (raw: string): string | undefined => {
+        const v = raw.trim().toLowerCase();
+        if (!v) return undefined;
+        if (/^d(iaria|iario)?$/.test(v) || /diari/.test(v) || /cada d[ií]a/.test(v) || /todos.*d[ií]as/.test(v)) return 'Diaria';
+        if (/^s(emanal)?$/.test(v) || /seman/.test(v)) return 'Semanal';
+        if (/^m(ensual)?$/.test(v) || /mensual|\bmes\b|ocasional|rara vez|espor[aá]dic/.test(v)) return 'Mensual';
+        return undefined;
+    };
+
+    const mapIntensityValue = (raw: string): number | undefined => {
+        const v = raw.trim().toLowerCase();
+        if (!v) return undefined;
+        if (/^1$/.test(v) || /leve|ligera|baja|mild|low/.test(v)) return 1;
+        if (/^2$/.test(v) || /moderad|media|medium/.test(v)) return 2;
+        if (/^3$/.test(v) || /severa|fuerte|alta|intensa|severe|high/.test(v)) return 3;
+        const num = parseFloat(v.replace(',', '.'));
+        if (!Number.isNaN(num)) {
+            if (num <= 3) return Math.max(1, Math.round(num));
+            if (num <= 10) return num <= 4 ? 1 : (num <= 7 ? 2 : 3); // escala 1-10 aproximada
+        }
+        return undefined;
+    };
+
+    const isMarkdownSeparatorRow = (cells: string[]) => cells.length > 0 && cells.every(c => /^:?-{2,}:?$/.test(c.trim()));
+
+    // Detecta el delimitador de una tabla pegada (tab de Excel/Word, pipes de Markdown,
+    // punto y coma o coma de CSV) y separa cada fila en celdas.
+    const splitTableRow = (line: string, delimiter: 'tab' | 'pipe' | 'semicolon' | 'csv'): string[] => {
+        if (delimiter === 'tab') return line.split('\t');
+        if (delimiter === 'pipe') return line.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|');
+        if (delimiter === 'semicolon') return line.split(';');
+        return line.split(',');
+    };
+
+    // Convierte una tabla pegada (en CUALQUIER formato: Excel, Word, Markdown o CSV) en
+    // una lista de síntomas con su frecuencia/intensidad detectadas cuando existan.
+    // Si no hay columnas reconocibles, cae de vuelta al parser de lista simple.
+    const parseSymptomsTable = (text: string): Array<{ name: string; frequency?: string; intensity?: number }> => {
+        const rawLines = text.split(/\r?\n/).map(l => l.replace(/\s+$/, '')).filter(l => l.trim().length > 0);
+        if (rawLines.length === 0) return [];
+
+        const sample = rawLines.slice(0, 5);
+        const countOf = (ch: string) => sample.reduce((acc, l) => acc + (l.split(ch).length - 1), 0);
+        const tabCount = countOf('\t');
+        const pipeCount = countOf('|');
+        const semicolonCount = countOf(';');
+        const commaCount = countOf(',');
+
+        let delimiter: 'tab' | 'pipe' | 'semicolon' | 'csv' | 'none' = 'none';
+        if (tabCount >= sample.length) delimiter = 'tab';
+        else if (pipeCount >= sample.length * 2) delimiter = 'pipe';
+        else if (semicolonCount >= sample.length) delimiter = 'semicolon';
+        else if (commaCount >= sample.length) delimiter = 'csv';
+
+        if (delimiter === 'none') {
+            return parseSymptomsFromText(text).map(name => ({ name }));
+        }
+
+        const rows: string[][] = [];
+        for (const line of rawLines) {
+            const cells = splitTableRow(line, delimiter).map(c => c.trim());
+            if (isMarkdownSeparatorRow(cells)) continue; // fila separadora de tabla Markdown (---|---)
+            if (cells.every(c => !c)) continue;
+            rows.push(cells);
+        }
+        if (rows.length === 0) return [];
+
+        // Descarta una posible fila de encabezado ("Síntoma", "Frecuencia", "Intensidad"...).
+        const headerWordRe = /^(s[ií]ntomas?|nombre|name|symptom)$/i;
+        const startIdx = headerWordRe.test(rows[0][0] || '') ? 1 : 0;
+
+        const seen = new Set<string>();
+        const result: Array<{ name: string; frequency?: string; intensity?: number }> = [];
+        for (let i = startIdx; i < rows.length; i++) {
+            const cells = rows[i];
+            const nameCell = (cells[0] || '').replace(/^[-*•·–—\d.)\]\s]+/, '');
+            const name = normalizeSymptomName(nameCell);
+            if (!name || name.length > 80) continue;
+            const key = name.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+
+            let frequency: string | undefined;
+            let intensity: number | undefined;
+            for (const cell of cells.slice(1)) {
+                if (!frequency) {
+                    const f = mapFrequencyWord(cell);
+                    if (f) { frequency = f; continue; }
+                }
+                if (!intensity) {
+                    const n = mapIntensityValue(cell);
+                    if (n) intensity = n;
+                }
+            }
+            result.push({ name, frequency, intensity });
+        }
+        return result;
+    };
+
+    // Aplica una tabla de síntomas pegada (Ctrl+V) directamente en el textarea: detecta
+    // columnas de nombre/frecuencia/intensidad en cualquier formato y autorellena la
+    // calibración, fusionando con los síntomas ya presentes en la visita sin duplicar.
+    const handleApplySymptomsPaste = (textOverride?: string) => {
+        const text = textOverride !== undefined ? textOverride : pasteSymptomTableText;
+        const parsedRows = parseSymptomsTable(text);
+        if (parsedRows.length === 0) {
+            setSymptomImportMsg('No se detectaron síntomas en el texto pegado.');
+            return;
+        }
+
+        let added = 0;
+        let updated = 0;
+        setVisitSymptoms(prev => {
+            const next = { ...prev };
+            for (const row of parsedRows) {
+                const existing = next[row.name];
+                if (!existing) {
+                    next[row.name] = {
+                        frequency: row.frequency || 'Semanal',
+                        intensity: row.intensity || 2
+                    };
+                    added += 1;
+                } else if (row.frequency || row.intensity) {
+                    next[row.name] = {
+                        ...existing,
+                        frequency: row.frequency || existing.frequency,
+                        intensity: row.intensity || existing.intensity
+                    };
+                    updated += 1;
+                }
+            }
+            return next;
+        });
+
+        setSymptomImportMsg(`${added} síntoma(s) agregado(s)${updated > 0 ? `, ${updated} actualizado(s)` : ''} desde la tabla pegada.`);
+        setPasteSymptomTableText('');
+        setShowSymptomPasteBox(false);
+    };
+
     // Importa síntomas desde un .txt: los fusiona en la consulta en curso sin duplicar
     // (fix #8) y guarda el archivo en la carpeta del paciente como documento (fix #9).
     const handleImportVisitSymptoms = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -1428,22 +1902,58 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         );
     };
 
-    const handleAddVisitHerb = () => {
+    // Al escribir/elegir el nombre de una fórmula, si coincide exactamente con una
+    // fórmula de la base de datos (herb.json) y todavía no se escribió una dosis,
+    // se autocompleta la dosis con la de la base de datos. Si se borra el nombre
+    // por completo, la dosis se borra también (para no dejar una dosis "huérfana").
+    const handleVisitHerbNameChange = (val: string) => {
+        setNewVisitHerbName(val);
+        if (!val.trim()) {
+            setNewVisitHerbDosage('');
+            return;
+        }
+        const dbUsage = lookupHerbUsage(val);
+        if (dbUsage && !newVisitHerbDosage.trim()) {
+            setNewVisitHerbDosage(dbUsage);
+        }
+    };
+
+        const handleAddVisitHerb = () => {
         const formula = newVisitHerbName.trim();
         if (!formula) return;
-        const dosage = newVisitHerbDosage.trim();
+        const dosage = (newVisitHerbDosage.trim()) || lookupHerbUsage(formula) || '';
+        const purpose = lookupHerbPurpose(formula) || '';
         setVisitTrackedHerbs(prev => {
             if (prev.some(h => (h.formula || '').trim().toLowerCase() === formula.toLowerCase())) {
                 return prev.map(h =>
                     (h.formula || '').trim().toLowerCase() === formula.toLowerCase()
-                        ? { ...h, dosage: dosage || h.dosage }
+                        ? { ...h, dosage: dosage || h.dosage, purpose: purpose || h.purpose }
                         : h
                 );
             }
-            return [...prev, { formula, dosage }];
+            return [...prev, { formula, dosage, purpose }];
         });
+        recordFormulaUsage(formula);
+        setFormulaUsageVersion(v => v + 1);
         setNewVisitHerbName('');
         setNewVisitHerbDosage('');
+    };
+
+    // Agrega una fórmula directamente desde el listado de "Más usadas" (sin pasar
+    // por los campos de texto), autocompletando la dosis desde la base de datos.
+    const handleQuickAddFormula = (name: string) => {
+        const formula = name.trim();
+        if (!formula) return;
+        const dosage = lookupHerbUsage(formula) || '';
+        const purpose = lookupHerbPurpose(formula) || '';
+        setVisitTrackedHerbs(prev => {
+            if (prev.some(h => (h.formula || '').trim().toLowerCase() === formula.toLowerCase())) {
+                return prev;
+            }
+            return [...prev, { formula, dosage, purpose }];
+        });
+        recordFormulaUsage(formula);
+        setFormulaUsageVersion(v => v + 1);
     };
 
     const removeVisitHerb = (formula: string) => {
@@ -1465,6 +1975,70 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         });
         setNewRecordSymptomName('');
     };
+
+    // Igual que resolveVisitSymptomsForSave: si el usuario escribió un síntoma en el
+    // registro abierto (openRecord) y le dio directo a "Guardar" sin clic en
+    // "Agregar", lo incluimos igual para no perder lo que acaba de escribir.
+    const handleSaveOpenRecord = async (options: { silent?: boolean; includePendingSymptom?: boolean } = {}) => {
+        if (!openRecord) return;
+        if (openRecord.type === 'plan') {
+            await handleUpdateTreatmentPlan(openRecord.record);
+            return;
+        }
+        // El autosave (silent) NO incluye el texto de síntoma todavía a medio escribir:
+        // si lo hiciera, una pausa breve mientras el usuario está escribiendo un nombre
+        // de síntoma lo guardaría incompleto. Ese "no perder lo que escribiste" queda
+        // reservado para el guardado explícito (Enter/clic en "Agregar").
+        const pendingName = options.includePendingSymptom === false ? '' : normalizeSymptomName(newRecordSymptomName);
+        if (pendingName) {
+            const currentSymptoms = openRecord.record.symptoms || {};
+            const mergedSymptoms = {
+                ...currentSymptoms,
+                [pendingName]: currentSymptoms[pendingName] || { frequency: 'Diaria', intensity: 1 }
+            };
+            setNewRecordSymptomName('');
+            await handleUpdateVisitRecord({ ...openRecord.record, symptoms: mergedSymptoms }, options);
+            return;
+        }
+        await handleUpdateVisitRecord(openRecord.record, options);
+    };
+
+    // Autosave del registro abierto (consulta inicial o visita ya guardada). Solo
+    // observa los campos editables (nunca pdfFile/mdFile, que pueden pesar varios MB
+    // en base64) para no recalcular ni guardar de más en cada tecla.
+    const openRecordFingerprint = useMemo(() => {
+        if (!openRecord) return '';
+        const r = openRecord.record;
+        const date = openRecord.type === 'plan' ? openRecord.record.visitDate : openRecord.record.date;
+        const note = openRecord.type === 'visit' ? openRecord.record.note : undefined;
+        const symptoms = openRecord.type === 'visit' ? openRecord.record.symptoms : undefined;
+        return JSON.stringify({
+            title: r.title,
+            date,
+            note,
+            diagnosis: r.diagnosis,
+            treatment: r.treatment,
+            lifestyle: r.lifestyle,
+            tongue: r.tongue,
+            dosha: r.dosha,
+            symptoms,
+            herbs: r.herbs,
+            categories: r.categories,
+            recipes: r.recipes,
+            patientDiagnosis: r.patientDiagnosis,
+            patientTreatment: r.patientTreatment,
+            patientLifestyle: r.patientLifestyle,
+            cerealGuidance: r.cerealGuidance,
+            cerealRecipe: r.cerealRecipe,
+            adherence: r.adherence
+        });
+    }, [openRecord]);
+
+    const openRecordAutosaveStatus = useAutosave(
+        openRecordFingerprint,
+        () => handleSaveOpenRecord({ silent: true, includePendingSymptom: false }),
+        { enabled: !!openRecord, delay: 1200 }
+    );
 
     const patientFirstName = patient?.name ? patient.name.trim().split(/\s+/)[0] : '';
     const patientWhatsAppUrl = patient?.phone
@@ -1510,6 +2084,39 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         setDiagnosis(diag || null);
         setEditingRecord(recordToEdit);
         setIsTreatmentModalOpen(true);
+    };
+
+    // Reabre el PDF guardado de una visita de seguimiento. El contenido del PDF
+    // puede vivir en el propio registro de la visita (treatment/herbs/etc.) o,
+    // según el flujo con que se generó, en un "plan de tratamiento" asociado a
+    // la misma visita por cercanía de fecha. Aquí elegimos el registro que sí
+    // tiene el contenido guardado para que NO se abra una plantilla en blanco.
+    const reopenVisitTreatmentPdf = (
+        visit: Visit,
+        relatedPlans: TreatmentPlan[] = []
+    ) => {
+        const visitHasOwnPdf = Boolean(
+            visit.pdfFile ||
+            (visit.treatment && visit.treatment.trim()) ||
+            (visit.herbs && visit.herbs.length > 0)
+        );
+        if (visitHasOwnPdf) {
+            openTreatmentPDFEditor(visit.diagnosis || '', { type: 'visit', record: visit });
+            return;
+        }
+        // Buscar el plan asociado más reciente que tenga contenido real de PDF.
+        const planWithContent = [...relatedPlans]
+            .filter(p => p.pdfFile || (p.treatment && p.treatment.trim()) || (p.herbs && p.herbs.length > 0))
+            .sort((a, b) =>
+                new Date(b.updatedAt || b.visitDate || b.date || 0).getTime() -
+                new Date(a.updatedAt || a.visitDate || a.date || 0).getTime()
+            )[0];
+        if (planWithContent) {
+            openTreatmentPDFEditor(planWithContent.diagnosis || visit.diagnosis || '', { type: 'plan', record: planWithContent });
+            return;
+        }
+        // Sin PDF previo: abrir la visita para crear uno nuevo.
+        openTreatmentPDFEditor(visit.diagnosis || '', { type: 'visit', record: visit });
     };
 
     const handleOpenTreatmentFromLocalDiagnosis = () => {
@@ -1583,6 +2190,23 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         return plans[0] || null;
     };
 
+    /*
+    const openEditProfileModal = () => {
+        if (!patient) return;
+        setEditName(patient.name || '');
+        setEditAge(patient.age || '');
+        setEditEmail(patient.email || '');
+        setEditPhone(patient.phone || '');
+        setEditDosha(patient.dosha || '');
+        setEditIntensityScale(patient.intensityScale || 3);
+        setEditSymptomCalibrations([...(patient.symptomCalibrations || [])]);
+        setEditPlainSymptoms([...(patient.plainSymptoms || [])]);
+        setNewEditSymptomName('');
+        setCaseError('');
+        setIsEditingCase(true);
+    };
+    */
+
     // "Editar Caso" abre la MISMA interfaz de Nueva Visita (fix #12), precargada con
     // lo que el paciente ya llenó (síntomas calibrados) y con la consulta inicial.
     const openEditCaseModal = () => {
@@ -1591,11 +2215,12 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         setEditingVisitId(null);
         setIsAddingVisit(true);
         setVisitDate(new Date().toISOString().split('T')[0]);
+        setVisitIntensityScale(patient.intensityScale || 3);
 
         // Síntomas: lo que el paciente ya llenó (calibración + síntomas simples).
         const sympt: Record<string, { frequency: string; intensity: number; note?: string }> = {};
         (patient.symptomCalibrations || []).forEach(s => {
-            sympt[s.symptom] = { frequency: s.frequency, intensity: s.intensity };
+            sympt[s.symptom] = { frequency: s.frequency, intensity: s.intensity, note: s.note };
         });
         (patient.plainSymptoms || []).forEach(s => {
             if (s && !sympt[s]) sympt[s] = { frequency: 'Semanal', intensity: 2 };
@@ -1613,11 +2238,78 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         setVisitTongue(initial?.tongue || '');
         setVisitTonguePhotos([...(patient.tonguePhotos || [])]);
         setVisitTrackedCategories([...(initial?.categories || [])]);
-        setVisitTrackedHerbs((initial?.herbs || []).map(herb => ({ ...herb })));
+        setVisitTrackedHerbs(mapHerbsWithPurpose(initial?.herbs || []));
         setVisitAdherence({ categories: [], herbs: [], generalNote: '' });
         setNewVisitHerbName('');
         setNewVisitHerbDosage('');
         setNewVisitSymptomName('');
+    };
+
+    const handleToggleIntensityScale = async (newScale: 3 | 10) => {
+        const oldScale = visitIntensityScale;
+        if (oldScale === newScale) return;
+        setVisitIntensityScale(newScale);
+
+        // Convert intensity for all symptoms currently in visitSymptoms
+        setVisitSymptoms(prev => {
+            const next = { ...prev };
+            Object.keys(next).forEach(key => {
+                next[key] = {
+                    ...next[key],
+                    intensity: convertIntensityScaleValue(next[key].intensity, oldScale, newScale)
+                };
+            });
+            return next;
+        });
+
+        // Persist intensity scale preference to patient details immediately
+        const targetPatientId = patientId || patient?.id;
+        if (!targetPatientId || !patient) return;
+        try {
+            const token = localStorage.getItem('token');
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            const res = await fetch(`/api/patients/${targetPatientId}`, {
+                method: 'PATCH',
+                headers,
+                body: JSON.stringify({
+                    name: patient.name,
+                    age: patient.age,
+                    email: patient.email,
+                    phone: patient.phone,
+                    dosha: patient.dosha,
+                    intensityScale: newScale
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success) {
+                    // Update patient data locally in background
+                    fetchPatientDetails();
+                }
+            }
+        } catch (error) {
+            console.error('Error persisting intensity scale:', error);
+        }
+    };
+
+    const handleToggleEditIntensityScale = (newScale: 3 | 10) => {
+        const oldScale = editIntensityScale;
+        if (oldScale === newScale) return;
+        setEditIntensityScale(newScale);
+
+        // Convert intensity for all symptom calibrations in editSymptomCalibrations
+        setEditSymptomCalibrations(prev =>
+            prev.map(item => {
+                const newIntensity = convertIntensityScaleValue(item.intensity, oldScale, newScale);
+                return {
+                    ...item,
+                    intensity: newIntensity,
+                    intensityLabel: getIntensityLabelText(newIntensity, newScale)
+                };
+            })
+        );
     };
 
     const handleSaveCase = async () => {
@@ -1643,7 +2335,8 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                     phone: editPhone,
                     dosha: editDosha,
                     symptomCalibrations: editSymptomCalibrations,
-                    plainSymptoms: editPlainSymptoms
+                    plainSymptoms: editPlainSymptoms,
+                    intensityScale: editIntensityScale
                 })
             });
 
@@ -1798,6 +2491,38 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         if (k.includes('estado civil') || k.includes('hijos') || k.includes('edad')) return <User className={cls} />;
         return <FileText className={cls} />;
     };
+
+    // Icono representativo de cada categoría de la ficha del paciente (vista toggle en Editar Caso).
+    const getIntakeCategoryIcon = (categoryKey: string) => {
+        const icons: Record<string, ReturnType<typeof getClinicalFieldIcon>> = {
+            sintomas: <Activity size={14} />,
+            enfermedades: <Heart size={14} />,
+            estiloVida: <Dumbbell size={14} />,
+            alimentacion: <UtensilsCrossed size={14} />,
+            perfilAyurvedico: <Leaf size={14} />,
+            personal: <User size={14} />,
+            admin: <ShieldCheck size={14} />,
+        };
+        return icons[categoryKey] || <Info size={14} />;
+    };
+
+    const toggleIntakeCategory = (categoryKey: string) => {
+        setOpenIntakeCategories(prev => ({ ...prev, [categoryKey]: !prev[categoryKey] }));
+    };
+
+    // Campos de clinicalData que llenó el paciente y que no caen en ninguna categoría conocida.
+    const getUncategorizedIntakeFields = (): Array<[string, string]> => {
+        if (!patient?.clinicalData) return [];
+        const known = new Set(INTAKE_CATEGORIES.flatMap(c => c.fields));
+        return Object.entries(patient.clinicalData).filter(([key, value]) => !known.has(key) && value && value.trim());
+    };
+
+    const hasAnyIntakeData = !!(
+        (patient?.clinicalData && Object.keys(patient.clinicalData).length > 0) ||
+        (patient?.symptomCalibrations && patient.symptomCalibrations.length > 0) ||
+        (patient?.plainSymptoms && patient.plainSymptoms.length > 0) ||
+        (patient?.fullNotes && patient.fullNotes.trim())
+    );
 
     return (
         <AnimatePresence>
@@ -2246,6 +2971,13 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                                                                     >
                                                                                                         Editar
                                                                                                     </button>
+                                                                                                    <button
+                                                                                                        onClick={() => reopenVisitTreatmentPdf(group.visitRecord!, group.treatmentPlans)}
+                                                                                                        className="px-2.5 py-1 rounded-md bg-amber-500 text-slate-950 text-[10px] font-bold hover:bg-amber-600 transition-colors"
+                                                                                                        title="Reabrir el PDF guardado de esta consulta en el editor para modificarlo"
+                                                                                                    >
+                                                                                                        Ver/PDF
+                                                                                                    </button>
                                                                                                     {group.visitRecord.pdfFile && (
                                                                                                         <button
                                                                                                             onClick={() => downloadSavedPdf(group.visitRecord.id!, group.visitRecord.title || 'Consulta')}
@@ -2314,8 +3046,9 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                                                                             <button
                                                                                                                 onClick={() => openTreatmentPDFEditor(plan.diagnosis || '', { type: 'plan', record: plan })}
                                                                                                                 className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded text-[10px] transition-colors"
+                                                                                                                title="Reabrir este PDF guardado en el editor para modificarlo"
                                                                                                             >
-                                                                                                                Generar PDF
+                                                                                                                {plan.pdfFile || (plan.treatment && plan.treatment.trim()) ? 'Ver/Editar PDF' : 'Generar PDF'}
                                                                                                             </button>
                                                                                                             {plan.pdfFile && (
                                                                                                                 <button
@@ -2516,9 +3249,6 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                                             {group.tonguePhotos.length > 0 ? (
                                                                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                                                                                     {group.tonguePhotos.map((photo) => {
-                                                                                        const draft = tongueNoteDrafts[photo.id];
-                                                                                        const noteValue = draft !== undefined ? draft : (photo.note || '');
-                                                                                        const noteChanged = draft !== undefined && draft !== (photo.note || '');
                                                                                         return (
                                                                                         <div key={photo.id} className="group rounded-xl border border-slate-100 bg-slate-50/50 overflow-hidden text-xs flex flex-col">
                                                                                             <button
@@ -2560,24 +3290,10 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                                                                 </button>
                                                                                             </div>
                                                                                             <div className="px-2.5 pb-2.5 bg-white space-y-1.5">
-                                                                                                <SpeechTextarea
-                                                                                                    value={noteValue}
-                                                                                                    onValueChange={(val) => setTongueNoteDrafts(prev => ({ ...prev, [photo.id]: val }))}
-                                                                                                    rows={2}
-                                                                                                    placeholder="Nota de la lengua: color, saburra, marcas, grietas..."
-                                                                                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-[11px] resize-none focus:ring-2 focus:ring-primary/15 focus:border-primary/30 outline-none"
+                                                                                                <TonguePhotoNoteEditor
+                                                                                                    initialNote={photo.note || ''}
+                                                                                                    onSave={(note) => handleUpdateTonguePhotoNote(photo, note)}
                                                                                                 />
-                                                                                                {noteChanged && (
-                                                                                                    <button
-                                                                                                        type="button"
-                                                                                                        onClick={() => handleUpdateTonguePhotoNote(photo, noteValue)}
-                                                                                                        disabled={savingTongueNoteId === photo.id}
-                                                                                                        className="w-full h-7 rounded-lg bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
-                                                                                                    >
-                                                                                                        {savingTongueNoteId === photo.id ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-                                                                                                        Guardar nota
-                                                                                                    </button>
-                                                                                                )}
                                                                                             </div>
                                                                                         </div>
                                                                                         );
@@ -3000,6 +3716,22 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                 </span>
                                                 <div className="flex gap-2 items-center">
                                                     <Badge variant="gradient">Beta</Badge>
+                                                    <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[10px]">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setAiDiagnosisViewMode('edit')}
+                                                            className={`px-2 py-0.5 rounded-md font-semibold transition-colors ${aiDiagnosisViewMode === 'edit' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                                        >
+                                                            Editar
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setAiDiagnosisViewMode('preview')}
+                                                            className={`px-2 py-0.5 rounded-md font-semibold transition-colors ${aiDiagnosisViewMode === 'preview' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                                        >
+                                                            Vista Previa
+                                                        </button>
+                                                    </div>
                                                     <button
                                                         onClick={handleOpenTreatmentFromLocalDiagnosis}
                                                         className="text-xs bg-amber-100 text-amber-800 px-3 py-1.5 rounded-md font-medium hover:bg-amber-200 transition-colors flex items-center gap-1.5 shadow-sm"
@@ -3016,13 +3748,140 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                     </button>
                                                 </div>
                                             </div>
-                                            <div className="diagnosis-report p-6 text-slate-600 text-sm leading-relaxed prose prose-sm prose-emerald max-w-none prose-headings:text-slate-800 prose-headings:font-bold prose-p:text-slate-600 prose-strong:text-slate-700 prose-ul:list-disc prose-li:my-1 overflow-x-auto">
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                    {diagnosis}
-                                                </ReactMarkdown>
-                                            </div>
+                                            {aiDiagnosisViewMode === 'edit' ? (
+                                                <div className="p-4">
+                                                    <SpeechTextarea
+                                                        value={diagnosis || ''}
+                                                        onValueChange={(value) => setDiagnosis(value)}
+                                                        rows={16}
+                                                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-base leading-relaxed resize-y min-h-64 focus:ring-2 focus:ring-emerald-200/70 focus:border-emerald-300 outline-none"
+                                                    />
+                                                    <p className="text-[11px] text-slate-400 mt-2">
+                                                        Edita el texto del diagnóstico libremente. Pulsa “Guardar local editable” para conservar los cambios.
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <div className="diagnosis-report p-6 text-slate-600 text-sm leading-relaxed prose prose-sm prose-emerald max-w-none prose-headings:text-slate-800 prose-headings:font-bold prose-p:text-slate-600 prose-strong:text-slate-700 prose-ul:list-disc prose-li:my-1 overflow-x-auto">
+                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                        {diagnosis}
+                                                    </ReactMarkdown>
+                                                </div>
+                                            )}
                                         </motion.div>
                                     )}
+
+                                    {/* Historial de diagnósticos IA (desplegable) */}
+                                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                        <button
+                                            type="button"
+                                            onClick={() => setAiHistoryOpen(prev => !prev)}
+                                            className="w-full p-4 flex items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors"
+                                            style={{
+                                                background: 'linear-gradient(135deg, rgba(34,197,94,0.04) 0%, rgba(212,168,83,0.03) 100%)'
+                                            }}
+                                        >
+                                            <span className="font-bold text-xs text-slate-600 uppercase tracking-[0.15em] flex items-center gap-2">
+                                                <History size={14} />
+                                                Historial de diagnósticos IA
+                                                <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-[10px] font-bold normal-case tracking-normal">
+                                                    {(patient.aiDiagnoses || []).length}
+                                                </span>
+                                            </span>
+                                            <ChevronDown
+                                                size={16}
+                                                className={`text-slate-400 transition-transform ${aiHistoryOpen ? 'rotate-180' : ''}`}
+                                            />
+                                        </button>
+                                        <AnimatePresence initial={false}>
+                                            {aiHistoryOpen && (
+                                                <motion.div
+                                                    initial={{ height: 0, opacity: 0 }}
+                                                    animate={{ height: 'auto', opacity: 1 }}
+                                                    exit={{ height: 0, opacity: 0 }}
+                                                    transition={{ duration: 0.2 }}
+                                                    className="overflow-hidden"
+                                                >
+                                                    <div className="p-4 space-y-2 border-t border-slate-100">
+                                                        {(patient.aiDiagnoses || []).length === 0 ? (
+                                                            <div className="text-center py-6 border border-dashed border-slate-200 rounded-xl">
+                                                                <Brain className="mx-auto text-slate-200 mb-2" size={24} />
+                                                                <p className="text-slate-400 text-xs">Aún no hay diagnósticos generados con IA. Cada diagnóstico que generes se guardará aquí automáticamente.</p>
+                                                            </div>
+                                                        ) : (
+                                                            (patient.aiDiagnoses || []).map(entry => {
+                                                                const expanded = expandedAiDiagnosisId === entry.id;
+                                                                return (
+                                                                    <div key={entry.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                                                                        <div className="flex items-center justify-between gap-2 p-3 bg-slate-50/60">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setExpandedAiDiagnosisId(expanded ? null : entry.id)}
+                                                                                className="flex-1 flex items-center gap-2 text-left min-w-0"
+                                                                            >
+                                                                                <ChevronDown
+                                                                                    size={14}
+                                                                                    className={`text-slate-400 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                                                                                />
+                                                                                <span className="text-xs font-semibold text-slate-700 truncate">
+                                                                                    {new Date(entry.createdAt).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}
+                                                                                </span>
+                                                                                {entry.dosha && (
+                                                                                    <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0">
+                                                                                        {entry.dosha}
+                                                                                    </span>
+                                                                                )}
+                                                                                <span className="text-[10px] text-slate-400 uppercase font-bold shrink-0">
+                                                                                    {entry.provider === 'gemini' ? 'Gemini' : 'DeepSeek'}
+                                                                                </span>
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setDiagnosis(entry.diagnosis);
+                                                                                    setAiDiagnosisViewMode('preview');
+                                                                                }}
+                                                                                className="text-[11px] bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-md font-medium hover:bg-emerald-200 transition-colors shrink-0"
+                                                                            >
+                                                                                Cargar en editor
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleDeleteAiDiagnosis(entry)}
+                                                                                disabled={deletingAiDiagnosisId === entry.id}
+                                                                                className="text-slate-300 hover:text-red-500 transition-colors p-1 shrink-0 disabled:opacity-50"
+                                                                                title="Borrar del historial"
+                                                                            >
+                                                                                {deletingAiDiagnosisId === entry.id
+                                                                                    ? <Loader2 size={14} className="animate-spin" />
+                                                                                    : <Trash2 size={14} />}
+                                                                            </button>
+                                                                        </div>
+                                                                        <AnimatePresence initial={false}>
+                                                                            {expanded && (
+                                                                                <motion.div
+                                                                                    initial={{ height: 0, opacity: 0 }}
+                                                                                    animate={{ height: 'auto', opacity: 1 }}
+                                                                                    exit={{ height: 0, opacity: 0 }}
+                                                                                    transition={{ duration: 0.2 }}
+                                                                                    className="overflow-hidden"
+                                                                                >
+                                                                                    <div className="diagnosis-report p-4 border-t border-slate-100 text-slate-600 text-sm leading-relaxed prose prose-sm prose-emerald max-w-none prose-headings:text-slate-800 prose-headings:font-bold prose-p:text-slate-600 prose-strong:text-slate-700 prose-ul:list-disc prose-li:my-1 overflow-x-auto max-h-96 overflow-y-auto">
+                                                                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                                                            {entry.diagnosis}
+                                                                                        </ReactMarkdown>
+                                                                                    </div>
+                                                                                </motion.div>
+                                                                            )}
+                                                                        </AnimatePresence>
+                                                                    </div>
+                                                                );
+                                                            })
+                                                        )}
+                                                    </div>
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
+                                    </div>
 
                                     {/* Documentos de contexto para la IA */}
                                     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -3209,8 +4068,25 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className="px-6 py-3 border-b border-slate-100 flex items-center justify-between gap-4">
-                                <h3 className="font-bold text-xl text-slate-800 shrink-0">{editCaseMode ? 'Editar Caso' : (editingVisitId ? 'Editar Visita' : 'Nueva Visita')}</h3>
+                                <div className="flex items-center gap-3 shrink-0">
+                                    <h3 className="font-bold text-xl text-slate-800">{editCaseMode ? 'Editar Caso' : (editingVisitId ? 'Editar Visita' : 'Nueva Visita')}</h3>
+                                    <AutosaveIndicator status={visitAutosaveStatus} errorMessage={visitAutosaveError} />
+                                </div>
                                 <div className="flex items-center gap-2 ml-auto">
+                                    {hasAnyIntakeData && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowIntakeSummary(prev => !prev)}
+                                            className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-colors shrink-0 ${showIntakeSummary
+                                                ? 'bg-primary text-white border-primary shadow-sm'
+                                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                                }`}
+                                            title="Ver la ficha que llenó el paciente: síntomas, enfermedades, estilo de vida y más"
+                                        >
+                                            <FileText size={14} />
+                                            {showIntakeSummary ? 'Ocultar ficha del paciente' : 'Ver ficha del paciente'}
+                                        </button>
+                                    )}
                                     <label className="text-xs font-bold text-slate-500 uppercase whitespace-nowrap">Fecha</label>
                                     <input
                                         type="date"
@@ -3228,6 +4104,217 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                             </div>
 
                             <div className="flex-1 min-h-0 px-6 pt-4 pb-6 flex flex-col">
+                                {/* Ficha del paciente: lo que llenó él/ella, categorizado y en vista toggle */}
+                                <AnimatePresence initial={false}>
+                                    {showIntakeSummary && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            className="overflow-hidden shrink-0"
+                                        >
+                                            <div className="mb-4 rounded-2xl border border-primary/15 bg-primary/[0.03] p-4 space-y-3 max-h-[45vh] overflow-y-auto custom-scrollbar">
+                                                <div className="flex flex-wrap items-center justify-between gap-2 sticky -top-4 -mt-4 pt-4 pb-1 bg-primary/[0.03] z-10">
+                                                    <div className="flex items-center gap-2">
+                                                        <FileText size={16} className="text-primary" />
+                                                        <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">Ficha que llenó el paciente</h4>
+                                                    </div>
+                                                    <div className="flex bg-white rounded-lg p-1 gap-1 border border-slate-200">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setIntakeViewMode('categorized')}
+                                                            className={`px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-colors ${intakeViewMode === 'categorized' ? 'bg-primary text-white' : 'text-slate-500 hover:text-slate-700'
+                                                                }`}
+                                                            title="Ver por categorías (acordeón)"
+                                                        >
+                                                            <LayoutGrid size={12} /> Categorías
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setIntakeViewMode('list')}
+                                                            className={`px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-colors ${intakeViewMode === 'list' ? 'bg-primary text-white' : 'text-slate-500 hover:text-slate-700'
+                                                                }`}
+                                                            title="Ver todo en una lista"
+                                                        >
+                                                            <List size={12} /> Lista completa
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {intakeViewMode === 'categorized' ? (
+                                                    <div className="space-y-2">
+                                                        {INTAKE_CATEGORIES.map((category) => {
+                                                            const categoryFields = (patient?.clinicalData
+                                                                ? category.fields
+                                                                    .filter(key => patient.clinicalData![key] && patient.clinicalData![key].trim())
+                                                                    .map(key => [key, patient.clinicalData![key]] as [string, string])
+                                                                : []);
+                                                            const showSymptomBadges = category.key === 'sintomas' && (
+                                                                (patient?.symptomCalibrations?.length || 0) > 0 || (patient?.plainSymptoms?.length || 0) > 0
+                                                            );
+                                                            if (categoryFields.length === 0 && !showSymptomBadges) return null;
+                                                            const isOpen = !!openIntakeCategories[category.key];
+                                                            return (
+                                                                <div key={category.key} className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => toggleIntakeCategory(category.key)}
+                                                                        className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 hover:bg-slate-50 transition-colors"
+                                                                    >
+                                                                        <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-slate-700">
+                                                                            <span className="text-primary">{getIntakeCategoryIcon(category.key)}</span>
+                                                                            {category.title}
+                                                                            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                                                                                {categoryFields.length + (showSymptomBadges ? (patient?.symptomCalibrations?.length || patient?.plainSymptoms?.length || 0) : 0)}
+                                                                            </span>
+                                                                        </span>
+                                                                        <ChevronDown size={16} className={`text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                                                                    </button>
+                                                                    {isOpen && (
+                                                                        <div className="px-3.5 pb-3.5 space-y-3">
+                                                                            {showSymptomBadges && (
+                                                                                <div className="flex flex-wrap gap-1.5">
+                                                                                    {(patient?.symptomCalibrations || []).map((s, idx) => (
+                                                                                        <span key={`cal-${idx}`} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-50 border border-slate-100 text-[11px] font-semibold text-slate-700">
+                                                                                            {s.symptom}
+                                                                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${getFrequencyBadge(s.frequency)}`}>
+                                                                                                {getFrequencyShort(s.frequency)}
+                                                                                            </span>
+                                                                                            {!isSuperado(s.frequency) && (
+                                                                                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${getIntensityBadge(s.intensity)}`}>
+                                                                                                    {s.intensity}
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </span>
+                                                                                    ))}
+                                                                                    {(patient?.plainSymptoms || [])
+                                                                                        .filter(sym => !(patient?.symptomCalibrations || []).some(s => s.symptom === sym))
+                                                                                        .map((sym, idx) => (
+                                                                                            <span key={`plain-${idx}`} className="inline-flex items-center px-2 py-1 rounded-lg bg-slate-50 border border-slate-100 text-[11px] font-semibold text-slate-700">
+                                                                                                {sym}
+                                                                                            </span>
+                                                                                        ))}
+                                                                                </div>
+                                                                            )}
+                                                                            {categoryFields.length > 0 && (
+                                                                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                                                                                    {categoryFields.map(([key, value]) => (
+                                                                                        <div key={key} className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-50/60 border border-slate-100">
+                                                                                            <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 mt-0.5"
+                                                                                                style={{ background: getClinicalFieldColor(key).bg }}>
+                                                                                                {getClinicalFieldIcon(key, getClinicalFieldColor(key).icon)}
+                                                                                            </div>
+                                                                                            <div className="flex-1 min-w-0">
+                                                                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{key}</span>
+                                                                                                <span className="text-xs text-slate-700 font-medium leading-snug block mt-0.5 break-words">{value}</span>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+
+                                                        {getUncategorizedIntakeFields().length > 0 && (
+                                                            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => toggleIntakeCategory('otros')}
+                                                                    className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 hover:bg-slate-50 transition-colors"
+                                                                >
+                                                                    <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-slate-700">
+                                                                        <Info size={14} className="text-primary" /> Otros datos
+                                                                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                                                                            {getUncategorizedIntakeFields().length}
+                                                                        </span>
+                                                                    </span>
+                                                                    <ChevronDown size={16} className={`text-slate-400 transition-transform ${openIntakeCategories['otros'] ? 'rotate-180' : ''}`} />
+                                                                </button>
+                                                                {openIntakeCategories['otros'] && (
+                                                                    <div className="px-3.5 pb-3.5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                                                                        {getUncategorizedIntakeFields().map(([key, value]) => (
+                                                                            <div key={key} className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-50/60 border border-slate-100">
+                                                                                <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 mt-0.5"
+                                                                                    style={{ background: getClinicalFieldColor(key).bg }}>
+                                                                                    {getClinicalFieldIcon(key, getClinicalFieldColor(key).icon)}
+                                                                                </div>
+                                                                                <div className="flex-1 min-w-0">
+                                                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{key}</span>
+                                                                                    <span className="text-xs text-slate-700 font-medium leading-snug block mt-0.5 break-words">{value}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+
+                                                        {parseNotes(patient?.fullNotes || '').length > 0 && (
+                                                            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => toggleIntakeCategory('textoOriginal')}
+                                                                    className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 hover:bg-slate-50 transition-colors"
+                                                                >
+                                                                    <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-slate-700">
+                                                                        <StickyNote size={14} className="text-primary" /> Texto original de la ficha
+                                                                    </span>
+                                                                    <ChevronDown size={16} className={`text-slate-400 transition-transform ${openIntakeCategories['textoOriginal'] ? 'rotate-180' : ''}`} />
+                                                                </button>
+                                                                {openIntakeCategories['textoOriginal'] && (
+                                                                    <div className="px-3.5 pb-3.5 space-y-2">
+                                                                        {parseNotes(patient?.fullNotes || '').map((section, idx) => (
+                                                                            <div key={idx} className="bg-slate-50/60 p-3 rounded-lg border border-slate-100">
+                                                                                <h6 className="font-bold text-slate-800 text-[11px] border-b border-slate-100 pb-1.5 mb-1.5">{section.title}</h6>
+                                                                                <div className="text-slate-600 text-xs leading-relaxed whitespace-pre-line">{section.content}</div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                                                        {(patient?.symptomCalibrations || []).length > 0 && (
+                                                            <div className="md:col-span-2 xl:col-span-3 flex flex-wrap gap-1.5 p-2.5 rounded-lg bg-slate-50/60 border border-slate-100">
+                                                                {(patient?.symptomCalibrations || []).map((s, idx) => (
+                                                                    <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-slate-100 text-[11px] font-semibold text-slate-700">
+                                                                        {s.symptom}
+                                                                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${getFrequencyBadge(s.frequency)}`}>
+                                                                            {getFrequencyShort(s.frequency)}
+                                                                        </span>
+                                                                        {!isSuperado(s.frequency) && (
+                                                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${getIntensityBadge(s.intensity)}`}>
+                                                                                {s.intensity}
+                                                                            </span>
+                                                                        )}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {Object.entries(patient?.clinicalData || {}).map(([key, value]) => (
+                                                            <div key={key} className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-50/60 border border-slate-100">
+                                                                <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 mt-0.5"
+                                                                    style={{ background: getClinicalFieldColor(key).bg }}>
+                                                                    {getClinicalFieldIcon(key, getClinicalFieldColor(key).icon)}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{key}</span>
+                                                                    <span className="text-xs text-slate-700 font-medium leading-snug block mt-0.5 break-words">{value}</span>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+
                                 {/* Panel de 3 columnas */}
                                 <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
 
@@ -3238,17 +4325,86 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                 <Activity size={16} className="text-emerald-600" />
                                                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-600">Síntomas</h4>
                                             </div>
-                                            <label className={`flex items-center gap-1.5 text-[11px] font-bold rounded-lg border px-2.5 py-1.5 cursor-pointer transition-colors ${importingSymptoms ? 'opacity-60 pointer-events-none border-slate-200 text-slate-400' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`} title="Importar síntomas desde un archivo de texto (.txt, .md, .csv)">
-                                                {importingSymptoms ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-                                                Importar .txt
-                                                <input
-                                                    type="file"
-                                                    accept=".txt,.md,.markdown,.csv,.tsv,text/plain"
-                                                    className="hidden"
-                                                    onChange={handleImportVisitSymptoms}
-                                                />
-                                            </label>
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowSymptomPasteBox(prev => !prev)}
+                                                    className={`flex items-center gap-1.5 text-[11px] font-bold rounded-lg border px-2.5 py-1.5 transition-colors ${showSymptomPasteBox
+                                                        ? 'bg-primary text-white border-primary'
+                                                        : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                                        }`}
+                                                    title="Pegar una tabla de síntomas (Excel, Word, Markdown o CSV, en cualquier formato) para autorellenarlos"
+                                                >
+                                                    <ClipboardPaste size={13} />
+                                                    Pegar tabla
+                                                </button>
+                                                <label className={`flex items-center gap-1.5 text-[11px] font-bold rounded-lg border px-2.5 py-1.5 cursor-pointer transition-colors ${importingSymptoms ? 'opacity-60 pointer-events-none border-slate-200 text-slate-400' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`} title="Importar síntomas desde un archivo de texto (.txt, .md, .csv)">
+                                                    {importingSymptoms ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                                                    Importar .txt
+                                                    <input
+                                                        type="file"
+                                                        accept=".txt,.md,.markdown,.csv,.tsv,text/plain"
+                                                        className="hidden"
+                                                        onChange={handleImportVisitSymptoms}
+                                                    />
+                                                </label>
+                                            </div>
                                         </div>
+                                        {/* Selector de escala de intensidad */}
+                                        <div className="px-4 py-2 bg-slate-100/50 border-b border-slate-200 flex items-center justify-between gap-3 text-xs">
+                                            <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Escala de intensidad:</span>
+                                            <div className="flex bg-white rounded-lg p-0.5 gap-0.5 border border-slate-200 shadow-sm shrink-0">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleToggleIntensityScale(3)}
+                                                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${visitIntensityScale === 3 ? 'bg-primary text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                                    title="Calibrar del 1 al 3 (Suave / Moderado / Fuerte)"
+                                                >
+                                                    1 a 3
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleToggleIntensityScale(10)}
+                                                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${visitIntensityScale === 10 ? 'bg-primary text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                                    title="Calibrar del 1 al 10 para mayor precisión"
+                                                >
+                                                    1 a 10
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {showSymptomPasteBox && (
+                                            <div className="px-4 pt-2 pb-1 space-y-2">
+                                                <textarea
+                                                    value={pasteSymptomTableText}
+                                                    onChange={(e) => setPasteSymptomTableText(e.target.value)}
+                                                    onPaste={(e) => {
+                                                        const text = e.clipboardData.getData('text/plain');
+                                                        if (!text) return;
+                                                        e.preventDefault();
+                                                        setPasteSymptomTableText(text);
+                                                        handleApplySymptomsPaste(text);
+                                                    }}
+                                                    placeholder={'Pega aquí una tabla de síntomas en cualquier formato (Excel, Word, Markdown, CSV)...\nEj: Dolor de cabeza  Semanal  2'}
+                                                    className="w-full min-h-[64px] bg-white border border-emerald-200 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 outline-none resize-y"
+                                                />
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleApplySymptomsPaste()}
+                                                        className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 transition-colors"
+                                                    >
+                                                        Detectar síntomas
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setShowSymptomPasteBox(false); setPasteSymptomTableText(''); }}
+                                                        className="px-3 py-1.5 rounded-lg text-slate-500 text-[11px] font-bold hover:bg-slate-100 transition-colors"
+                                                    >
+                                                        Cancelar
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
                                         {symptomImportMsg && (
                                             <p className="px-4 pt-2 text-[11px] text-slate-500">{symptomImportMsg}</p>
                                         )}
@@ -3316,9 +4472,22 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                                 );
                                                             })}
                                                         </div>
-                                                        <div className={`flex bg-slate-100 rounded-lg p-1 gap-1 ${isSuperado(data.frequency) ? 'opacity-40 pointer-events-none' : ''}`}>
-                                                            {[1, 2, 3].map((num) => {
+                                                        <div className={`flex bg-slate-100 rounded-lg p-1 gap-1 flex-wrap max-w-full ${isSuperado(data.frequency) ? 'opacity-40 pointer-events-none' : ''}`}>
+                                                            {(visitIntensityScale === 10 ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : [1, 2, 3]).map((num) => {
                                                                 const isSelected = data.intensity === num;
+                                                                let bgClass = 'text-slate-400 hover:text-slate-600';
+                                                                if (isSelected) {
+                                                                    if (visitIntensityScale === 10) {
+                                                                        if (num <= 3) bgClass = 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300';
+                                                                        else if (num <= 7) bgClass = 'bg-amber-100 text-amber-700 ring-1 ring-amber-300';
+                                                                        else bgClass = 'bg-red-100 text-red-700 ring-1 ring-red-300';
+                                                                    } else {
+                                                                        bgClass = num === 1 ? 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300' :
+                                                                                  num === 2 ? 'bg-amber-100 text-amber-700 ring-1 ring-amber-300' :
+                                                                                  'bg-red-100 text-red-700 ring-1 ring-red-300';
+                                                                    }
+                                                                }
+                                                                const btnSize = visitIntensityScale === 10 ? 'w-6 h-6 text-[10px]' : 'w-8 h-8 text-xs';
                                                                 return (
                                                                     <button
                                                                         key={num}
@@ -3326,12 +4495,8 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                                             ...prev,
                                                                             [symptom]: { ...prev[symptom], intensity: num }
                                                                         }))}
-                                                                        className={`w-8 h-8 rounded-md text-xs font-bold transition-all ${isSelected
-                                                                            ? num === 1 ? 'bg-emerald-100 text-emerald-700' :
-                                                                                num === 2 ? 'bg-amber-100 text-amber-700' :
-                                                                                    'bg-red-100 text-red-700'
-                                                                            : 'text-slate-400 hover:text-slate-600'
-                                                                            }`}
+                                                                        className={`${btnSize} rounded-md font-bold transition-all ${bgClass}`}
+                                                                        title={`${num} (${getIntensityLabelText(num, visitIntensityScale)})`}
                                                                     >
                                                                         {num}
                                                                     </button>
@@ -3513,6 +4678,33 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                             {/* Selector de fórmulas herbales */}
                                             <div className="space-y-2">
                                                 <label className="text-xs font-bold text-slate-500 uppercase">Fórmulas herbales</label>
+                                                {mostUsedFormulas.length > 0 && (
+                                                    <div className="space-y-1">
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Más usadas</p>
+                                                        <div className="flex flex-wrap gap-1.5">
+                                                            {mostUsedFormulas.map((name) => {
+                                                                const alreadyAdded = visitTrackedHerbs.some(h => (h.formula || '').trim().toLowerCase() === name.toLowerCase());
+                                                                const dbUsage = lookupHerbUsage(name);
+                                                                return (
+                                                                    <button
+                                                                        key={name}
+                                                                        type="button"
+                                                                        onClick={() => handleQuickAddFormula(name)}
+                                                                        disabled={alreadyAdded}
+                                                                        title={dbUsage ? `Dosis: ${dbUsage}` : 'Agregar fórmula'}
+                                                                        className={`px-2.5 py-1 rounded-full border text-xs font-semibold transition-colors ${
+                                                                            alreadyAdded
+                                                                                ? 'bg-slate-100 text-slate-300 border-slate-100 cursor-default'
+                                                                                : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                                                        }`}
+                                                                    >
+                                                                        {name}
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
                                                 <datalist id="visit-herb-suggestions">
                                                     {HERB_SUGGESTIONS.map((name) => (
                                                         <option key={name} value={name} />
@@ -3523,7 +4715,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                         type="text"
                                                         list="visit-herb-suggestions"
                                                         value={newVisitHerbName}
-                                                        onChange={(e) => setNewVisitHerbName(e.target.value)}
+                                                        onChange={(e) => handleVisitHerbNameChange(e.target.value)}
                                                         onKeyDown={(e) => {
                                                             if (e.key === 'Enter') {
                                                                 e.preventDefault();
@@ -3731,17 +4923,33 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                             className="fixed inset-0 m-auto w-full max-w-3xl h-[92vh] bg-white rounded-2xl shadow-2xl z-[90] flex flex-col overflow-hidden"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <Sparkles className="text-primary" size={20} />
-                                    <h3 className="font-bold text-xl text-slate-800">Editar Caso y Calibración</h3>
+                            <div className="p-6 border-b border-slate-100 flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <Sparkles className="text-primary shrink-0" size={20} />
+                                    <h3 className="font-bold text-xl text-slate-800 truncate">Editar Caso y Calibración</h3>
                                 </div>
-                                <button
-                                    onClick={() => setIsEditingCase(false)}
-                                    className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
-                                >
-                                    <X size={20} />
-                                </button>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    {hasAnyIntakeData && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowIntakeSummary(prev => !prev)}
+                                            className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-colors ${showIntakeSummary
+                                                ? 'bg-primary text-white border-primary shadow-sm'
+                                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                                }`}
+                                            title="Ver la ficha que llenó el paciente: síntomas, enfermedades, estilo de vida y más"
+                                        >
+                                            <FileText size={14} />
+                                            {showIntakeSummary ? 'Ocultar ficha del paciente' : 'Ver ficha del paciente'}
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={() => setIsEditingCase(false)}
+                                        className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
@@ -3751,6 +4959,217 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                         <span>{caseError}</span>
                                     </div>
                                 )}
+
+                                {/* Ficha del paciente: lo que llenó él/ella, categorizado y en vista toggle */}
+                                <AnimatePresence initial={false}>
+                                    {showIntakeSummary && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            className="overflow-hidden"
+                                        >
+                                            <div className="rounded-2xl border border-primary/15 bg-primary/[0.03] p-4 space-y-3">
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <FileText size={16} className="text-primary" />
+                                                        <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">Ficha que llenó el paciente</h4>
+                                                    </div>
+                                                    <div className="flex bg-white rounded-lg p-1 gap-1 border border-slate-200">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setIntakeViewMode('categorized')}
+                                                            className={`px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-colors ${intakeViewMode === 'categorized' ? 'bg-primary text-white' : 'text-slate-500 hover:text-slate-700'
+                                                                }`}
+                                                            title="Ver por categorías (acordeón)"
+                                                        >
+                                                            <LayoutGrid size={12} /> Categorías
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setIntakeViewMode('list')}
+                                                            className={`px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-colors ${intakeViewMode === 'list' ? 'bg-primary text-white' : 'text-slate-500 hover:text-slate-700'
+                                                                }`}
+                                                            title="Ver todo en una lista"
+                                                        >
+                                                            <List size={12} /> Lista completa
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {intakeViewMode === 'categorized' ? (
+                                                    <div className="space-y-2">
+                                                        {INTAKE_CATEGORIES.map((category) => {
+                                                            const categoryFields = (patient?.clinicalData
+                                                                ? category.fields
+                                                                    .filter(key => patient.clinicalData![key] && patient.clinicalData![key].trim())
+                                                                    .map(key => [key, patient.clinicalData![key]] as [string, string])
+                                                                : []);
+                                                            const showSymptomBadges = category.key === 'sintomas' && (
+                                                                (patient?.symptomCalibrations?.length || 0) > 0 || (patient?.plainSymptoms?.length || 0) > 0
+                                                            );
+                                                            if (categoryFields.length === 0 && !showSymptomBadges) return null;
+                                                            const isOpen = !!openIntakeCategories[category.key];
+                                                            return (
+                                                                <div key={category.key} className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => toggleIntakeCategory(category.key)}
+                                                                        className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 hover:bg-slate-50 transition-colors"
+                                                                    >
+                                                                        <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-slate-700">
+                                                                            <span className="text-primary">{getIntakeCategoryIcon(category.key)}</span>
+                                                                            {category.title}
+                                                                            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                                                                                {categoryFields.length + (showSymptomBadges ? (patient?.symptomCalibrations?.length || patient?.plainSymptoms?.length || 0) : 0)}
+                                                                            </span>
+                                                                        </span>
+                                                                        <ChevronDown size={16} className={`text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                                                                    </button>
+                                                                    {isOpen && (
+                                                                        <div className="px-3.5 pb-3.5 space-y-3">
+                                                                            {showSymptomBadges && (
+                                                                                <div className="flex flex-wrap gap-1.5">
+                                                                                    {(patient?.symptomCalibrations || []).map((s, idx) => (
+                                                                                        <span key={`cal-${idx}`} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-50 border border-slate-100 text-[11px] font-semibold text-slate-700">
+                                                                                            {s.symptom}
+                                                                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${getFrequencyBadge(s.frequency)}`}>
+                                                                                                {getFrequencyShort(s.frequency)}
+                                                                                            </span>
+                                                                                            {!isSuperado(s.frequency) && (
+                                                                                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${getIntensityBadge(s.intensity)}`}>
+                                                                                                    {s.intensity}
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </span>
+                                                                                    ))}
+                                                                                    {(patient?.plainSymptoms || [])
+                                                                                        .filter(sym => !(patient?.symptomCalibrations || []).some(s => s.symptom === sym))
+                                                                                        .map((sym, idx) => (
+                                                                                            <span key={`plain-${idx}`} className="inline-flex items-center px-2 py-1 rounded-lg bg-slate-50 border border-slate-100 text-[11px] font-semibold text-slate-700">
+                                                                                                {sym}
+                                                                                            </span>
+                                                                                        ))}
+                                                                                </div>
+                                                                            )}
+                                                                            {categoryFields.length > 0 && (
+                                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                                                    {categoryFields.map(([key, value]) => (
+                                                                                        <div key={key} className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-50/60 border border-slate-100">
+                                                                                            <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 mt-0.5"
+                                                                                                style={{ background: getClinicalFieldColor(key).bg }}>
+                                                                                                {getClinicalFieldIcon(key, getClinicalFieldColor(key).icon)}
+                                                                                            </div>
+                                                                                            <div className="flex-1 min-w-0">
+                                                                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{key}</span>
+                                                                                                <span className="text-xs text-slate-700 font-medium leading-snug block mt-0.5 break-words">{value}</span>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+
+                                                        {getUncategorizedIntakeFields().length > 0 && (
+                                                            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => toggleIntakeCategory('otros')}
+                                                                    className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 hover:bg-slate-50 transition-colors"
+                                                                >
+                                                                    <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-slate-700">
+                                                                        <Info size={14} className="text-primary" /> Otros datos
+                                                                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                                                                            {getUncategorizedIntakeFields().length}
+                                                                        </span>
+                                                                    </span>
+                                                                    <ChevronDown size={16} className={`text-slate-400 transition-transform ${openIntakeCategories['otros'] ? 'rotate-180' : ''}`} />
+                                                                </button>
+                                                                {openIntakeCategories['otros'] && (
+                                                                    <div className="px-3.5 pb-3.5 grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                                        {getUncategorizedIntakeFields().map(([key, value]) => (
+                                                                            <div key={key} className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-50/60 border border-slate-100">
+                                                                                <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 mt-0.5"
+                                                                                    style={{ background: getClinicalFieldColor(key).bg }}>
+                                                                                    {getClinicalFieldIcon(key, getClinicalFieldColor(key).icon)}
+                                                                                </div>
+                                                                                <div className="flex-1 min-w-0">
+                                                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{key}</span>
+                                                                                    <span className="text-xs text-slate-700 font-medium leading-snug block mt-0.5 break-words">{value}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+
+                                                        {parseNotes(patient?.fullNotes || '').length > 0 && (
+                                                            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => toggleIntakeCategory('textoOriginal')}
+                                                                    className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 hover:bg-slate-50 transition-colors"
+                                                                >
+                                                                    <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-slate-700">
+                                                                        <StickyNote size={14} className="text-primary" /> Texto original de la ficha
+                                                                    </span>
+                                                                    <ChevronDown size={16} className={`text-slate-400 transition-transform ${openIntakeCategories['textoOriginal'] ? 'rotate-180' : ''}`} />
+                                                                </button>
+                                                                {openIntakeCategories['textoOriginal'] && (
+                                                                    <div className="px-3.5 pb-3.5 space-y-2">
+                                                                        {parseNotes(patient?.fullNotes || '').map((section, idx) => (
+                                                                            <div key={idx} className="bg-slate-50/60 p-3 rounded-lg border border-slate-100">
+                                                                                <h6 className="font-bold text-slate-800 text-[11px] border-b border-slate-100 pb-1.5 mb-1.5">{section.title}</h6>
+                                                                                <div className="text-slate-600 text-xs leading-relaxed whitespace-pre-line">{section.content}</div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                        {(patient?.symptomCalibrations || []).length > 0 && (
+                                                            <div className="md:col-span-2 flex flex-wrap gap-1.5 p-2.5 rounded-lg bg-slate-50/60 border border-slate-100">
+                                                                {(patient?.symptomCalibrations || []).map((s, idx) => (
+                                                                    <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-slate-100 text-[11px] font-semibold text-slate-700">
+                                                                        {s.symptom}
+                                                                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${getFrequencyBadge(s.frequency)}`}>
+                                                                            {getFrequencyShort(s.frequency)}
+                                                                        </span>
+                                                                        {!isSuperado(s.frequency) && (
+                                                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${getIntensityBadge(s.intensity)}`}>
+                                                                                {s.intensity}
+                                                                            </span>
+                                                                        )}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {Object.entries(patient?.clinicalData || {}).map(([key, value]) => (
+                                                            <div key={key} className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-50/60 border border-slate-100">
+                                                                <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 mt-0.5"
+                                                                    style={{ background: getClinicalFieldColor(key).bg }}>
+                                                                    {getClinicalFieldIcon(key, getClinicalFieldColor(key).icon)}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{key}</span>
+                                                                    <span className="text-xs text-slate-700 font-medium leading-snug block mt-0.5 break-words">{value}</span>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
 
                                 {/* Basic Fields */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3869,7 +5288,25 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
 
                                 {/* Symptom Calibrations Editor */}
                                 <div className="space-y-3 pt-2 border-t border-slate-100">
-                                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Calibración de Síntomas (Frecuencia e Intensidad)</label>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Calibración de Síntomas (Frecuencia e Intensidad)</label>
+                                        <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5 border border-slate-200 shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleToggleEditIntensityScale(3)}
+                                                className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all ${editIntensityScale === 3 ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                            >
+                                                1 a 3
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleToggleEditIntensityScale(10)}
+                                                className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all ${editIntensityScale === 10 ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                            >
+                                                1 a 10
+                                            </button>
+                                        </div>
+                                    </div>
 
                                     {editSymptomCalibrations.length === 0 ? (
                                         <div className="text-center py-6 border border-dashed border-slate-200 rounded-xl text-slate-400 text-xs">
@@ -3903,14 +5340,16 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                                 value={cal.intensity}
                                                                 onChange={(e) => {
                                                                     const val = parseInt(e.target.value);
-                                                                    const labels: Record<number, string> = { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' };
-                                                                    setEditSymptomCalibrations(prev => prev.map((item, i) => i === idx ? { ...item, intensity: val, intensityLabel: labels[val] || 'Moderado' } : item));
+                                                                    const label = getIntensityLabelText(val, editIntensityScale);
+                                                                    setEditSymptomCalibrations(prev => prev.map((item, i) => i === idx ? { ...item, intensity: val, intensityLabel: label } : item));
                                                                 }}
                                                                 className="bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
                                                             >
-                                                                <option value="1">1 (Suave)</option>
-                                                                <option value="2">2 (Moderado)</option>
-                                                                <option value="3">3 (Fuerte)</option>
+                                                                {Array.from({ length: editIntensityScale }, (_, i) => i + 1).map((num) => (
+                                                                    <option key={num} value={num}>
+                                                                        {num} ({getIntensityLabelText(num, editIntensityScale)})
+                                                                    </option>
+                                                                ))}
                                                             </select>
                                                         </div>
                                                         <button
@@ -4043,6 +5482,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                             Carpeta local · {patient?.name || 'Paciente'} · {openRecord.record.id}
                                         </p>
                                     </div>
+                                    <AutosaveIndicator status={openRecordAutosaveStatus} errorMessage={recordSaveError} className="shrink-0" />
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <button
@@ -4052,18 +5492,6 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                         title={recordEditorMode === 'full' ? 'Ver en media pantalla' : 'Ver en pantalla completa'}
                                     >
                                         {recordEditorMode === 'full' ? <Columns2 size={18} /> : <Maximize2 size={18} />}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => openRecord.type === 'plan'
-                                            ? handleUpdateTreatmentPlan(openRecord.record)
-                                            : handleUpdateVisitRecord(openRecord.record)
-                                        }
-                                        disabled={savingRecordId === openRecord.record.id}
-                                        className="h-10 px-4 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 disabled:opacity-60 flex items-center gap-2"
-                                    >
-                                        {savingRecordId === openRecord.record.id ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                                        Guardar
                                     </button>
                                     <button
                                         type="button"
@@ -4321,25 +5749,33 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
 
                                                             <div className="w-px h-8 bg-slate-100 mx-1" />
 
-                                                            <div className={`flex bg-slate-100 rounded-lg p-1 gap-1 ${isSuperado(data.frequency) ? 'opacity-40 pointer-events-none' : ''}`}>
-                                                                {[1, 2, 3].map((num) => {
+                                                            <div className={`flex bg-slate-100 rounded-lg p-1 gap-1 flex-wrap max-w-full ${isSuperado(data.frequency) ? 'opacity-40 pointer-events-none' : ''}`}>
+                                                                {(visitIntensityScale === 10 ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : [1, 2, 3]).map((num) => {
                                                                     const isSelected = data.intensity === num;
+                                                                    let bgClass = 'text-slate-400 hover:text-slate-600';
+                                                                    if (isSelected) {
+                                                                        if (visitIntensityScale === 10) {
+                                                                            if (num <= 3) bgClass = 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300';
+                                                                            else if (num <= 7) bgClass = 'bg-amber-100 text-amber-700 ring-1 ring-amber-300';
+                                                                            else bgClass = 'bg-red-100 text-red-700 ring-1 ring-red-300';
+                                                                        } else {
+                                                                            bgClass = num === 1 ? 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300' :
+                                                                                    num === 2 ? 'bg-amber-100 text-amber-700 ring-1 ring-amber-300' :
+                                                                                    'bg-red-100 text-red-700 ring-1 ring-red-300';
+                                                                        }
+                                                                    }
+                                                                    const btnSize = visitIntensityScale === 10 ? 'w-6 h-6 text-[10px]' : 'w-8 h-8 text-xs';
                                                                     return (
                                                                         <button
                                                                             key={num}
-                                                                            type="button"
                                                                             onClick={() => patchPatientVisit(openRecord.record.id || '', {
                                                                                 symptoms: {
                                                                                     ...(openRecord.record.symptoms || {}),
                                                                                     [symptom]: { ...data, intensity: num }
                                                                                 }
                                                                             })}
-                                                                            className={`w-8 h-8 rounded-md text-xs font-bold transition-all ${isSelected
-                                                                                ? num === 1 ? 'bg-emerald-100 text-emerald-700' :
-                                                                                    num === 2 ? 'bg-amber-100 text-amber-700' :
-                                                                                        'bg-red-100 text-red-700'
-                                                                                : 'text-slate-400 hover:text-slate-600'
-                                                                                }`}
+                                                                            className={`${btnSize} rounded-md font-bold transition-all ${bgClass}`}
+                                                                            title={`${num}`}
                                                                         >
                                                                             {num}
                                                                         </button>
@@ -4517,8 +5953,8 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
 
                                     {/* Fórmulas herbales editables (fix #12) */}
                                     {(() => {
-                                        const recordHerbs = (openRecord.record.herbs || []) as Array<{ formula: string; dosage: string }>;
-                                        const updateHerbs = (herbs: Array<{ formula: string; dosage: string }>) => {
+                                        const recordHerbs = (openRecord.record.herbs || []) as Array<{ formula: string; dosage: string; purpose?: string }>;
+                                        const updateHerbs = (herbs: Array<{ formula: string; dosage: string; purpose?: string }>) => {
                                             if (openRecord.type === 'plan') {
                                                 patchPatientPlan(openRecord.record.id || '', { herbs });
                                             } else {
@@ -4528,6 +5964,11 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                         return (
                                             <div className="space-y-2 flex flex-col">
                                                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Fórmulas herbales</span>
+                                                <datalist id="record-herb-suggestions">
+                                                    {HERB_SUGGESTIONS.map((name) => (
+                                                        <option key={name} value={name} />
+                                                    ))}
+                                                </datalist>
                                                 <div className="space-y-2">
                                                     {recordHerbs.length === 0 && (
                                                         <p className="text-xs text-slate-400">Sin fórmulas. Agrega una abajo.</p>
@@ -4536,9 +5977,23 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                         <div key={idx} className="flex flex-col sm:flex-row gap-2">
                                                             <input
                                                                 type="text"
+                                                                list="record-herb-suggestions"
                                                                 value={herb.formula || ''}
                                                                 onChange={(e) => {
-                                                                    const next = recordHerbs.map((h, i) => i === idx ? { ...h, formula: e.target.value } : h);
+                                                                    const formulaVal = e.target.value;
+                                                                    const dbUsage = lookupHerbUsage(formulaVal);
+                                                                    const dbPurpose = lookupHerbPurpose(formulaVal);
+                                                                    const next = recordHerbs.map((h, i) => {
+                                                                        if (i !== idx) return h;
+                                                                        // Si se borra el nombre de la fórmula, se borra también la dosis y propósito.
+                                                                        if (!formulaVal.trim()) {
+                                                                            return { ...h, formula: formulaVal, dosage: '', purpose: '' };
+                                                                        }
+                                                                        // Autocompleta la dosis y propósito desde la base de datos
+                                                                        const nextDosage = (dbUsage && !(h.dosage || '').trim()) ? dbUsage : h.dosage;
+                                                                        const nextPurpose = dbPurpose || h.purpose || '';
+                                                                        return { ...h, formula: formulaVal, dosage: nextDosage, purpose: nextPurpose };
+                                                                    });
                                                                     updateHerbs(next);
                                                                 }}
                                                                 placeholder="Fórmula o hierba..."
@@ -4548,7 +6003,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                                 type="text"
                                                                 value={herb.dosage || ''}
                                                                 onChange={(e) => {
-                                                                    const next = recordHerbs.map((h, i) => i === idx ? { ...h, dosage: e.target.value } : h);
+                                                                    const next = recordHerbs.map((h, i) => i === idx ? { ...h, dosage: e.target.value, purpose: h.purpose || lookupHerbPurpose(h.formula) || '' } : h);
                                                                     updateHerbs(next);
                                                                 }}
                                                                 placeholder="Dosis (ej. 1 cáps. 2x día)"

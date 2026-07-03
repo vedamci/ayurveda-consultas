@@ -10968,7 +10968,7 @@
   {
     "name": "Avipattikar Churna",
     "link": "/p/avipattikar-churna.html",
-    "preview": "A classical remedy for hyperacidity, heartburn, and other Pitta-related digestive issues.",
+    "preview": "Un remedio clásico para la hiperacidez, la acidez estomacal y otros problemas digestivos relacionados con Pitta.",
     "pacify": [
       "Pitta"
     ],
@@ -10988,7 +10988,11 @@
     "prabhav": [
       "Amlapittahara",
       "Virechana"
-    ]
+    ],
+    "usage": "1/2 cucharadita en cada comida con 30 ml de aloe vera 3 veces al día. ",
+    "instruction": "",
+    "ingredients": "",
+    "isCustom": false
   },
   {
     "name": "Hingvashtak Churna",
@@ -19258,5 +19262,17 @@
     "instruction": "",
     "ingredients": "",
     "isCustom": true
+  },
+  {
+    "name": "Formula personalizada para oido",
+    "preview": "Tiene las siguientes hierbas que son para eliminar la infección y apaciguar pitta y kapha 4 Kalmegh  2 neem  2 tulsi  1 curcuma",
+    "usage": "1/2 cucharadita con un poco de agua tibia 3 veces al día 1 hora después de comer",
+    "link": "",
+    "pacify": [],
+    "aggravate": [],
+    "tridosha": false,
+    "instruction": "",
+    "ingredients": "",
+    "isCustom": false
   }
 ]

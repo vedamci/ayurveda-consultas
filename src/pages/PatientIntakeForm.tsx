@@ -96,7 +96,7 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
 
             // Internal
             commitment: '10',
-            professionalNotes: isInternal ? localStorage.getItem(PROFESSIONAL_NOTES_DRAFT_KEY) || '' : ''
+            professionalNotes: ''
         };
     });
 
@@ -105,9 +105,15 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
     const [newSymptomName, setNewSymptomName] = useState('');
 
     useEffect(() => {
-        if (!isInternal) return;
-        localStorage.setItem(PROFESSIONAL_NOTES_DRAFT_KEY, formData.professionalNotes);
-    }, [isInternal, formData.professionalNotes]);
+        if (isInternal) {
+            try {
+                // Purge any legacy global notes draft to prevent leaks
+                localStorage.removeItem(PROFESSIONAL_NOTES_DRAFT_KEY);
+            } catch (e) {
+                // no-op
+            }
+        }
+    }, [isInternal]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
@@ -206,6 +212,9 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
 
             if (response.ok) {
                 setStatus('success');
+                if (isInternal) {
+                    setFormData(prev => ({ ...prev, professionalNotes: '' }));
+                }
                 if (onSuccess) {
                     setTimeout(() => onSuccess(), 1500);
                 }

@@ -56,6 +56,40 @@ function normalizeDoshaValue(value = '') {
     return aliases.find(alias => alias.patterns.some(pattern => normalized.includes(pattern)))?.dosha || '';
 }
 
+// Helper to find the actual property key in Notion page properties, ignoring whitespace variations
+// and handling duplicate column/prefix collisions by prioritizing populated fields and short Notion IDs.
+function findNotionPropertyKey(properties, namePattern) {
+    if (!properties || typeof properties !== 'object') return null;
+    const normalizedPattern = namePattern.replace(/\s+/g, ' ').trim().toLowerCase();
+    const candidates = Object.keys(properties).filter(k => {
+        const normalizedKey = k.replace(/\s+/g, ' ').trim().toLowerCase();
+        return normalizedKey === normalizedPattern || normalizedKey.startsWith(normalizedPattern);
+    });
+
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0];
+
+    // If multiple candidates exist, prioritize the one that is populated on this page
+    const populated = candidates.find(k => {
+        const prop = properties[k];
+        if (!prop) return false;
+        if (prop.type === 'multi_select' && prop.multi_select && prop.multi_select.length > 0) return true;
+        if (prop.type === 'rich_text' && prop.rich_text && prop.rich_text.length > 0) return true;
+        if (prop.type === 'title' && prop.title && prop.title.length > 0) return true;
+        return false;
+    });
+    if (populated) return populated;
+
+    // Fallback: prefer the one with a short Notion property ID (native UI columns have short IDs like "RMhg")
+    const shortId = candidates.find(k => {
+        const prop = properties[k];
+        return prop && prop.id && prop.id.length <= 4;
+    });
+    if (shortId) return shortId;
+
+    return candidates[0];
+}
+
 function buildClinicalContext(patient, fallbackText = '') {
     if (!patient) return fallbackText || '';
 
@@ -91,17 +125,114 @@ function buildClinicalContext(patient, fallbackText = '') {
         context += `\n**Notas y Resumen de Ficha:**\n${patient.fullNotes}\n`;
     }
 
+    // Historial Completo de Visitas
     if (patient.visits && patient.visits.length > 0) {
-        context += `\n**Historial de Visitas Previas:**\n`;
+        context += `\n**Historial Completo de Visitas:**\n`;
         const sortedVisits = [...patient.visits].sort((a, b) => new Date(b.date) - new Date(a.date));
-        sortedVisits.slice(0, 3).forEach((visit, idx) => {
+        sortedVisits.forEach((visit, idx) => {
             const vNum = sortedVisits.length - idx;
-            context += `- Visita ${vNum} (${visit.date}):\n`;
-            if (visit.note && visit.note.trim()) context += `  * Notas del profesional: ${visit.note}\n`;
-            if (visit.diagnosis && visit.diagnosis.trim()) context += `  * Diagnóstico anterior: ${visit.diagnosis}\n`;
-            if (visit.treatment && visit.treatment.trim()) context += `  * Tratamiento anterior: ${visit.treatment}\n`;
-            if (visit.lifestyle && visit.lifestyle.trim()) context += `  * Estilo de vida sugerido: ${visit.lifestyle}\n`;
+            context += `--- Visita ${vNum} (${visit.date}) ---\n`;
+            if (visit.note && visit.note.trim()) context += `- Notas del profesional: ${visit.note.trim()}\n`;
+            if (visit.diagnosis && visit.diagnosis.trim()) context += `- Diagnóstico: ${visit.diagnosis.trim()}\n`;
+            if (visit.treatment && visit.treatment.trim()) context += `- Tratamiento indicado: ${visit.treatment.trim()}\n`;
+            if (visit.lifestyle && visit.lifestyle.trim()) context += `- Estilo de vida sugerido: ${visit.lifestyle.trim()}\n`;
+            
+            // Categorías y recetas
+            const categories = Array.isArray(visit.categories) ? visit.categories : [];
+            if (categories.length > 0) {
+                context += `- Categorías de alimentación sugeridas: ${categories.join(', ')}\n`;
+            }
+            
+            // Fórmulas herbales
+            const herbs = Array.isArray(visit.herbs) ? visit.herbs : [];
+            if (herbs.length > 0) {
+                context += `- Fórmulas herbales indicadas:\n`;
+                herbs.forEach(h => {
+                    context += `  * ${h.formula || 'Fórmula'}: ${h.dosage || 'Dosis no especificada'}\n`;
+                });
+            }
+
+            // Síntomas reportados en esta visita específica
+            const symptoms = visit.symptoms && typeof visit.symptoms === 'object' ? visit.symptoms : {};
+            const symptomKeys = Object.keys(symptoms);
+            if (symptomKeys.length > 0) {
+                context += `- Síntomas en esta visita:\n`;
+                symptomKeys.forEach(name => {
+                    const s = symptoms[name] || {};
+                    context += `  * ${name} (Frecuencia: ${s.frequency || '-'}, Intensidad: ${s.intensity || '-'})\n`;
+                });
+            }
+            context += '\n';
         });
+    }
+
+    // Historial de Planes de Tratamiento
+    if (patient.treatmentPlans && patient.treatmentPlans.length > 0) {
+        context += `\n**Historial de Planes de Tratamiento (PDFs generados/guardados):**\n`;
+        const sortedPlans = [...patient.treatmentPlans].sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
+        sortedPlans.forEach((plan, idx) => {
+            const pNum = sortedPlans.length - idx;
+            context += `--- Plan de Tratamiento ${pNum} (${plan.date || new Date(plan.createdAt).toLocaleDateString('es-MX')}) ---\n`;
+            if (plan.title) context += `- Título: ${plan.title}\n`;
+            if (plan.subtitle) context += `- Subtítulo: ${plan.subtitle}\n`;
+            if (plan.dosha) context += `- Dosha: ${plan.dosha}\n`;
+            if (plan.diagnosis && plan.diagnosis.trim()) context += `- Diagnóstico Clínico: ${plan.diagnosis.trim()}\n`;
+            if (plan.patientDiagnosis && plan.patientDiagnosis.trim()) context += `- Diagnóstico (para el Paciente): ${plan.patientDiagnosis.trim()}\n`;
+            if (plan.treatment && plan.treatment.trim()) context += `- Tratamiento Clínico: ${plan.treatment.trim()}\n`;
+            if (plan.patientTreatment && plan.patientTreatment.trim()) context += `- Recomendaciones (para el Paciente): ${plan.patientTreatment.trim()}\n`;
+            if (plan.lifestyle && plan.lifestyle.trim()) context += `- Estilo de vida: ${plan.lifestyle.trim()}\n`;
+            if (plan.patientLifestyle && plan.patientLifestyle.trim()) context += `- Estilo de vida (para el Paciente): ${plan.patientLifestyle.trim()}\n`;
+            
+            // Fórmulas
+            const herbs = Array.isArray(plan.herbs) ? plan.herbs : [];
+            if (herbs.length > 0) {
+                context += `- Fórmulas indicadas:\n`;
+                herbs.forEach(h => {
+                    context += `  * ${h.formula || 'Fórmula'}: ${h.dosage || 'Dosis no especificada'}\n`;
+                });
+            }
+
+            // Categorías y guías
+            const categories = Array.isArray(plan.categories) ? plan.categories : [];
+            if (categories.length > 0) {
+                context += `- Categorías alimenticias del plan: ${categories.join(', ')}\n`;
+            }
+            if (plan.healthyEatingGuide && plan.healthyEatingGuide.trim()) {
+                context += `- Guía de Alimentación Saludable: ${plan.healthyEatingGuide.trim()}\n`;
+            }
+            context += '\n';
+        });
+    }
+
+    // Historial de Lecturas de Pulso
+    if (patient.pulseReadings && patient.pulseReadings.length > 0) {
+        context += `\n**Historial de Lecturas de Pulso:**\n`;
+        const sortedPulses = [...patient.pulseReadings].sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
+        sortedPulses.forEach((pulse, idx) => {
+            const pNum = sortedPulses.length - idx;
+            context += `--- Lectura de Pulso ${pNum} (${pulse.date}) ---\n`;
+            if (pulse.notes && pulse.notes.trim()) context += `- Notas/Observaciones: ${pulse.notes.trim()}\n`;
+            const positions = Array.isArray(pulse.positions) ? pulse.positions : [];
+            if (positions.length > 0) {
+                context += `- Detalles de Posición:\n`;
+                positions.forEach(pos => {
+                    context += `  * Lado: ${pos.sideLabel || pos.side || 'N/A'}, Punto: ${pos.point || 'N/A'} (Superficial: ${pos.superficialOrgan || 'N/A'} -> ${pos.superficialStatus || 'N/A'} | Profundo: ${pos.deepOrgan || 'N/A'} -> ${pos.deepStatus || 'N/A'})\n`;
+                });
+            }
+            context += '\n';
+        });
+    }
+
+    // Cargar automáticamente los documentos de contexto cargados
+    if (patient.id) {
+        try {
+            const contextDocs = readPatientContextDocuments(patient.id);
+            if (contextDocs && contextDocs.trim()) {
+                context += `\n\n**Documentos de contexto aportados por el profesional (archivos de texto/historiales externos subidos):**\n${contextDocs}\n`;
+            }
+        } catch (err) {
+            console.error('Error auto-loading context documents inside buildClinicalContext:', err);
+        }
     }
 
     return context;
@@ -775,8 +906,37 @@ function normalizePatientRecord(record = {}) {
         treatmentPlans: Array.isArray(record.treatmentPlans) ? record.treatmentPlans : [],
         tonguePhotos: Array.isArray(record.tonguePhotos) ? record.tonguePhotos : [],
         pulseReadings: Array.isArray(record.pulseReadings) ? record.pulseReadings : [],
-        contextDocuments: Array.isArray(record.contextDocuments) ? record.contextDocuments : []
+        contextDocuments: Array.isArray(record.contextDocuments) ? record.contextDocuments : [],
+        aiDiagnoses: Array.isArray(record.aiDiagnoses) ? record.aiDiagnoses : [],
+        // Escala de calibración de síntomas de este paciente (3 = Suave/Moderado/Fuerte,
+        // 10 = escala de dolor 1-10). Por defecto 3 si nunca se configuró.
+        intensityScale: [3, 10].includes(Number(record.intensityScale)) ? Number(record.intensityScale) : 3
     };
+}
+
+// Reescala un valor de intensidad de una escala a otra manteniendo la proporción
+// (ej. de 1-3 a 1-10: 1→1, 2→~6, 3→10). Se usa al cambiar la escala de un paciente
+// para no perder continuidad en las gráficas de evolución (frecuencia x intensidad).
+function convertIntensityScale(value, fromScale, toScale) {
+    const from = Number(fromScale) || 3;
+    const to = Number(toScale) || 3;
+    const v = Math.max(1, Math.min(from, Number(value) || 1));
+    if (from === to) return v;
+    const ratio = (v - 1) / (from - 1 || 1);
+    return Math.max(1, Math.min(to, Math.round(1 + ratio * (to - 1))));
+}
+
+// Etiqueta legible de intensidad (Suave/Moderado/Fuerte) para cualquier escala,
+// dividiendo el rango en tercios cuando la escala no es la clásica 1-3.
+function getIntensityLabel(intensity, scale = 3) {
+    const s = Number(scale) || 3;
+    if (s <= 3) {
+        return { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' }[intensity] || 'Moderado';
+    }
+    const ratio = (Math.max(1, Math.min(s, Number(intensity) || 1)) - 1) / (s - 1 || 1);
+    if (ratio <= 1 / 3) return 'Suave';
+    if (ratio <= 2 / 3) return 'Moderado';
+    return 'Fuerte';
 }
 
 function readPatientRecords() {
@@ -812,7 +972,7 @@ function writePatientRecord(patientId, record) {
     fs.writeFileSync(recordsFile, JSON.stringify(normalizePatientRecord(record), null, 2), 'utf8');
 }
 
-function buildVisitMarkdown(visit = {}, patientName = '') {
+function buildVisitMarkdown(visit = {}, patientName = '', intensityScale = 3) {
     const L = [];
     const safe = (v) => (v === undefined || v === null) ? '' : String(v);
     const fmtDate = (d) => {
@@ -847,7 +1007,7 @@ function buildVisitMarkdown(visit = {}, patientName = '') {
         symptomKeys.forEach((name) => {
             const s = symptoms[name] || {};
             const note = safe(s.note).replace(/\r?\n/g, ' ').replace(/\|/g, '\\|').trim();
-            L.push(`| ${safe(name).replace(/\|/g, '\\|')} | ${safe(s.frequency) || '-'} | ${s.intensity ? safe(s.intensity) + '/3' : '-'} | ${note || '-'} |`);
+            L.push(`| ${safe(name).replace(/\|/g, '\\|')} | ${safe(s.frequency) || '-'} | ${s.intensity ? safe(s.intensity) + '/' + intensityScale : '-'} | ${note || '-'} |`);
         });
         L.push('');
     }
@@ -890,6 +1050,27 @@ function buildVisitMarkdown(visit = {}, patientName = '') {
             if (!formula) return;
             L.push(`- ${formula}${dosage ? ` — ${dosage}` : ''}`);
         });
+        L.push('');
+    }
+
+    const therapies = Array.isArray(visit.therapies) ? visit.therapies : [];
+    if (therapies.length > 0 || visit.therapyFrequency || visit.therapyCount || visit.therapyNoteTitle) {
+        L.push('## Terapias recomendadas');
+        L.push('');
+        if (visit.therapyCount) {
+            L.push(`**Cantidad de Terapias/Sesiones:** ${safe(visit.therapyCount)}  `);
+        }
+        if (visit.therapyFrequency) {
+            L.push(`**Frecuencia:** ${safe(visit.therapyFrequency)}  `);
+        }
+        if (visit.therapyNoteTitle && visit.therapyNoteBody) {
+            L.push(`**Anotación (${safe(visit.therapyNoteTitle)}):** ${safe(visit.therapyNoteBody)}  `);
+        }
+        if (therapies.length > 0) {
+            L.push('');
+            L.push('**Terapias seleccionadas:**');
+            therapies.forEach((t) => L.push(`- ${safe(t)}`));
+        }
         L.push('');
     }
 
@@ -943,7 +1124,8 @@ function writeVisitMarkdown(patientId, visit, patientName = '') {
                 try { fs.unlinkSync(stale); } catch { /* ignore */ }
             }
         }
-        fs.writeFileSync(join(patientDir, fileName), buildVisitMarkdown(visit, patientName), 'utf8');
+        const intensityScale = readPatientRecord(patientId).intensityScale || 3;
+        fs.writeFileSync(join(patientDir, fileName), buildVisitMarkdown(visit, patientName, intensityScale), 'utf8');
         return fileName;
     } catch (error) {
         console.error('Error writing visit markdown:', error.message);
@@ -1047,33 +1229,56 @@ async function callDeepSeek(messages, options = {}) {
         throw new Error('DeepSeek API Key missing');
     }
 
-    const response = await fetch(`${deepSeekBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-        },
-        body: JSON.stringify({
-            model: options.model || deepSeekDefaultModel,
-            messages,
-            stream: false,
-            ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
-        }),
-    });
+    const maxRetries = 2;
+    let lastError = null;
 
-    const data = await response.json().catch(() => null);
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            if (attempt > 0) {
+                console.warn(`[DeepSeek] Error in attempt ${attempt}/${maxRetries + 1}. Retrying in ${attempt}s... Error: ${lastError?.message || lastError}`);
+                await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+            }
 
-    if (!response.ok) {
-        const detail = data?.error?.message || data?.message || `HTTP ${response.status}`;
-        throw new Error(`DeepSeek Error: ${detail}`);
+            const response = await fetch(`${deepSeekBaseUrl}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+                },
+                body: JSON.stringify({
+                    model: options.model || deepSeekDefaultModel,
+                    messages,
+                    stream: false,
+                    ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
+                }),
+            });
+
+            const data = await response.json().catch(() => null);
+
+            if (!response.ok) {
+                const detail = data?.error?.message || data?.message || `HTTP ${response.status}`;
+                const err = new Error(`DeepSeek Error: ${detail}`);
+                err.status = response.status;
+                throw err;
+            }
+
+            const text = data?.choices?.[0]?.message?.content;
+            if (!text) {
+                throw new Error('DeepSeek no devolvió contenido');
+            }
+
+            return text;
+        } catch (error) {
+            lastError = error;
+            // Do not retry for non-retryable status codes (e.g. 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found)
+            // But retry for 429 Too Many Requests or network/5xx errors
+            if (error.status && error.status >= 400 && error.status < 500 && error.status !== 429) {
+                break;
+            }
+        }
     }
 
-    const text = data?.choices?.[0]?.message?.content;
-    if (!text) {
-        throw new Error('DeepSeek no devolvió contenido');
-    }
-
-    return text;
+    throw lastError || new Error('DeepSeek call failed after retries');
 }
 
 // Setup Gemini
@@ -1206,12 +1411,18 @@ app.get('/api/patients/recent-dashboard', authenticateToken, async (req, res) =>
 
         const patientDetails = await Promise.all(results.map(async (page) => {
             const props = page.properties;
-            const name = props["Nombre Completo "]?.title?.map(t => t.plain_text).join('') || "Sin Nombre";
-            const email = props["11. Correo"]?.rich_text?.map(t => t.plain_text).join('') || "";
-            const phone = props["2. Número de celular"]?.rich_text?.map(t => t.plain_text).join('') || "";
-            const notes = props["Notas"]?.rich_text?.map(t => t.plain_text).join('') || "";
+            const nameKey = findNotionPropertyKey(props, "Nombre Completo") || "Nombre Completo ";
+            const emailKey = findNotionPropertyKey(props, "11. Correo") || "11. Correo";
+            const phoneKey = findNotionPropertyKey(props, "2. Número de celular") || "2. Número de celular";
+            const notesKey = findNotionPropertyKey(props, "Notas") || "Notas";
+            const professionalKey = findNotionPropertyKey(props, PROFESSIONAL_PROPERTY) || PROFESSIONAL_PROPERTY;
+
+            const name = props[nameKey]?.title?.map(t => t.plain_text).join('') || "Sin Nombre";
+            const email = props[emailKey]?.rich_text?.map(t => t.plain_text).join('') || "";
+            const phone = props[phoneKey]?.rich_text?.map(t => t.plain_text).join('') || "";
+            const notes = props[notesKey]?.rich_text?.map(t => t.plain_text).join('') || "";
             const professionalFromNotes = notes.match(/Profesional Solicitado:\s*([^\n]+)/)?.[1]?.trim() || "";
-            const professional = props[PROFESSIONAL_PROPERTY]?.multi_select?.map(option => option.name).join(', ') || professionalFromNotes;
+            const professional = props[professionalKey]?.multi_select?.map(option => option.name).join(', ') || professionalFromNotes;
             
             const dosha = notes.match(/- Dosha: (.*)/)?.[1] || "No det.";
 
@@ -1328,21 +1539,11 @@ app.get('/api/patients/search', authenticateToken, async (req, res) => {
             ]
         };
 
-        if (query) {
-            payload.filter = {
-                and: [
-                    krishnaFilter,
-                    {
-                        property: "Nombre Completo ",
-                        title: {
-                            contains: query
-                        }
-                    }
-                ]
-            };
-        } else {
-            payload.filter = krishnaFilter;
-        }
+        // Note: we intentionally do NOT push the name filter to Notion here.
+        // Notion's `contains` filter is accent-sensitive, so a search for
+        // "garcia" would miss "García". Instead we fetch all of Krishna's
+        // patients and filter accent-insensitively below.
+        payload.filter = krishnaFilter;
 
         const results = [];
         let nextCursor = undefined;
@@ -1373,15 +1574,21 @@ app.get('/api/patients/search', authenticateToken, async (req, res) => {
 
         const filteredResults = results;
 
-        const patients = filteredResults.map(page => {
+        let patients = filteredResults.map(page => {
             const props = page.properties;
+            const nameKey = findNotionPropertyKey(props, "Nombre Completo") || "Nombre Completo ";
+            const emailKey = findNotionPropertyKey(props, "11. Correo") || "11. Correo";
+            const phoneKey = findNotionPropertyKey(props, "2. Número de celular") || "2. Número de celular";
+            const notesKey = findNotionPropertyKey(props, "Notas") || "Notas";
+            const professionalKey = findNotionPropertyKey(props, PROFESSIONAL_PROPERTY) || PROFESSIONAL_PROPERTY;
+
             // Safely extract name
-            const name = props["Nombre Completo "]?.title?.map(t => t.plain_text).join('') || "Sin Nombre";
-            const email = props["11. Correo"]?.rich_text?.map(t => t.plain_text).join('') || "";
-            const phone = props["2. Número de celular"]?.rich_text?.map(t => t.plain_text).join('') || "";
-            const notes = props["Notas"]?.rich_text?.map(t => t.plain_text).join('') || "";
+            const name = props[nameKey]?.title?.map(t => t.plain_text).join('') || "Sin Nombre";
+            const email = props[emailKey]?.rich_text?.map(t => t.plain_text).join('') || "";
+            const phone = props[phoneKey]?.rich_text?.map(t => t.plain_text).join('') || "";
+            const notes = props[notesKey]?.rich_text?.map(t => t.plain_text).join('') || "";
             const professionalFromNotes = notes.match(/Profesional Solicitado:\s*([^\n]+)/)?.[1]?.trim() || "";
-            const professional = props[PROFESSIONAL_PROPERTY]?.multi_select?.map(option => option.name).join(', ') || professionalFromNotes;
+            const professional = props[professionalKey]?.multi_select?.map(option => option.name).join(', ') || professionalFromNotes;
 
             return {
                 id: page.id,
@@ -1393,6 +1600,11 @@ app.get('/api/patients/search', authenticateToken, async (req, res) => {
                 lastEdited: page.last_edited_time
             };
         });
+
+        if (query) {
+            const normalizedQuery = normalizeForSearch(query);
+            patients = patients.filter(p => normalizeForSearch(p.name).includes(normalizedQuery));
+        }
 
         res.json({ success: true, results: patients });
     } catch (error) {
@@ -1408,57 +1620,66 @@ app.get('/api/patients/:id', authenticateToken, async (req, res) => {
         const page = await notion.pages.retrieve({ page_id: id });
         const props = page.properties;
 
+        const getProp = (namePattern) => {
+            const actualKey = findNotionPropertyKey(props, namePattern);
+            return actualKey ? props[actualKey] : undefined;
+        };
+
         // Parse relevant fields to map back to frontend state
-        const name = props["Nombre Completo "]?.title?.map(t => t.plain_text).join('') || "";
-        const fullNotes = props["Notas"]?.rich_text?.map(t => t.plain_text).join('') || "";
-        const email = props["11. Correo"]?.rich_text?.map(t => t.plain_text).join('').trim() || "";
+        const name = getProp("Nombre Completo")?.title?.map(t => t.plain_text).join('') || "";
+        const fullNotes = getProp("Notas")?.rich_text?.map(t => t.plain_text).join('') || "";
+        const email = getProp("11. Correo")?.rich_text?.map(t => t.plain_text).join('').trim() || "";
 
         // Extract Dosha from notes summary
         const dosha = fullNotes.match(/- Dosha: (.*)/)?.[1] || "";
 
         // Parse symptom calibrations from notes
         const symptomCalibrations = [];
-        const calMatch = fullNotes.match(/\*\*Calibración de Síntomas\*\*\n([\s\S]*?)(?=\n\*\*|$)/);
+        const calMatch = fullNotes.match(/\*\*Calibración de Síntomas:?\*\*:?\n([\s\S]*?)(?=\n\*\*|$)/);
         if (calMatch) {
             const lines = calMatch[1].trim().split('\n');
             for (const line of lines) {
-                const m = line.match(/^- (.+?) → Frecuencia: (Diaria|Semanal|Mensual), Intensidad: (\d) \((.+?)\)/);
+                const m = line.match(/^- (.+?) → Frecuencia: (Diaria|Semanal|Mensual), Intensidad: (\d+) \((.+?)\)(?: \| Nota: (.*))?$/);
                 if (m) {
                     symptomCalibrations.push({
                         symptom: m[1],
                         frequency: m[2],
                         intensity: parseInt(m[3]),
-                        intensityLabel: m[4]
+                        intensityLabel: m[4],
+                        note: m[5] || undefined
                     });
                 }
             }
         }
 
         // Extract plain symptoms from notes
-        const symptomsMatch = fullNotes.match(/\*\*Síntomas\*\*\n([\s\S]*?)(?=\n\*\*|$)/);
+        const symptomsMatch = fullNotes.match(/\*\*Síntomas:?\*\*:?\n([\s\S]*?)(?=\n\*\*|$)/);
         let plainSymptoms = [];
         if (symptomsMatch) {
             plainSymptoms = symptomsMatch[1].trim().split('\n').map(l => l.replace(/^- /, '').trim()).filter(Boolean);
         }
 
         // ── Helpers for property extraction ─────────────────────────────────────
-        const extractText = (key) => props[key]?.rich_text?.map(t => t.plain_text).join('').trim() || "";
-        const extractMultiSelect = (key) => props[key]?.multi_select?.map(o => o.name).join(', ') || "";
-        const extractNumber = (key) => props[key]?.number != null ? String(props[key].number) : "";
+        const extractText = (key) => getProp(key)?.rich_text?.map(t => t.plain_text).join('').trim() || "";
+        const extractMultiSelect = (key) => getProp(key)?.multi_select?.map(o => o.name).join(', ') || "";
+        const extractNumber = (key) => {
+            const prop = getProp(key);
+            return prop?.number != null ? String(prop.number) : "";
+        };
 
         // ── Phone: try multiple possible field names ──────────────────────────────
         const phone =
             extractText("2. Número de celular") ||
-            props["2. Número de celula"]?.phone_number ||
-            props["teléfono "]?.phone_number ||
-            props["Phone"]?.phone_number ||
+            getProp("2. Número de celula")?.phone_number ||
+            getProp("teléfono ")?.phone_number ||
+            getProp("Phone")?.phone_number ||
             extractText("Celular (whastapp)") ||
             "";
 
         // ── Email fallback from typed email property ───────────────────────────
         const emailFull =
             email ||
-            props["Email 1"]?.email ||
+            getProp("Email 1")?.email ||
             extractText("Correo Electronico") ||
             extractText("11. Correo electrónico") ||
             "";
@@ -1481,7 +1702,7 @@ app.get('/api/patients/:id', authenticateToken, async (req, res) => {
         );
 
         // ── Síntomas (agregar a clinicalData además de plainSymptoms) ─────────
-        const symptomsFromProps = extractMultiSelect("18. Síntomas  (Selecciona los síntomas que tengas en este momento)");
+        const symptomsFromProps = extractMultiSelect("18. Síntomas");
         if (symptomsFromProps && plainSymptoms.length === 0) {
             plainSymptoms = symptomsFromProps.split(', ').filter(Boolean);
         }
@@ -1676,6 +1897,8 @@ app.get('/api/patients/:id', authenticateToken, async (req, res) => {
             .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
         const contextDocuments = [...(localRecord.contextDocuments || [])]
             .sort((a, b) => new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0));
+        const aiDiagnoses = [...(localRecord.aiDiagnoses || [])]
+            .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
         res.json({
             success: true,
@@ -1689,12 +1912,14 @@ app.get('/api/patients/:id', authenticateToken, async (req, res) => {
                 fullNotes,
                 symptomCalibrations,
                 plainSymptoms,
+                intensityScale: localRecord.intensityScale || 3,
                 clinicalData,
                 visits,
                 treatmentPlans,
                 tonguePhotos,
                 pulseReadings,
                 contextDocuments,
+                aiDiagnoses,
                 createdAt: page.created_time
             }
         });
@@ -1708,12 +1933,41 @@ app.get('/api/patients/:id', authenticateToken, async (req, res) => {
 app.patch('/api/patients/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, age, email, phone, dosha, symptomCalibrations, plainSymptoms } = req.body;
+        const { name, age, email, phone, dosha, symptomCalibrations, plainSymptoms, intensityScale } = req.body;
+
+        // ── Escala de intensidad (por paciente) ─────────────────────────────
+        // Si el doctor cambió la escala (3 <-> 10), se persiste en el registro local
+        // y se reescala automáticamente el historial de síntomas de todas las
+        // visitas guardadas, para que las gráficas de evolución sigan siendo
+        // comparables (frecuencia x intensidad) antes y después del cambio.
+        let currentIntensityScale = 3;
+        if (intensityScale !== undefined && [3, 10].includes(Number(intensityScale))) {
+            const newScale = Number(intensityScale);
+            const localRecord = readPatientRecord(id);
+            const oldScale = localRecord.intensityScale || 3;
+            if (oldScale !== newScale) {
+                localRecord.visits = (localRecord.visits || []).map(visit => ({
+                    ...visit,
+                    symptoms: Object.fromEntries(
+                        Object.entries(visit.symptoms || {}).map(([symptomName, s]) => [
+                            symptomName,
+                            { ...s, intensity: convertIntensityScale(s.intensity, oldScale, newScale) }
+                        ])
+                    )
+                }));
+            }
+            localRecord.intensityScale = newScale;
+            writePatientRecord(id, localRecord);
+            currentIntensityScale = newScale;
+        } else {
+            currentIntensityScale = readPatientRecord(id).intensityScale || 3;
+        }
 
         // Retrieve existing Notion page to merge or get raw notes
         const page = await notion.pages.retrieve({ page_id: id });
         const props = page.properties;
-        const currentNotes = props["Notas"]?.rich_text?.map(t => t.plain_text).join('') || "";
+        const currentNotesKey = findNotionPropertyKey(props, "Notas") || "Notas";
+        const currentNotes = props[currentNotesKey]?.rich_text?.map(t => t.plain_text).join('') || "";
 
         let newNotes = currentNotes;
 
@@ -1747,16 +2001,18 @@ app.patch('/api/patients/:id', authenticateToken, async (req, res) => {
 
         // 3. Update Calibración de Síntomas in newNotes
         if (symptomCalibrations !== undefined && Array.isArray(symptomCalibrations)) {
-            const intensityLabels = { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' };
             let calibrationsText = `**Calibración de Síntomas**\n`;
             symptomCalibrations.forEach(sc => {
-                const label = sc.intensityLabel || intensityLabels[sc.intensity] || 'Moderado';
-                calibrationsText += `- ${sc.symptom} → Frecuencia: ${sc.frequency}, Intensidad: ${sc.intensity} (${label})\n`;
+                const label = sc.intensityLabel || getIntensityLabel(sc.intensity, currentIntensityScale);
+                const noteSuffix = sc.note && String(sc.note).trim()
+                    ? ` | Nota: ${String(sc.note).replace(/\r?\n/g, ' ').trim()}`
+                    : '';
+                calibrationsText += `- ${sc.symptom} → Frecuencia: ${sc.frequency}, Intensidad: ${sc.intensity} (${label})${noteSuffix}\n`;
             });
 
-            const calMatch = newNotes.match(/\*\*Calibración de Síntomas\*\*\n([\s\S]*?)(?=\n\*\*|$)/);
+            const calMatch = newNotes.match(/\*\*Calibración de Síntomas:?\*\*:?\n([\s\S]*?)(?=\n\*\*|$)/);
             if (calMatch) {
-                newNotes = newNotes.replace(/\*\*Calibración de Síntomas\*\*\n([\s\S]*?)(?=\n\*\*|$)/, calibrationsText);
+                newNotes = newNotes.replace(/\*\*Calibración de Síntomas:?\*\*:?\n([\s\S]*?)(?=\n\*\*|$)/, calibrationsText);
             } else {
                 newNotes = newNotes.trim() + `\n\n` + calibrationsText;
             }
@@ -1769,9 +2025,9 @@ app.patch('/api/patients/:id', authenticateToken, async (req, res) => {
                 plainSymptomsText += `- ${s}\n`;
             });
 
-            const symptomsMatch = newNotes.match(/\*\*Síntomas\*\*\n([\s\S]*?)(?=\n\*\*|$)/);
+            const symptomsMatch = newNotes.match(/\*\*Síntomas:?\*\*:?\n([\s\S]*?)(?=\n\*\*|$)/);
             if (symptomsMatch) {
-                newNotes = newNotes.replace(/\*\*Síntomas\*\*\n([\s\S]*?)(?=\n\*\*|$)/, plainSymptomsText);
+                newNotes = newNotes.replace(/\*\*Síntomas:?\*\*:?\n([\s\S]*?)(?=\n\*\*|$)/, plainSymptomsText);
             } else {
                 newNotes = newNotes.trim() + `\n\n` + plainSymptomsText;
             }
@@ -1780,45 +2036,46 @@ app.patch('/api/patients/:id', authenticateToken, async (req, res) => {
         // 5. Update Notion page properties dynamically
         const propertiesToUpdate = {};
 
-        if (name !== undefined && props["Nombre Completo "]) {
-            propertiesToUpdate["Nombre Completo "] = {
+        const nameKey = findNotionPropertyKey(props, "Nombre Completo");
+        if (name !== undefined && nameKey) {
+            propertiesToUpdate[nameKey] = {
                 title: [{ text: { content: name } }]
             };
         }
-        if (email !== undefined && props["11. Correo"]) {
-            propertiesToUpdate["11. Correo"] = {
+        const emailKey = findNotionPropertyKey(props, "11. Correo")
+            || findNotionPropertyKey(props, "11. Correo electrónico")
+            || findNotionPropertyKey(props, "Correo Electronico");
+        if (email !== undefined && emailKey && props[emailKey]?.type === 'rich_text') {
+            propertiesToUpdate[emailKey] = {
                 rich_text: [{ text: { content: email } }]
             };
         }
-        if (phone !== undefined && props["2. Número de celular"]) {
-            propertiesToUpdate["2. Número de celular"] = {
+        const phoneKey = findNotionPropertyKey(props, "2. Número de celular") || findNotionPropertyKey(props, "Celular (whastapp)") || findNotionPropertyKey(props, "teléfono") || findNotionPropertyKey(props, "Phone");
+        if (phone !== undefined && phoneKey) {
+            propertiesToUpdate[phoneKey] = {
                 rich_text: [{ text: { content: phone } }]
             };
         }
-        if (plainSymptoms !== undefined && props["18. Síntomas  (Selecciona los síntomas que tengas en este momento)"]) {
-            propertiesToUpdate["18. Síntomas  (Selecciona los síntomas que tengas en este momento)"] = {
+        const symptomsKey = findNotionPropertyKey(props, "18. Síntomas");
+        if (plainSymptoms !== undefined && symptomsKey) {
+            propertiesToUpdate[symptomsKey] = {
                 multi_select: plainSymptoms.map(s => ({ name: s }))
             };
         }
-        if (age !== undefined) {
-            if (props["10. Edad (1)"]) {
-                propertiesToUpdate["10. Edad (1)"] = {
+        const ageKey = findNotionPropertyKey(props, "10. Edad (1)") || findNotionPropertyKey(props, "Edad");
+        if (age !== undefined && ageKey) {
+            if (props[ageKey].type === 'number') {
+                propertiesToUpdate[ageKey] = {
+                    number: Number(age) || null
+                };
+            } else {
+                propertiesToUpdate[ageKey] = {
                     rich_text: [{ text: { content: String(age) } }]
                 };
-            } else if (props["Edad"]) {
-                if (props["Edad"].type === 'number') {
-                    propertiesToUpdate["Edad"] = {
-                        number: Number(age) || null
-                    };
-                } else {
-                    propertiesToUpdate["Edad"] = {
-                        rich_text: [{ text: { content: String(age) } }]
-                    };
-                }
             }
         }
-        if (props["Notas"]) {
-            propertiesToUpdate["Notas"] = {
+        if (currentNotesKey) {
+            propertiesToUpdate[currentNotesKey] = {
                 rich_text: (newNotes.match(/[\s\S]{1,2000}/g) || [""]).map(chunk => ({ text: { content: chunk } }))
             };
         }
@@ -2270,7 +2527,13 @@ app.post('/api/patients/:id/visits', authenticateToken, async (req, res) => {
             showHealthyEatingGuide = true,
             healthyEatingGuide = '',
             healthyEatingHabits = [],
-            tongue = ''
+            therapies = [],
+            showTherapiesSection = false,
+            tongue = '',
+            therapyFrequency = '',
+            therapyCount = '',
+            therapyNoteTitle = '',
+            therapyNoteBody = ''
         } = req.body;
 
         if (!date) {
@@ -2307,7 +2570,13 @@ app.post('/api/patients/:id/visits', authenticateToken, async (req, res) => {
             showHealthyEatingGuide,
             healthyEatingGuide,
             healthyEatingHabits,
+            therapies,
+            showTherapiesSection,
             tongue,
+            therapyFrequency,
+            therapyCount,
+            therapyNoteTitle,
+            therapyNoteBody,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         };
@@ -2341,7 +2610,8 @@ app.patch('/api/patients/:id/visits/:visitId', authenticateToken, async (req, re
             'patientDiagnosis', 'patientTreatment', 'patientLifestyle', 'dosha', 'symptoms',
             'cerealGuidance', 'cerealRecipe', 'herbs', 'categories', 'recipes',
             'adherence', 'subtitle', 'pdfFontSize', 'isFollowUp', 'visitNumber', 'showLifestylePage',
-            'showDigestiveRecoveryPage', 'showDiagnosis', 'showHealthyEatingGuide', 'healthyEatingGuide', 'healthyEatingHabits', 'tongue'
+            'showDigestiveRecoveryPage', 'showDiagnosis', 'showHealthyEatingGuide', 'healthyEatingGuide', 'healthyEatingHabits', 'therapies', 'showTherapiesSection', 'tongue',
+            'therapyFrequency', 'therapyCount', 'therapyNoteTitle', 'therapyNoteBody'
         ];
         const updates = {};
         for (const field of allowedFields) {
@@ -2437,7 +2707,13 @@ app.post('/api/patients/:id/treatment-plans', authenticateToken, async (req, res
             showHealthyEatingGuide = true,
             healthyEatingGuide = '',
             healthyEatingHabits = [],
-            tongue = ''
+            therapies = [],
+            showTherapiesSection = false,
+            tongue = '',
+            therapyFrequency = '',
+            therapyCount = '',
+            therapyNoteTitle = '',
+            therapyNoteBody = ''
         } = req.body;
 
         if (!diagnosis && !treatment && !lifestyle) {
@@ -2473,7 +2749,13 @@ app.post('/api/patients/:id/treatment-plans', authenticateToken, async (req, res
             showHealthyEatingGuide,
             healthyEatingGuide,
             healthyEatingHabits,
+            therapies,
+            showTherapiesSection,
             tongue,
+            therapyFrequency,
+            therapyCount,
+            therapyNoteTitle,
+            therapyNoteBody,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         };
@@ -2504,7 +2786,8 @@ app.patch('/api/patients/:id/treatment-plans/:planId', authenticateToken, async 
             'patientDiagnosis', 'patientTreatment', 'patientLifestyle', 'cerealGuidance',
             'cerealRecipe', 'dosha', 'herbs', 'categories', 'recipes', 'adherence', 'subtitle',
             'pdfFontSize', 'isFollowUp', 'visitNumber', 'showLifestylePage',
-            'showDigestiveRecoveryPage', 'showDiagnosis', 'showHealthyEatingGuide', 'healthyEatingGuide', 'healthyEatingHabits', 'tongue'
+            'showDigestiveRecoveryPage', 'showDiagnosis', 'showHealthyEatingGuide', 'healthyEatingGuide', 'healthyEatingHabits', 'therapies', 'showTherapiesSection', 'tongue',
+            'therapyFrequency', 'therapyCount', 'therapyNoteTitle', 'therapyNoteBody'
         ];
         const updates = {};
         for (const field of allowedFields) {
@@ -2601,20 +2884,27 @@ app.post('/api/ai/diagnose', authenticateToken, async (req, res) => {
         const manualDoshaRaw = String(patient?.dosha || '').trim();
         const manualDosha = normalizeDoshaValue(manualDoshaRaw);
 
-        let diagnosisContext = buildClinicalContext(patient, patientData);
+        // Mergear con los datos locales más recientes de records.json en el servidor
+        let mergedPatient = { ...patient };
+        if (patient && patient.id) {
+            try {
+                const localRecord = readPatientRecord(patient.id);
+                mergedPatient.visits = localRecord.visits || patient.visits || [];
+                mergedPatient.treatmentPlans = localRecord.treatmentPlans || patient.treatmentPlans || [];
+                mergedPatient.pulseReadings = localRecord.pulseReadings || patient.pulseReadings || [];
+                mergedPatient.contextDocuments = localRecord.contextDocuments || patient.contextDocuments || [];
+                mergedPatient.aiDiagnoses = localRecord.aiDiagnoses || patient.aiDiagnoses || [];
+                mergedPatient.intensityScale = localRecord.intensityScale || patient.intensityScale || 3;
+            } catch (err) {
+                console.error('[Diagnose] Error merging patient record from disk:', err);
+            }
+        }
+
+        let diagnosisContext = buildClinicalContext(mergedPatient, patientData);
 
         if (!diagnosisContext || diagnosisContext.trim().length === 0) {
             console.error('No patient data provided for diagnosis');
             return res.json({ success: false, error: 'No hay suficientes datos del paciente para generar un diagnóstico.' });
-        }
-
-        // Adjuntar los documentos de contexto subidos por el profesional para este paciente.
-        if (patient && patient.id) {
-            const contextDocs = readPatientContextDocuments(patient.id);
-            if (contextDocs && contextDocs.trim()) {
-                diagnosisContext += `\n\n**Documentos de contexto aportados por el profesional:**\n${contextDocs}\n`;
-                console.log(`[Diagnose] Incluidos documentos de contexto (${contextDocs.length} chars) para paciente ${patient.id}`);
-            }
         }
 
         console.log(`Generating diagnosis with ${aiProvider} for context length:`, diagnosisContext.length);
@@ -2622,7 +2912,12 @@ app.post('/api/ai/diagnose', authenticateToken, async (req, res) => {
 
         const prompt = `
             Actúa como un Consultor Senior de Ayurveda.
-            Basado en la siguiente información de la ficha de ingreso y en la bibliografía RAW proporcionada por VEDAMCI, determina su Dosha predominante y proporciona un diagnóstico ayurvédico detallado, claro, bien estructurado y útil para orientar el tratamiento.
+            Basado en la información de la ficha de ingreso, los documentos de contexto subidos por el profesional (archivos de texto/historiales externos si los hay), el historial completo de visitas y planes de tratamiento del paciente, y en la bibliografía RAW proporcionada por VEDAMCI, determina su Dosha predominante y proporciona un diagnóstico ayurvédico detallado, claro, bien estructurado y útil para orientar el tratamiento.
+            
+            INSTRUCCIÓN CRÍTICA DE CONTEXTO:
+            - Debes analizar minuciosamente TODO el historial del paciente provisto abajo (visitas anteriores, planes terapéuticos anteriores, lecturas de pulso y evolución).
+            - Si el profesional ha aportado "Documentos de contexto aportados por el profesional", debes usar esa información de forma prioritaria, ya que contiene detalles clave sobre la evolución, reportes o el estado actual del paciente.
+            
             Usa la bibliografía RAW como marco doctrinal principal. Si la ficha y la bibliografía no sostienen una afirmación, dilo como hipótesis clínica o como dato por confirmar.
 
             REGLA CRÍTICA DE NO TECNICISMO (PROHIBIDO SÁNSCRITO COMPLEJO):
@@ -2640,7 +2935,8 @@ app.post('/api/ai/diagnose', authenticateToken, async (req, res) => {
             ESTRUCTURA OBLIGATORIA DEL INFORME:
 
             ## Resumen del caso
-            Escribe 2 a 4 frases cálidas y precisas. Resume el patrón principal que observas y la prioridad clínica inicial.
+            Escribe 2 a 4 frases cálidas, clínicas y precisas. Enfócate en el diagnóstico: síntomas principales, enfermedades o antecedentes relevantes, patrón dosha/desequilibrio observado y prioridad clínica inicial.
+            No incluyas datos biográficos o administrativos como profesión, ocupación, estado civil, ciudad, escolaridad o rasgos personales si no cambian directamente la interpretación clínica. La edad sólo debe aparecer si aporta contexto diagnóstico real.
 
             ## Dosha predominante y desequilibrio actual
             - **Constitución o tendencia principal:** explica el dosha detectado.
@@ -2687,6 +2983,7 @@ app.post('/api/ai/diagnose', authenticateToken, async (req, res) => {
             - Responde en español.
             - Sé detallado, pero no rellenes con generalidades.
             - Personaliza cada sección con datos de la ficha.
+            - Usa sólo datos clínicamente relevantes. No conviertas datos biográficos secundarios en parte del resumen ni en adornos narrativos.
             - Fundamenta el razonamiento en los fragmentos de Bibliografía RAW cuando existan y menciona entre paréntesis el archivo fuente de forma breve cuando sea útil.
             - Si falta información, dilo como "no se reporta" o "conviene confirmar en consulta".
             - No recomiendes hierbas, dosis ni tratamientos invasivos en este diagnóstico; eso pertenece al plan de tratamiento.
@@ -2735,7 +3032,8 @@ app.post('/api/ai/diagnose', authenticateToken, async (req, res) => {
             try {
                 const patientId = patient.id;
                 const page = await notion.pages.retrieve({ page_id: patientId });
-                const currentNotes = page.properties["Notas"]?.rich_text?.map(t => t.plain_text).join('') || "";
+                const notesKey = findNotionPropertyKey(page.properties, "Notas") || "Notas";
+                const currentNotes = page.properties[notesKey]?.rich_text?.map(t => t.plain_text).join('') || "";
 
                 let newNotes = currentNotes;
                 if (newNotes.match(/- Dosha: (.*)/)) {
@@ -2752,7 +3050,7 @@ app.post('/api/ai/diagnose', authenticateToken, async (req, res) => {
                 await notion.pages.update({
                     page_id: patientId,
                     properties: {
-                        "Notas": {
+                        [notesKey]: {
                             rich_text: newNotes.match(/[\s\S]{1,2000}/g).map(chunk => ({ text: { content: chunk } }))
                         }
                     }
@@ -2763,9 +3061,52 @@ app.post('/api/ai/diagnose', authenticateToken, async (req, res) => {
             }
         }
 
-        res.json({ success: true, diagnosis: cleanText, dosha: matchedDosha });
+        // Guardar automáticamente el diagnóstico generado en el historial del paciente.
+        let savedAiDiagnosis = null;
+        if (patient && patient.id) {
+            try {
+                const patientRecord = readPatientRecord(patient.id, patient.name || '');
+                savedAiDiagnosis = {
+                    id: crypto.randomUUID(),
+                    diagnosis: cleanText,
+                    dosha: matchedDosha || '',
+                    provider: aiProvider,
+                    model: aiProvider === 'deepseek' ? (model || '') : 'gemini-2.5-flash',
+                    createdAt: new Date().toISOString()
+                };
+                patientRecord.aiDiagnoses = [savedAiDiagnosis, ...(patientRecord.aiDiagnoses || [])];
+                writePatientRecord(patient.id, patientRecord);
+                console.log(`[Diagnose] Diagnóstico IA guardado en historial del paciente ${patient.id}`);
+            } catch (saveError) {
+                console.error('[Diagnose] Error guardando diagnóstico en historial:', saveError.message);
+            }
+        }
+
+        res.json({ success: true, diagnosis: cleanText, dosha: matchedDosha, savedAiDiagnosis });
     } catch (error) {
         console.error('AI Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete an AI diagnosis from patient history
+app.delete('/api/patients/:id/ai-diagnoses/:diagnosisId', authenticateToken, async (req, res) => {
+    try {
+        const { id, diagnosisId } = req.params;
+        const patientRecord = readPatientRecord(id);
+        const aiDiagnoses = Array.isArray(patientRecord.aiDiagnoses) ? patientRecord.aiDiagnoses : [];
+        const entry = aiDiagnoses.find(item => item.id === diagnosisId);
+
+        if (!entry) {
+            return res.status(404).json({ error: 'Diagnóstico no encontrado.' });
+        }
+
+        patientRecord.aiDiagnoses = aiDiagnoses.filter(item => item.id !== diagnosisId);
+        writePatientRecord(id, patientRecord);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting AI diagnosis:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
@@ -2776,7 +3117,23 @@ app.post('/api/ai/chat', authenticateToken, async (req, res) => {
         const { message, context, patient, provider = 'deepseek', history = [], model, chatType = 'diagnosis', currentDiagnosis, currentTreatment } = req.body;
         const aiProvider = provider === 'gemini' ? 'gemini' : 'deepseek';
 
-        const patientContext = buildClinicalContext(patient, context);
+        // Mergear con los datos locales más recientes de records.json en el servidor
+        let mergedPatient = { ...patient };
+        if (patient && patient.id) {
+            try {
+                const localRecord = readPatientRecord(patient.id);
+                mergedPatient.visits = localRecord.visits || patient.visits || [];
+                mergedPatient.treatmentPlans = localRecord.treatmentPlans || patient.treatmentPlans || [];
+                mergedPatient.pulseReadings = localRecord.pulseReadings || patient.pulseReadings || [];
+                mergedPatient.contextDocuments = localRecord.contextDocuments || patient.contextDocuments || [];
+                mergedPatient.aiDiagnoses = localRecord.aiDiagnoses || patient.aiDiagnoses || [];
+                mergedPatient.intensityScale = localRecord.intensityScale || patient.intensityScale || 3;
+            } catch (err) {
+                console.error('[AI Chat] Error merging patient record from disk:', err);
+            }
+        }
+
+        const patientContext = buildClinicalContext(mergedPatient, context);
 
         let systemPrompt = '';
         if (chatType === 'treatment') {
@@ -3046,29 +3403,201 @@ app.post('/api/lifestyles/update', authenticateToken, (req, res) => {
     }
 });
 
-// Update a recipe definition
+// Get the catalog of healthy-eating habit templates
+app.get('/api/healthy-habits', authenticateToken, (req, res) => {
+    try {
+        const habitsPath = join(__dirname, '../src/data/healthy-eating-habits.json');
+        let habitsList = [];
+        if (fs.existsSync(habitsPath)) {
+            habitsList = JSON.parse(fs.readFileSync(habitsPath, 'utf8') || '[]');
+        }
+        res.json({ success: true, habits: habitsList });
+    } catch (error) {
+        console.error('Error getting healthy-eating habits:', error);
+        res.status(500).json({ error: 'Error al obtener la base de datos de hábitos saludables.' });
+    }
+});
+
+// Create or update a healthy-eating habit template
+app.post('/api/healthy-habits/update', authenticateToken, (req, res) => {
+    try {
+        const { name, text, originalName } = req.body;
+        if (!name || !text) {
+            return res.status(400).json({ error: 'El nombre y texto del hábito son requeridos.' });
+        }
+
+        const habitsPath = join(__dirname, '../src/data/healthy-eating-habits.json');
+        let habitsList = [];
+        if (fs.existsSync(habitsPath)) {
+            habitsList = JSON.parse(fs.readFileSync(habitsPath, 'utf8') || '[]');
+        }
+
+        // Match by originalName (when renaming) or by name.
+        const lookup = (originalName || name).toLowerCase();
+        const existingIdx = habitsList.findIndex(h => h.name.toLowerCase() === lookup);
+        const updatedHabit = { name, text };
+
+        if (existingIdx >= 0) {
+            habitsList[existingIdx] = updatedHabit;
+        } else {
+            habitsList.push(updatedHabit);
+        }
+
+        fs.writeFileSync(habitsPath, JSON.stringify(habitsList, null, 2), 'utf8');
+
+        res.json({ success: true, message: 'Hábito guardado exitosamente.', habit: updatedHabit, habits: habitsList });
+    } catch (error) {
+        console.error('Error updating healthy-eating habit:', error);
+        res.status(500).json({ error: 'Error al actualizar la base de datos de hábitos saludables.' });
+    }
+});
+
+// Delete a healthy-eating habit template
+app.post('/api/healthy-habits/delete', authenticateToken, (req, res) => {
+    try {
+        const { name } = req.body;
+        if (!name) {
+            return res.status(400).json({ error: 'El nombre del hábito es requerido.' });
+        }
+
+        const habitsPath = join(__dirname, '../src/data/healthy-eating-habits.json');
+        let habitsList = [];
+        if (fs.existsSync(habitsPath)) {
+            habitsList = JSON.parse(fs.readFileSync(habitsPath, 'utf8') || '[]');
+        }
+
+        const filtered = habitsList.filter(h => h.name.toLowerCase() !== name.toLowerCase());
+        fs.writeFileSync(habitsPath, JSON.stringify(filtered, null, 2), 'utf8');
+
+        res.json({ success: true, message: 'Hábito eliminado exitosamente.', habits: filtered });
+    } catch (error) {
+        console.error('Error deleting healthy-eating habit:', error);
+        res.status(500).json({ error: 'Error al eliminar el hábito saludable.' });
+    }
+});
+
+// ============ Terapias (catálogo editable, src/data/therapies.json) ============
+
+// Get the catalog of therapy templates
+app.get('/api/therapies', authenticateToken, (req, res) => {
+    try {
+        const therapiesPath = join(__dirname, '../src/data/therapies.json');
+        let therapiesList = [];
+        if (fs.existsSync(therapiesPath)) {
+            therapiesList = JSON.parse(fs.readFileSync(therapiesPath, 'utf8') || '[]');
+        }
+        res.json({ success: true, therapies: therapiesList });
+    } catch (error) {
+        console.error('Error getting therapies:', error);
+        res.status(500).json({ error: 'Error al obtener la base de datos de terapias.' });
+    }
+});
+
+// Create or update a therapy template
+app.post('/api/therapies/update', authenticateToken, (req, res) => {
+    try {
+        const { id, name, emoji = '', text, originalId } = req.body;
+        if (!name || !text) {
+            return res.status(400).json({ error: 'El nombre y texto de la terapia son requeridos.' });
+        }
+
+        const therapiesPath = join(__dirname, '../src/data/therapies.json');
+        let therapiesList = [];
+        if (fs.existsSync(therapiesPath)) {
+            therapiesList = JSON.parse(fs.readFileSync(therapiesPath, 'utf8') || '[]');
+        }
+
+        const slug = (id || name).toString().trim().toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        const lookup = (originalId || slug).toLowerCase();
+        const existingIdx = therapiesList.findIndex(t => (t.id || '').toLowerCase() === lookup);
+        const updatedTherapy = { id: slug, name, emoji, text };
+
+        if (existingIdx >= 0) {
+            therapiesList[existingIdx] = updatedTherapy;
+        } else {
+            therapiesList.push(updatedTherapy);
+        }
+
+        fs.writeFileSync(therapiesPath, JSON.stringify(therapiesList, null, 2), 'utf8');
+
+        res.json({ success: true, message: 'Terapia guardada exitosamente.', therapy: updatedTherapy, therapies: therapiesList });
+    } catch (error) {
+        console.error('Error updating therapy:', error);
+        res.status(500).json({ error: 'Error al actualizar la base de datos de terapias.' });
+    }
+});
+
+// Delete a therapy template
+app.post('/api/therapies/delete', authenticateToken, (req, res) => {
+    try {
+        const { id } = req.body;
+        if (!id) {
+            return res.status(400).json({ error: 'El ID de la terapia es requerido.' });
+        }
+
+        const therapiesPath = join(__dirname, '../src/data/therapies.json');
+        let therapiesList = [];
+        if (fs.existsSync(therapiesPath)) {
+            therapiesList = JSON.parse(fs.readFileSync(therapiesPath, 'utf8') || '[]');
+        }
+
+        const filtered = therapiesList.filter(t => (t.id || '').toLowerCase() !== id.toLowerCase());
+        fs.writeFileSync(therapiesPath, JSON.stringify(filtered, null, 2), 'utf8');
+
+        res.json({ success: true, message: 'Terapia eliminada exitosamente.', therapies: filtered });
+    } catch (error) {
+        console.error('Error deleting therapy:', error);
+        res.status(500).json({ error: 'Error al eliminar la terapia.' });
+    }
+});
+
+// Create or update a recipe definition. Recipes with an id not yet present in
+// the database are created — this is how manually-added recipes from the
+// treatment editor get saved into the "Recetas Propias" category so they can
+// be reused for future patients.
 app.post('/api/recipes/update', authenticateToken, (req, res) => {
     try {
-        const { id, title, text } = req.body;
+        const { id, title, text, category, doshas, vata_effect, pitta_effect, kapha_effect, structured } = req.body;
         if (!id || !title || !text) {
             return res.status(400).json({ error: 'El ID, título y texto de la receta son requeridos.' });
         }
-        
+
         const recipesPath = join(__dirname, '../src/data/recipes.json');
         let recipesList = [];
         if (fs.existsSync(recipesPath)) {
             recipesList = JSON.parse(fs.readFileSync(recipesPath, 'utf8') || '[]');
         }
-        
+
         const existingIdx = recipesList.findIndex(r => r.id === id);
         if (existingIdx >= 0) {
             recipesList[existingIdx].title = title;
             recipesList[existingIdx].text = text;
-            delete recipesList[existingIdx].structured;
+            if (category) recipesList[existingIdx].category = category;
+            if (Array.isArray(doshas)) recipesList[existingIdx].doshas = doshas;
+            if (structured) {
+                recipesList[existingIdx].structured = structured;
+            } else {
+                delete recipesList[existingIdx].structured;
+            }
             fs.writeFileSync(recipesPath, JSON.stringify(recipesList, null, 2), 'utf8');
-            res.json({ success: true, message: 'Receta guardada exitosamente.', recipe: recipesList[existingIdx] });
+            res.json({ success: true, created: false, message: 'Receta guardada exitosamente.', recipe: recipesList[existingIdx] });
         } else {
-            res.status(404).json({ error: 'Receta no encontrada.' });
+            const newRecipe = {
+                id,
+                title,
+                category: category || 'Recetas Propias',
+                doshas: Array.isArray(doshas) ? doshas : [],
+                vata_effect: vata_effect || 'No especificado',
+                pitta_effect: pitta_effect || 'No especificado',
+                kapha_effect: kapha_effect || 'No especificado',
+                text,
+                ...(structured ? { structured } : {})
+            };
+            recipesList.push(newRecipe);
+            fs.writeFileSync(recipesPath, JSON.stringify(recipesList, null, 2), 'utf8');
+            res.json({ success: true, created: true, message: 'Receta creada exitosamente en Recetas Propias.', recipe: newRecipe });
         }
     } catch (error) {
         console.error('Error updating recipe definition:', error);
@@ -3789,6 +4318,75 @@ app.post('/api/patients/:id/notes', authenticateToken, async (req, res) => {
 });
 
 // Save a generated treatment PDF flat file
+// ── Impresión de PDF con Chromium headless (Puppeteer) para la versión web ──
+// Recibe el HTML + CSS ya renderizado por el cliente y lo imprime con paginación
+// real del navegador (respeta @media print y @page). Devuelve el PDF en base64.
+// El navegador se reutiliza entre peticiones. Si Puppeteer/Chromium no están
+// disponibles, responde 501 y el cliente cae a su respaldo (jsPDF).
+let _puppeteerBrowser = null;
+let _puppeteerModule = undefined; // undefined = sin intentar; null = no disponible
+
+async function getPuppeteerBrowser() {
+    if (_puppeteerModule === undefined) {
+        try {
+            _puppeteerModule = (await import('puppeteer')).default;
+        } catch (e) {
+            console.warn('[print] Puppeteer no está instalado:', e?.message || e);
+            _puppeteerModule = null;
+        }
+    }
+    if (!_puppeteerModule) return null;
+    if (_puppeteerBrowser && _puppeteerBrowser.isConnected && _puppeteerBrowser.isConnected()) {
+        return _puppeteerBrowser;
+    }
+    const launchOpts = { headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] };
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        launchOpts.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+    _puppeteerBrowser = await _puppeteerModule.launch(launchOpts);
+    return _puppeteerBrowser;
+}
+
+app.post('/api/print/treatment-pdf', authenticateToken, async (req, res) => {
+    const { html, css, origin } = req.body || {};
+    if (!html) {
+        return res.status(400).json({ error: 'Falta el HTML a imprimir.' });
+    }
+    let page = null;
+    try {
+        const browser = await getPuppeteerBrowser();
+        if (!browser) {
+            return res.status(501).json({ error: 'Puppeteer/Chromium no disponible en el servidor.' });
+        }
+        // base href para que las rutas absolutas (/LOGO_2020_VEDAMCI.png) resuelvan.
+        const baseHref = origin || `http://localhost:${port}`;
+        const doc = `<!DOCTYPE html><html><head><meta charset="utf-8">`
+            + `<base href="${baseHref}/">`
+            + `<style>${css || ''}</style>`
+            + `</head><body>${html}</body></html>`;
+
+        page = await browser.newPage();
+        await page.emulateMediaType('print');
+        await page.setContent(doc, { waitUntil: 'networkidle0', timeout: 30000 });
+        try { await page.evaluateHandle('document.fonts.ready'); } catch { /* noop */ }
+
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            preferCSSPageSize: true,
+            // Margen 0: la plantilla pinta el fondo crema a hoja completa y
+            // repite su propio encabezado/pie por página (thead/tfoot).
+            margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' },
+        });
+        res.json({ success: true, pdfBase64: Buffer.from(pdfBuffer).toString('base64') });
+    } catch (err) {
+        console.error('[print] Error generando PDF con Puppeteer:', err);
+        res.status(500).json({ error: String(err?.message || err) });
+    } finally {
+        if (page) { try { await page.close(); } catch { /* noop */ } }
+    }
+});
+
 app.post('/api/patients/:id/pdf/:recordId', authenticateToken, async (req, res) => {
     try {
         const { id, recordId } = req.params;

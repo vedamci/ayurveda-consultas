@@ -1,8 +1,9 @@
 export interface SymptomCalibration {
     symptom: string;
     frequency: string; // 'Diaria' | 'Semanal' | 'Mensual'
-    intensity: number; // 1 | 2 | 3
+    intensity: number; // 1-3 o 1-10, según el intensityScale del paciente
     intensityLabel?: string;
+    note?: string;
 }
 
 export interface Visit {
@@ -27,6 +28,10 @@ export interface Visit {
     adherence?: TreatmentAdherence;
     pdfFile?: string;
     mdFile?: string;
+    therapyFrequency?: string;
+    therapyCount?: string | number;
+    therapyNoteTitle?: string;
+    therapyNoteBody?: string;
     createdAt?: string;
     updatedAt?: string;
 }
@@ -51,6 +56,10 @@ export interface TreatmentPlan {
     recipes?: any[];
     adherence?: TreatmentAdherence;
     pdfFile?: string;
+    therapyFrequency?: string;
+    therapyCount?: string | number;
+    therapyNoteTitle?: string;
+    therapyNoteBody?: string;
     createdAt?: string;
     updatedAt?: string;
 }
@@ -119,6 +128,15 @@ export interface ContextDocument {
     updatedAt?: string;
 }
 
+export interface AiDiagnosisRecord {
+    id: string;
+    diagnosis: string;
+    dosha?: string;
+    provider?: string;
+    model?: string;
+    createdAt: string;
+}
+
 export interface PatientDetail {
     id?: string;
     name: string;
@@ -129,11 +147,16 @@ export interface PatientDetail {
     fullNotes: string;
     symptomCalibrations: SymptomCalibration[];
     plainSymptoms: string[];
+    // Escala de intensidad usada para calibrar los síntomas de este paciente (por
+    // defecto 3 = escala clásica Suave/Moderado/Fuerte). Es una preferencia por
+    // paciente, editable desde "Editar Caso"; al cambiarla se reescala el historial.
+    intensityScale?: 3 | 10;
     clinicalData?: Record<string, string>;
     visits: Visit[];
     treatmentPlans?: TreatmentPlan[];
     tonguePhotos?: TonguePhoto[];
     pulseReadings?: PulseReading[];
     contextDocuments?: ContextDocument[];
+    aiDiagnoses?: AiDiagnosisRecord[];
     createdAt?: string;
 }

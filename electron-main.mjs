@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
@@ -146,6 +146,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs'),
     }
   });
 
@@ -169,6 +170,31 @@ function loadMainApp() {
   console.log(`[Electron Main] Loading main app from: ${targetUrl}`);
   mainWindow.loadURL(targetUrl);
 }
+
+// ── Impresión nativa de PDF con Chromium (raíz del arreglo de paginación) ──
+// El renderer llama window.vedamciPrint.toPDF(). Chromium pagina de verdad
+// respetando @media print + @page; nunca corta texto ni rasteriza.
+ipcMain.handle('vedamci:print-to-pdf', async (event, options = {}) => {
+  try {
+    const wc = event.sender;
+    // Esperar a que las fuentes estén listas para que la medición de página sea exacta.
+    try {
+      await wc.executeJavaScript('document.fonts ? document.fonts.ready.then(() => true) : true');
+    } catch { /* noop */ }
+
+    const data = await wc.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+      preferCSSPageSize: true, // respeta @page { size: A4 } del CSS
+      margins: { marginType: 'default' },
+      ...options,
+    });
+    return { ok: true, data };
+  } catch (err) {
+    console.error('[Electron Main] printToPDF falló:', err);
+    return { ok: false, error: String(err && err.message ? err.message : err) };
+  }
+});
 
 // Inicialización de la aplicación
 app.whenReady().then(async () => {
