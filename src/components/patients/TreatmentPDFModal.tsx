@@ -4524,7 +4524,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     <tbody className="print-layout-rows">
                     <tr><td className="plt-body">
 
-                    <section className="print-flow-section print-avoid text-center bg-[#22c55e]/5 py-4 px-6 rounded-xl border border-[#22c55e]/10">
+                    <section className="print-flow-section print-flow-hero print-avoid text-center bg-[#22c55e]/5 py-4 px-6 rounded-xl border border-[#22c55e]/10">
                         <h2 className="font-bold text-[#1e293b] mb-1 pdf-title">{title}</h2>
                         <p className="text-[#64748b] font-sans italic pdf-subtitle">{subtitle}</p>
                     </section>
@@ -4532,24 +4532,58 @@ const getHerbParts = (h: HerbalFormula) => {
                     <section className="print-flow-section print-avoid">
                         {!isFollowUp ? (
                             <div className="space-y-5">
-                                <div>
-                                    <h3 className="print-flow-title">Cómo seguir las indicaciones</h3>
+                                <div className="print-flow-instruction-block">
+                                    <div className="print-flow-kicker">
+                                        <span>01 CÓMO SEGUIR LAS INDICACIONES</span>
+                                    </div>
                                     <ol className="list-decimal pl-5 space-y-1.5 text-[#334155] font-sans pdf-base-text">
                                         <li>Lee las indicaciones generales que vienen en este documento.</li>
-                                        <li>Descarga y revisa los archivos adjuntos. A lado de tratamientos se indicará si hay anexo.</li>
-                                        <li>Mantente en contacto conmigo; no esperes hasta la consulta para resolver dudas o reportar cambios.</li>
-                                        <li>Aplica los cambios de forma gradual y constante.</li>
+                                        <li>Descarga y revisa los archivos adjuntos. A lado de tratamientos se indicará si hay anexo. <span className="italic text-[#64748b]">(No siempre hay archivos adjuntos.)</span></li>
+                                        <li>Mantente en contacto conmigo; no esperes hasta la consulta para resolver dudas o reportar cualquier cambio en tu salud.</li>
+                                        <li>
+                                            Visita los siguientes videos para el mejor entendimiento del Ayurveda:
+                                            <div className="mt-1 pl-1 space-y-1 text-[#113f26]">
+                                                <div className="flex items-start gap-1">
+                                                    <span className="text-[#d4a853]">→</span>
+                                                    <span>
+                                                        <strong className="text-[#113f26]">Doshas:</strong>{' '}
+                                                        <a href="https://youtu.be/iHlND1C8WoE" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:text-[#22c55e] underline font-semibold break-all">
+                                                            https://youtu.be/iHlND1C8WoE
+                                                        </a>
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-start gap-1">
+                                                    <span className="text-[#d4a853]">→</span>
+                                                    <span>
+                                                        <strong className="text-[#113f26]">Los tres pilares de la salud:</strong>{' '}
+                                                        <a href="https://youtu.be/v8aPGf8LNSk" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:text-[#22c55e] underline font-semibold break-all">
+                                                            https://youtu.be/v8aPGf8LNSk
+                                                        </a>
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-start gap-1">
+                                                    <span className="text-[#d4a853]">→</span>
+                                                    <span>
+                                                        <strong className="text-[#113f26]">La verdadera salud con Ayurveda:</strong>{' '}
+                                                        <a href="https://youtu.be/g2FqJDZGS_A" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:text-[#22c55e] underline font-semibold break-all">
+                                                            https://youtu.be/g2FqJDZGS_A
+                                                        </a>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </li>
                                     </ol>
                                 </div>
-                                <div>
+                                <div className="print-flow-food-intro">
                                     <h3 className="print-flow-title">Cómo seguir la alimentación</h3>
                                     <p className="font-sans text-[#475569] pdf-base-text">
-                                        En la alimentación la clave es hacer cambios graduales para permitir al cuerpo adaptarse. Empezaremos haciendo cambios en las categorías marcadas; las demás pueden seguir sin cambio por ahora.
+                                        En la alimentación la clave es hacer cambios graduales para permitir al cuerpo adaptarse. En Ayurveda la alimentación se basa en los seis sabores; para elegir los alimentos adecuados estos tienen que tener los sabores correctos para tu constitución.
+                                        Empezaremos haciendo cambios en dos categorías a la vez, esto quiere decir que todas las demás categorías seguirán sin ningún cambio.
                                     </p>
-                                    <div className="grid grid-cols-3 gap-2.5 bg-[#f8fafc] p-2 rounded-lg border border-[#f1f5f9] text-[10px] font-sans mt-3 pdf-meta print-avoid">
-                                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-[#22c55e] inline-block shrink-0"></span><div><span className="font-bold text-[#15803d]">Mejor:</span> Sin reservas.</div></div>
-                                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-[#f59e0b] inline-block shrink-0"></span><div><span className="font-bold text-[#b45309]">Moderación:</span> Porción pequeña.</div></div>
-                                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-[#ef4444] inline-block shrink-0"></span><div><span className="font-bold text-[#b91c1c]">Evitar:</span> Raras ocasiones.</div></div>
+                                    <div className="print-flow-legend grid grid-cols-3 gap-2.5 bg-[#f8fafc] p-2 rounded-lg border border-[#f1f5f9] text-[10px] font-sans mt-3 pdf-meta print-avoid">
+                                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-[#22c55e] inline-block shrink-0"></span><div><span className="font-bold text-[#15803d]">■ Mejor:</span> Sin reservas.</div></div>
+                                        <div className="flex items-center gap-1.5 border-x border-[#e2e8f0] px-2.5"><span className="w-2 h-2 rounded bg-[#f59e0b] inline-block shrink-0"></span><div><span className="font-bold text-[#b45309]">■■ Moderación:</span> Porción pequeña.</div></div>
+                                        <div className="flex items-center gap-1.5 pl-1.5"><span className="w-2 h-2 rounded bg-[#ef4444] inline-block shrink-0"></span><div><span className="font-bold text-[#b91c1c]">■ Evitar:</span> Raras ocasiones.</div></div>
                                     </div>
                                 </div>
                             </div>
@@ -4964,7 +4998,11 @@ const getHerbParts = (h: HerbalFormula) => {
                     font-size: var(--pdf-font-base) !important;
                     line-height: 1.5 !important;
                     color: #1e293b !important;
-                    background-color: #F5EEDC !important;
+                    background-color: ${PDF_WATERCOLOR_BG_COLOR} !important;
+                    background-image: url("data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_BG_SVG)}") !important;
+                    background-size: cover !important;
+                    background-position: center !important;
+                    background-repeat: repeat-y !important;
                     print-color-adjust: exact !important;
                     -webkit-print-color-adjust: exact !important;
                 }
@@ -4994,7 +5032,37 @@ const getHerbParts = (h: HerbalFormula) => {
                     font-family: ui-sans-serif, system-ui, sans-serif;
                     font-size: var(--pdf-font-meta) !important;
                 }
-                #pdf-print-content .print-flow-section { margin: 0 0 10mm 0; }
+                #pdf-print-content .print-flow-section { margin: 0 0 9mm 0; }
+                #pdf-print-content .print-flow-hero {
+                    padding-top: 10px !important;
+                    padding-bottom: 11px !important;
+                    background-color: rgba(34, 197, 94, 0.05) !important;
+                    border-color: rgba(34, 197, 94, 0.12) !important;
+                }
+                #pdf-print-content .print-flow-kicker {
+                    display: flex;
+                    align-items: center;
+                    background: #113f26 !important;
+                    color: #ffffff !important;
+                    border-left: 5px solid #d4a853 !important;
+                    padding: 6px 12px !important;
+                    margin: 0 0 8px 0 !important;
+                    font-family: ui-sans-serif, system-ui, sans-serif;
+                    font-size: 11px !important;
+                    font-weight: 800 !important;
+                    letter-spacing: 0.02em !important;
+                    text-transform: uppercase !important;
+                }
+                #pdf-print-content .print-flow-kicker span {
+                    color: #ffffff !important;
+                }
+                #pdf-print-content .print-flow-food-intro p {
+                    margin-top: 0 !important;
+                }
+                #pdf-print-content .print-flow-legend {
+                    background-color: #f8fafc !important;
+                    border-color: #f1f5f9 !important;
+                }
                 #pdf-print-content .print-flow-title {
                     display: block;
                     margin: 0 0 8px 0;
@@ -5085,7 +5153,11 @@ const getHerbParts = (h: HerbalFormula) => {
                        la hoja (incluidos los márgenes), eliminando el marco blanco
                        alrededor del contenido. */
                     html, body {
-                        background: ${PDF_WATERCOLOR_BG_COLOR} !important;
+                        background-color: ${PDF_WATERCOLOR_BG_COLOR} !important;
+                        background-image: url("data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_BG_SVG)}") !important;
+                        background-size: cover !important;
+                        background-position: center !important;
+                        background-repeat: repeat-y !important;
                         print-color-adjust: exact !important;
                         -webkit-print-color-adjust: exact !important;
                     }

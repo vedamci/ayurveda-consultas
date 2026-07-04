@@ -19198,11 +19198,14 @@
     "name": "Digestión Perfecta",
     "link": "https://naturvedaherbs.com/products/digestion-perfecta",
     "preview": "¡La hierba de bolsillo de cualquier amante del ayurveda!",
-    "usage": "1 o 2 cápsulas 3 veces al día o lo que te recomiende tu profesional de la salud",
+    "usage": "1  cápsulas 3 veces al día con las comidas",
     "type": "Capsulas",
     "pacify": [],
     "aggravate": [],
-    "tridosha": false
+    "tridosha": false,
+    "instruction": "",
+    "ingredients": "",
+    "isCustom": false
   },
   {
     "name": "Acidez Zero",
