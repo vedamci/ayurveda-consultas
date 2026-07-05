@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { X, Printer, Plus, Trash2, ChevronDown, Loader2, Sparkles, CheckCircle, AlertCircle, Send, FileText, Salad, Leaf, ClipboardList, Stethoscope, Settings2, Phone, Type, Utensils, HeartHandshake, Search } from 'lucide-react';
+import { X, Printer, Plus, Trash2, ChevronDown, Loader2, Sparkles, CheckCircle, AlertCircle, Send, FileText, Salad, Leaf, ClipboardList, Stethoscope, Settings2, Phone, Type, Utensils, HeartHandshake, Search, Monitor, Smartphone } from 'lucide-react';
 
 type EditorTabId = 'documento' | 'ia' | 'alimentacion' | 'hierbas' | 'terapias' | 'indicaciones';
 
@@ -720,7 +720,29 @@ const getHerbParts = (h: HerbalFormula) => {
          meta: '12px'
      }
  };
- 
+
+ // Formatos de hoja del PDF. Ambos motores Chromium (Electron y Puppeteer)
+ // imprimen con preferCSSPageSize, así que el tamaño real lo dicta @page.
+ // El móvil usa una hoja estrecha (~9:16): al ajustarse al ancho del teléfono,
+ // el texto se ve ~1.75x más grande que en A4 sin necesidad de hacer zoom.
+ const PDF_PAGE_FORMATS = {
+     desktop: {
+         label: 'Escritorio',
+         pageSize: 'A4 portrait',
+         headPadding: '10mm 18mm 0 18mm',
+         bodyPadding: '2mm 18mm 0 18mm',
+         footPadding: '0 18mm 8mm 18mm',
+     },
+     mobile: {
+         label: 'Móvil',
+         pageSize: '120mm 213mm',
+         headPadding: '6mm 8mm 0 8mm',
+         bodyPadding: '2mm 8mm 0 8mm',
+         footPadding: '0 8mm 6mm 8mm',
+     },
+ } as const;
+ type PdfPageFormat = keyof typeof PDF_PAGE_FORMATS;
+
  export const TreatmentPDFModal: React.FC<TreatmentPDFModalProps> = ({
      isOpen,
      onClose,
@@ -1053,6 +1075,11 @@ const getHerbParts = (h: HerbalFormula) => {
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState(0);
     const [downloadStatus, setDownloadStatus] = useState('Preparando el PDF...');
+    // Formato de hoja usado por la plantilla de impresión. Se elige en el
+    // diálogo previo a la descarga y vuelve a 'desktop' al terminar para que
+    // las copias planas guardadas en segundo plano salgan siempre en A4.
+    const [pdfPageFormat, setPdfPageFormat] = useState<PdfPageFormat>('desktop');
+    const [showFormatChooser, setShowFormatChooser] = useState(false);
     const [isSavingPlan, setIsSavingPlan] = useState(false);
     const [saveMessage, setSaveMessage] = useState('');
     const [autosaveMessage, setAutosaveMessage] = useState('');
@@ -2004,9 +2031,12 @@ const getHerbParts = (h: HerbalFormula) => {
         selectedTherapies, showTherapiesSection, therapyFrequency, therapyCount, therapyNoteTitle, therapyNoteBody
     ]);
 
-    const handlePrint = async () => {
+    const handlePrint = async (format: PdfPageFormat = 'desktop') => {
+        // Aplicar el formato ANTES de esperar el repintado: la plantilla y su
+        // CSS (@page, paddings) se regeneran con el tamaño de hoja elegido.
+        setPdfPageFormat(format);
         setDownloadProgress(0);
-        setDownloadStatus('Preparando el PDF...');
+        setDownloadStatus(format === 'mobile' ? 'Preparando el PDF para móvil...' : 'Preparando el PDF...');
         setIsDownloading(true);
         await waitForBrowserPaint();
         await yieldToMainThread(240);
@@ -2023,7 +2053,7 @@ const getHerbParts = (h: HerbalFormula) => {
                 return;
             }
 
-            const filename = `Tratamiento_${patient.name?.replace(/\s+/g, '_') || 'Ayurveda'}.pdf`;
+            const filename = `Tratamiento_${patient.name?.replace(/\s+/g, '_') || 'Ayurveda'}${format === 'mobile' ? '_Movil' : ''}.pdf`;
             setDownloadProgress(94);
             setDownloadStatus('Preparando descarga...');
             await waitForBrowserPaint();
@@ -2041,6 +2071,7 @@ const getHerbParts = (h: HerbalFormula) => {
             setIsDownloading(false);
             setDownloadProgress(0);
             setDownloadStatus('Preparando el PDF...');
+            setPdfPageFormat('desktop');
         }
     };
 
@@ -3748,7 +3779,7 @@ const getHerbParts = (h: HerbalFormula) => {
                             Guardar local editable
                         </button>
                         <button
-                            onClick={handlePrint}
+                            onClick={() => setShowFormatChooser(true)}
                             disabled={isDownloading || isSavingPlan}
                             className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                         >
@@ -4798,6 +4829,66 @@ const getHerbParts = (h: HerbalFormula) => {
                 </div>
 
                 <AnimatePresence>
+                    {showFormatChooser && !isDownloading && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute inset-0 z-[85] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 print:hidden"
+                            onClick={() => setShowFormatChooser(false)}
+                        >
+                            <motion.div
+                                initial={{ opacity: 0, y: 10, scale: 0.97 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                                transition={{ duration: 0.16 }}
+                                className="w-[min(92vw,30rem)] rounded-2xl bg-white shadow-2xl border border-emerald-100 p-6"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className="flex items-start justify-between gap-4 mb-4">
+                                    <div>
+                                        <h3 className="text-lg font-black text-slate-900">¿Cómo se leerá este PDF?</h3>
+                                        <p className="text-xs text-slate-500 mt-1">Elige el formato de hoja antes de generar el documento.</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowFormatChooser(false)}
+                                        className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center shrink-0"
+                                        title="Cancelar"
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => { setShowFormatChooser(false); handlePrint('desktop'); }}
+                                        className="group text-left rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/60 transition-colors p-4"
+                                    >
+                                        <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center mb-3">
+                                            <Monitor size={20} />
+                                        </div>
+                                        <p className="font-bold text-slate-900 text-sm">Escritorio / Impresión</p>
+                                        <p className="text-xs text-slate-500 mt-1 leading-snug">Hoja A4 clásica, ideal para imprimir o leer en computadora.</p>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setShowFormatChooser(false); handlePrint('mobile'); }}
+                                        className="group text-left rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/60 transition-colors p-4"
+                                    >
+                                        <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center mb-3">
+                                            <Smartphone size={20} />
+                                        </div>
+                                        <p className="font-bold text-slate-900 text-sm">Móvil</p>
+                                        <p className="text-xs text-slate-500 mt-1 leading-snug">Hoja estrecha con letra más grande, para leer en el teléfono sin hacer zoom.</p>
+                                    </button>
+                                </div>
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                <AnimatePresence>
                     {isDownloading && (
                         <motion.div
                             initial={{ opacity: 0 }}
@@ -4917,7 +5008,7 @@ const getHerbParts = (h: HerbalFormula) => {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={handlePrint}
+                                        onClick={() => { setShowTreatmentPage(false); setShowFormatChooser(true); }}
                                         className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 flex items-center justify-center gap-2"
                                     >
                                         <Printer size={16} />
@@ -5161,9 +5252,9 @@ const getHerbParts = (h: HerbalFormula) => {
                     background: transparent !important;
                     vertical-align: top !important;
                 }
-                #pdf-print-content td.plt-head { padding: 10mm 18mm 0 18mm !important; }
-                #pdf-print-content td.plt-body { padding: 2mm 18mm 0 18mm !important; }
-                #pdf-print-content td.plt-foot { padding: 0 18mm 8mm 18mm !important; }
+                #pdf-print-content td.plt-head { padding: ${PDF_PAGE_FORMATS[pdfPageFormat].headPadding} !important; }
+                #pdf-print-content td.plt-body { padding: ${PDF_PAGE_FORMATS[pdfPageFormat].bodyPadding} !important; }
+                #pdf-print-content td.plt-foot { padding: ${PDF_PAGE_FORMATS[pdfPageFormat].footPadding} !important; }
                 #pdf-print-content td {
                     padding: 8px 9px !important;
                     border: 1px solid #e2e8f0 !important;
@@ -5172,7 +5263,43 @@ const getHerbParts = (h: HerbalFormula) => {
                     white-space: normal !important;
                     font-size: var(--pdf-font-table-body) !important;
                 }
-
+${pdfPageFormat === 'mobile' ? `
+                /* ── Formato MÓVIL: hoja estrecha (120mm) ─────────────────────
+                   El encabezado y el pie de marca se apilan en columna (no caben
+                   lado a lado), la leyenda de colores pasa a una columna y las
+                   celdas de tabla se compactan para las tablas de 3 columnas. */
+                #pdf-print-content .print-flow-header {
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 8px;
+                    padding-bottom: 8px;
+                    margin-bottom: 12px;
+                }
+                #pdf-print-content .print-flow-header img { height: 34px !important; }
+                #pdf-print-content .print-flow-header h1 { font-size: 18px !important; }
+                #pdf-print-content .print-flow-header .pdf-meta { text-align: left !important; }
+                #pdf-print-content .print-flow-footer {
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 4px;
+                }
+                #pdf-print-content .print-flow-footer .text-right { text-align: left !important; }
+                #pdf-print-content .print-flow-legend {
+                    grid-template-columns: 1fr !important;
+                    gap: 4px !important;
+                }
+                #pdf-print-content .print-flow-legend > div {
+                    border: none !important;
+                    padding-left: 0 !important;
+                    padding-right: 0 !important;
+                }
+                #pdf-print-content .print-flow-section { margin: 0 0 6mm 0; }
+                #pdf-print-content .print-flow-card,
+                #pdf-print-content .print-flow-table-card { padding: 10px; }
+                #pdf-print-content .print-flow-table-card { padding: 0; }
+                #pdf-print-content th { padding: 5px 6px !important; }
+                #pdf-print-content td { padding: 5px 6px !important; }
+` : ''}
                 /* Oculto fuera de impresión: solo existe para el PDF. */
                 .print-page-bg { display: none; }
 
@@ -5321,7 +5448,7 @@ const getHerbParts = (h: HerbalFormula) => {
                        impresión siempre queda blanca). Los márgenes visuales los
                        ponen los paddings de plt-head / plt-body / plt-foot. */
                     @page {
-                        size: A4 portrait;
+                        size: ${PDF_PAGE_FORMATS[pdfPageFormat].pageSize};
                         margin: 0;
                     }
                 }
