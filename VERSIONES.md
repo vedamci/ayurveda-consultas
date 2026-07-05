@@ -7,6 +7,38 @@ https://github.com/vedamci/ayurveda-consultas
 
 ## Version actual guardada
 
+### v2026.07.05-pdf-chromium-en-main
+
+- Fecha: 2026-07-05
+- Rama: `main` (fusion de `fix/pdf-chromium-print`)
+- Commit: `41841ef`
+- Tag: `v2026.07.05-pdf-chromium-en-main`
+- Mensaje del commit: `Seguimiento terapéutico en servidor + opciones de PDF (subtítulo, visitas de seguimiento, secciones activables)`
+- Estado: subido a GitHub
+
+Cambios principales (todo el trabajo de la rama `fix/pdf-chromium-print` llevado a `main`):
+
+- Arreglo de raiz del PDF: generacion con Chromium (impresion nativa) en lugar del metodo anterior que cortaba tablas.
+- Autosave del formulario de pacientes con indicador visual (`useAutosave`, `useDraftPersist`, `AutosaveIndicator`).
+- Nuevas opciones del PDF: subtitulo, tamano de fuente, visitas de seguimiento numeradas y secciones activables (diagnostico, guia de alimentacion, recetas, terapias).
+- Catalogos nuevos de terapias (`therapies.json`) y habitos de alimentacion saludable (`healthy-eating-habits.json`).
+- Seguimiento terapeutico: el servidor genera archivos de seguimiento por paciente en `seguimiento-terapeutico/registros`.
+- Formulas herbales con proposito e instruccion opcionales.
+- Limpieza de datos de recetas (ingredientes corruptos).
+- Dev: nodemon ignora `local-data` y `dist` para evitar reinicios en cascada.
+
+Verificacion realizada:
+
+- `npm run build` paso correctamente (2026-07-05).
+- La advertencia de tamano de bundle no bloqueo la compilacion.
+
+Enlaces:
+
+- Commit: https://github.com/vedamci/ayurveda-consultas/commit/41841ef
+- Version/tag: https://github.com/vedamci/ayurveda-consultas/tree/v2026.07.05-pdf-chromium-en-main
+
+## Versiones anteriores
+
 ### v2026.07.04-checkpoint-pdf-terapias
 
 - Fecha: 2026-07-04
