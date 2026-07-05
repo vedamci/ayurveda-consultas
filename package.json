@@ -5,11 +5,11 @@
   "type": "module",
   "main": "electron-main.mjs",
   "scripts": {
-    "dev": "concurrently \"nodemon server/index.js\" \"vite\"",
+    "dev": "concurrently \"nodemon --ignore local-data --ignore dist --ignore dist-electron server/index.js\" \"vite\"",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "electron:dev": "concurrently \"nodemon server/index.js\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "concurrently \"nodemon --ignore local-data --ignore dist --ignore dist-electron server/index.js\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run build && electron-builder"
   },
   "dependencies": {

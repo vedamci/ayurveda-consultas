@@ -22,12 +22,27 @@ export interface Visit {
     cerealRecipe?: string;
     dosha?: string;
     symptoms: Record<string, { frequency: string; intensity: number; note?: string }>;
-    herbs?: Array<{ formula: string; dosage: string }>;
+    herbs?: Array<{ formula: string; dosage: string; purpose?: string; instruction?: string }>;
     categories?: string[];
     recipes?: any[];
     adherence?: TreatmentAdherence;
     pdfFile?: string;
     mdFile?: string;
+    subtitle?: string;
+    pdfFontSize?: string;
+    isFollowUp?: boolean;
+    visitNumber?: string | number;
+    showLifestylePage?: boolean;
+    showDigestiveRecoveryPage?: boolean;
+    showDiagnosis?: boolean;
+    showHealthyEatingGuide?: boolean;
+    showRecipesSection?: boolean;
+    showTherapiesSection?: boolean;
+    healthyEatingGuide?: string;
+    healthyEatingHabits?: string[];
+    healthyEatingHabitDetails?: HealthyEatingHabitDetail[];
+    therapies?: string[];
+    therapyDetails?: TherapyDetail[];
     therapyFrequency?: string;
     therapyCount?: string | number;
     therapyNoteTitle?: string;
@@ -51,11 +66,26 @@ export interface TreatmentPlan {
     cerealGuidance?: string;
     cerealRecipe?: string;
     dosha: string;
-    herbs: Array<{ formula: string; dosage: string }>;
+    herbs: Array<{ formula: string; dosage: string; purpose?: string; instruction?: string }>;
     categories: string[];
     recipes?: any[];
     adherence?: TreatmentAdherence;
     pdfFile?: string;
+    subtitle?: string;
+    pdfFontSize?: string;
+    isFollowUp?: boolean;
+    visitNumber?: string | number;
+    showLifestylePage?: boolean;
+    showDigestiveRecoveryPage?: boolean;
+    showDiagnosis?: boolean;
+    showHealthyEatingGuide?: boolean;
+    showRecipesSection?: boolean;
+    showTherapiesSection?: boolean;
+    healthyEatingGuide?: string;
+    healthyEatingHabits?: string[];
+    healthyEatingHabitDetails?: HealthyEatingHabitDetail[];
+    therapies?: string[];
+    therapyDetails?: TherapyDetail[];
     therapyFrequency?: string;
     therapyCount?: string | number;
     therapyNoteTitle?: string;
@@ -76,6 +106,18 @@ export interface TreatmentAdherence {
     lifestyle?: TreatmentAdherenceItem[];
     generalNote?: string;
     updatedAt?: string;
+}
+
+export interface HealthyEatingHabitDetail {
+    name: string;
+    text?: string;
+}
+
+export interface TherapyDetail {
+    id?: string;
+    name: string;
+    emoji?: string;
+    text?: string;
 }
 
 export interface DoctorNote {

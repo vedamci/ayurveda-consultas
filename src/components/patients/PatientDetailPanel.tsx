@@ -102,6 +102,23 @@ const INTAKE_CATEGORIES: { key: string; title: string; fields: string[] }[] = [
 
 import { type PatientDetail, type DoctorNote, type TreatmentPlan, type Visit, type TonguePhoto, type PulseReading, type PulsePositionReading, type SymptomCalibration, type TreatmentAdherence, type TreatmentAdherenceItem, type ContextDocument, type AiDiagnosisRecord } from '../../types/patient';
 
+const getStoredTherapyNames = (record: TreatmentPlan | Visit) => {
+    const details = new Map((record.therapyDetails || []).flatMap(detail => {
+        const keys = [detail.id, detail.name].filter(Boolean).map(key => normalizeTrackingName(key || ''));
+        return keys.map(key => [key, detail.name] as const);
+    }));
+    return (record.therapies || [])
+        .map(item => details.get(normalizeTrackingName(item)) || item)
+        .filter(Boolean);
+};
+
+const getStoredHealthyHabitNames = (record: TreatmentPlan | Visit) => {
+    const details = new Map((record.healthyEatingHabitDetails || []).map(detail => [normalizeTrackingName(detail.name), detail.name] as const));
+    return (record.healthyEatingHabits || [])
+        .map(item => details.get(normalizeTrackingName(item)) || item)
+        .filter(Boolean);
+};
+
 interface Props {
     patientId: string | null;
     onClose: () => void;
@@ -276,6 +293,9 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
     // activo, el guardado actualiza la consulta inicial del paciente (ficha + plan
     // base) en lugar de crear una visita de seguimiento.
     const [editCaseMode, setEditCaseMode] = useState(false);
+    // Vista aparte de "Seguimiento terapéutico": resumen acumulado de todas las
+    // visitas y tratamientos (se abre con el botón junto a "Editar Caso").
+    const [showTrackingView, setShowTrackingView] = useState(false);
     const [visitDate, setVisitDate] = useState(new Date().toISOString().split('T')[0]);
     const [visitNote, setVisitNote] = useState('');
     const [visitDiagnosis, setVisitDiagnosis] = useState('');
@@ -556,6 +576,8 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
 
         const categories = new Map<string, { name: string; count: number; lastDate: string; lastRecency: number; lastStatus?: TreatmentAdherenceItem['status']; notes: string[] }>();
         const herbs = new Map<string, { name: string; count: number; lastDate: string; lastRecency: number; lastStatus?: TreatmentAdherenceItem['status']; notes: string[] }>();
+        const therapies = new Map<string, { name: string; count: number; lastDate: string; lastRecency: number; lastStatus?: TreatmentAdherenceItem['status']; notes: string[] }>();
+        const healthyHabits = new Map<string, { name: string; count: number; lastDate: string; lastRecency: number; lastStatus?: TreatmentAdherenceItem['status']; notes: string[] }>();
         let reviewedCount = 0;
 
         const isMeaningfulStatus = (status?: TreatmentAdherenceItem['status']) => !!status && status !== 'unknown';
@@ -610,13 +632,30 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 const item = (adherence.herbs || []).find(entry => normalizeTrackingName(entry.name) === normalizeTrackingName(herb.formula));
                 touch(herbs, herb.formula, date, recency, item);
             });
+
+            // Sólo cuentan las terapias/hábitos cuya sección se incluyó realmente en el
+            // PDF. Registros antiguos guardaban la lista completa de hábitos aunque la
+            // sección estuviera apagada (showHealthyEatingGuide: false).
+            if (record.showTherapiesSection !== false) {
+                getStoredTherapyNames(record).forEach(name => {
+                    touch(therapies, name, date, recency);
+                });
+            }
+
+            if (record.showHealthyEatingGuide !== false) {
+                getStoredHealthyHabitNames(record).forEach(name => {
+                    touch(healthyHabits, name, date, recency);
+                });
+            }
         });
 
         return {
             records,
             reviewedCount,
             categories: Array.from(categories.values()),
-            herbs: Array.from(herbs.values())
+            herbs: Array.from(herbs.values()),
+            therapies: Array.from(therapies.values()),
+            healthyHabits: Array.from(healthyHabits.values())
         };
     }, [patient]);
 
@@ -2595,6 +2634,16 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                     <motion.button
                                         whileHover={{ scale: 1.06 }}
                                         whileTap={{ scale: 0.94 }}
+                                        onClick={() => setShowTrackingView(true)}
+                                        className="p-2 bg-teal-800 hover:bg-teal-700 rounded-xl transition-colors text-white text-xs font-bold flex items-center gap-1.5 border border-white/10"
+                                        title="Ver el seguimiento terapéutico acumulado de todas las visitas"
+                                    >
+                                        <ClipboardCheck size={16} className="text-teal-300" />
+                                        <span>Seguimiento</span>
+                                    </motion.button>
+                                    <motion.button
+                                        whileHover={{ scale: 1.06 }}
+                                        whileTap={{ scale: 0.94 }}
                                         onClick={handleOpenPatientFolder}
                                         className="p-2 bg-emerald-700 hover:bg-emerald-600 rounded-xl transition-colors text-white text-xs font-bold flex items-center gap-1.5 border border-white/10"
                                         title="Abrir carpeta local del paciente en Finder"
@@ -2865,49 +2914,6 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
 
                                                                     {activeTab === 'treatment' && (
                                                                         <div className="space-y-3">
-                                                                            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                                                                                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
-                                                                                    <div>
-                                                                                        <h5 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-2">
-                                                                                            <ClipboardCheck size={14} className="text-emerald-600" />
-                                                                                            Seguimiento terapéutico
-                                                                                        </h5>
-                                                                                        <p className="text-[11px] text-slate-500 mt-1">
-                                                                                            Historial de categorías, fórmulas y cumplimiento registrado en consultas anteriores.
-                                                                                        </p>
-                                                                                    </div>
-                                                                                    <div className="flex gap-2 text-[10px] font-bold">
-                                                                                        <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600">{therapeuticSummary.records.length} archivos</span>
-                                                                                        <span className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700">{therapeuticSummary.reviewedCount} revisados</span>
-                                                                                    </div>
-                                                                                </div>
-                                                                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                                                                    <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
-                                                                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">Categorías usadas</p>
-                                                                                        <div className="flex flex-wrap gap-1.5">
-                                                                                            {therapeuticSummary.categories.length > 0 ? therapeuticSummary.categories.map(item => (
-                                                                                                <span key={item.name} className={`px-2 py-1 rounded-lg border text-[10px] font-bold ${getAdherenceClass(item.lastStatus)}`} title={item.notes[0] || ''}>
-                                                                                                    {item.name} · {item.count} · {getAdherenceLabel(item.lastStatus)}
-                                                                                                </span>
-                                                                                            )) : (
-                                                                                                <span className="text-xs text-slate-400">Todavía no hay categorías registradas.</span>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    </div>
-                                                                                    <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
-                                                                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">Fórmulas usadas</p>
-                                                                                        <div className="flex flex-wrap gap-1.5">
-                                                                                            {therapeuticSummary.herbs.length > 0 ? therapeuticSummary.herbs.map(item => (
-                                                                                                <span key={item.name} className={`px-2 py-1 rounded-lg border text-[10px] font-bold ${getAdherenceClass(item.lastStatus)}`} title={item.notes[0] || ''}>
-                                                                                                    {item.name} · {item.count} · {getAdherenceLabel(item.lastStatus)}
-                                                                                                </span>
-                                                                                            )) : (
-                                                                                                <span className="text-xs text-slate-400">Todavía no hay fórmulas registradas.</span>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
                                                                             {group.type === 'initial' ? (
                                                                                 group.treatmentPlans.length > 0 ? (
                                                                                     <div className="grid grid-cols-1 gap-3">
@@ -4899,6 +4905,125 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                     {savingVisit ? <Loader2 size={16} className="animate-spin" /> : (editingVisitId ? <Save size={16} /> : <Plus size={16} />)}
                                     {editCaseMode ? 'Guardar Caso' : (editingVisitId ? 'Guardar Cambios' : 'Guardar Visita')}
                                 </button>
+                            </div>
+                        </motion.div>
+                    </>
+                )}
+            </AnimatePresence>
+
+            {/* Seguimiento Terapéutico (vista aparte): resumen acumulado de todas las visitas */}
+            <AnimatePresence>
+                {showTrackingView && (
+                    <>
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80]"
+                            onClick={() => setShowTrackingView(false)}
+                        />
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="fixed inset-0 m-auto w-full max-w-4xl h-[92vh] bg-white rounded-2xl shadow-2xl z-[90] flex flex-col overflow-hidden"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="p-6 border-b border-slate-100 flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <ClipboardCheck className="text-emerald-600 shrink-0" size={20} />
+                                    <div className="min-w-0">
+                                        <h3 className="font-bold text-xl text-slate-800 truncate">Seguimiento Terapéutico</h3>
+                                        <p className="text-[11px] text-slate-400 truncate">
+                                            {patient?.name || 'Paciente'} · alimentos, fórmulas, terapias y hábitos acumulados de todas las visitas.
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <span className="px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-bold">{therapeuticSummary.records.length} archivos</span>
+                                    <span className="px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold">{therapeuticSummary.reviewedCount} revisados</span>
+                                    <button
+                                        onClick={() => setShowTrackingView(false)}
+                                        className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Categorías usadas</p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {therapeuticSummary.categories.length > 0 ? therapeuticSummary.categories.map(item => (
+                                                <span key={item.name} className={`px-2 py-1 rounded-lg border text-[11px] font-bold ${getAdherenceClass(item.lastStatus)}`} title={item.notes[0] || (item.lastDate ? `Última vez: ${formatNoteDate(item.lastDate)}` : '')}>
+                                                    {item.name} · {item.count} · {getAdherenceLabel(item.lastStatus)}
+                                                </span>
+                                            )) : (
+                                                <span className="text-xs text-slate-400">Todavía no hay categorías registradas.</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Fórmulas usadas</p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {therapeuticSummary.herbs.length > 0 ? therapeuticSummary.herbs.map(item => (
+                                                <span key={item.name} className={`px-2 py-1 rounded-lg border text-[11px] font-bold ${getAdherenceClass(item.lastStatus)}`} title={item.notes[0] || (item.lastDate ? `Última vez: ${formatNoteDate(item.lastDate)}` : '')}>
+                                                    {item.name} · {item.count} · {getAdherenceLabel(item.lastStatus)}
+                                                </span>
+                                            )) : (
+                                                <span className="text-xs text-slate-400">Todavía no hay fórmulas registradas.</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Terapias indicadas</p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {therapeuticSummary.therapies.length > 0 ? therapeuticSummary.therapies.map(item => (
+                                                <span key={item.name} className="px-2 py-1 rounded-lg border text-[11px] font-bold bg-sky-50 text-sky-700 border-sky-200" title={item.lastDate ? `Última vez: ${formatNoteDate(item.lastDate)}` : ''}>
+                                                    {item.name} · {item.count}
+                                                </span>
+                                            )) : (
+                                                <span className="text-xs text-slate-400">Todavía no hay terapias registradas.</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Hábitos/guías</p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {therapeuticSummary.healthyHabits.length > 0 ? therapeuticSummary.healthyHabits.map(item => (
+                                                <span key={item.name} className="px-2 py-1 rounded-lg border text-[11px] font-bold bg-teal-50 text-teal-700 border-teal-200" title={item.lastDate ? `Última vez: ${formatNoteDate(item.lastDate)}` : ''}>
+                                                    {item.name} · {item.count}
+                                                </span>
+                                            )) : (
+                                                <span className="text-xs text-slate-400">Todavía no hay hábitos registrados.</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-xl border border-slate-100 bg-white p-4">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Archivos registrados</p>
+                                    {therapeuticSummary.records.length > 0 ? (
+                                        <div className="space-y-1.5">
+                                            {therapeuticSummary.records.map(({ type, record }) => (
+                                                <div key={`${type}-${record.id || getRecordDateValue(record)}`} className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-slate-50/60 border border-slate-100 text-xs">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <FolderOpen size={13} className={type === 'plan' ? 'text-emerald-600 shrink-0' : 'text-sky-600 shrink-0'} />
+                                                        <span className="font-bold text-slate-700 truncate">{record.title || (type === 'plan' ? 'Tratamiento' : 'Visita')}</span>
+                                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider shrink-0 ${type === 'plan' ? 'bg-emerald-50 text-emerald-700' : 'bg-sky-50 text-sky-700'}`}>
+                                                            {type === 'plan' ? 'Tratamiento' : 'Visita'}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-slate-400 shrink-0">{formatNoteDate(getRecordDateValue(record))}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-slate-400">Todavía no hay archivos guardados. Se registran al guardar PDFs de tratamiento o visitas.</p>
+                                    )}
+                                </div>
                             </div>
                         </motion.div>
                     </>

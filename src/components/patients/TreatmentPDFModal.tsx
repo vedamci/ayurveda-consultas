@@ -1251,7 +1251,14 @@ const getHerbParts = (h: HerbalFormula) => {
             setShowHealthyEatingGuide(rec.showHealthyEatingGuide !== undefined ? rec.showHealthyEatingGuide : true);
             setShowRecipesSection(rec.showRecipesSection !== undefined ? rec.showRecipesSection : true);
             setHealthyEatingGuide(rec.healthyEatingGuide || HEALTHY_EATING_GUIDE_TEXT);
-            setSelectedHealthyHabits(Array.isArray(rec.healthyEatingHabits) ? rec.healthyEatingHabits : allHabitNames(healthyHabitsList));
+            // Si el registro se guardó con la sección apagada, los hábitos vienen
+            // vacíos; volvemos al default completo para que al reactivar la sección
+            // no aparezca sin nada seleccionado.
+            setSelectedHealthyHabits(
+                Array.isArray(rec.healthyEatingHabits) && rec.healthyEatingHabits.length > 0
+                    ? rec.healthyEatingHabits
+                    : allHabitNames(healthyHabitsList)
+            );
             // Terapias guardadas en el registro (por id de plantilla).
             const recTherapies = Array.isArray(rec.therapies) ? rec.therapies : [];
             setSelectedTherapies(recTherapies);
@@ -1821,6 +1828,17 @@ const getHerbParts = (h: HerbalFormula) => {
                 ? (editingRecord.record.diagnosis || initialDiagnosis || getLatestLocalDiagnosis(patient))
                 : (initialDiagnosis || getLatestLocalDiagnosis(patient));
             const patientDiagnosisForPdf = patientDiagnosisText || buildPatientDiagnosisFallback(detailedDiagnosis, selectedDosha);
+            const selectedHealthyHabitDetails = selectedHealthyHabits
+                .map(name => healthyHabitsList.find(habit => habit.name === name) || { name, text: '' })
+                .map(habit => ({ name: habit.name, text: habit.text || '' }));
+            const selectedTherapyDetails = selectedTherapies
+                .map(id => therapiesList.find(therapy => therapy.id === id || therapy.name === id) || { id, name: id, emoji: '', text: '' })
+                .map(therapy => ({
+                    id: therapy.id,
+                    name: therapy.name,
+                    emoji: therapy.emoji || '',
+                    text: therapy.text || ''
+                }));
 
             const body: any = {
                 title,
@@ -1854,8 +1872,12 @@ const getHerbParts = (h: HerbalFormula) => {
                 showHealthyEatingGuide,
                 showRecipesSection,
                 healthyEatingGuide,
-                healthyEatingHabits: selectedHealthyHabits,
-                therapies: selectedTherapies,
+                // Si la sección no va en el PDF, no registrar hábitos/terapias en el
+                // seguimiento terapéutico (antes se guardaba la lista completa siempre).
+                healthyEatingHabits: showHealthyEatingGuide ? selectedHealthyHabits : [],
+                healthyEatingHabitDetails: showHealthyEatingGuide ? selectedHealthyHabitDetails : [],
+                therapies: showTherapiesSection ? selectedTherapies : [],
+                therapyDetails: showTherapiesSection ? selectedTherapyDetails : [],
                 showTherapiesSection,
                 therapyFrequency,
                 therapyCount,
@@ -1978,7 +2000,8 @@ const getHerbParts = (h: HerbalFormula) => {
         cerealGuidance, cerealRecipe, herbs, selectedCategories, selectedRecipes,
         isFollowUp, visitNumber, visitDate,
         showLifestylePage, showDigestiveRecoveryPage, showDiagnosis, showHealthyEatingGuide, showRecipesSection,
-        healthyEatingGuide, selectedHealthyHabits
+        healthyEatingGuide, selectedHealthyHabits,
+        selectedTherapies, showTherapiesSection, therapyFrequency, therapyCount, therapyNoteTitle, therapyNoteBody
     ]);
 
     const handlePrint = async () => {
@@ -4497,6 +4520,11 @@ const getHerbParts = (h: HerbalFormula) => {
                         '--pdf-font-meta': FONT_SIZE_PRESETS[pdfFontSize].meta,
                     } as React.CSSProperties}
                 >
+                    {/* Fondo acuarela POR PÁGINA: los elementos position:fixed se
+                        repintan en cada hoja del PDF (técnica de marca de agua),
+                        así cada página luce la acuarela completa como en pantalla
+                        en vez de un único fondo estirado sobre todo el documento. */}
+                    <div className="print-page-bg" aria-hidden="true"></div>
                     {/* Estructura de tabla: thead y tfoot se REPITEN en cada hoja
                         impresa → encabezado y pie de marca por página, y con
                         @page margin:0 el fondo crema cubre la hoja completa. */}
@@ -4598,7 +4626,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     </section>
 
                     {showDiagnosis && (!isFollowUp || recordDiagnosisPreview.trim() || patientDiagnosisText.trim()) && diagnosisPreview && (
-                        <section className="print-flow-section">
+                        <section className="print-flow-section print-page-break-before">
                             <h3 className="print-flow-title">Diagnóstico base</h3>
                             <div className="print-flow-card diagnosis-markdown prose prose-sm max-w-none font-sans pdf-base-text">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{diagnosisPreview}</ReactMarkdown>
@@ -4607,7 +4635,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {printableTreatmentText.trim() && (
-                        <section className="print-flow-section">
+                        <section className="print-flow-section print-page-break-before">
                             <h3 className="print-flow-title">Tratamiento e indicaciones</h3>
                             <div className="print-flow-card prose prose-sm prose-emerald max-w-none font-sans pdf-base-text">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{printableTreatmentText}</ReactMarkdown>
@@ -4616,7 +4644,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {showLifestylePage && lifestyleIndication.trim() && (
-                        <section className="print-flow-section">
+                        <section className="print-flow-section print-page-break-before">
                             <h3 className="print-flow-title">Estilo de vida</h3>
                             <div className="print-flow-card bg-[#ecfdf5] border-[#bbf7d0] whitespace-pre-line font-sans pdf-base-text">
                                 {lifestyleIndication}
@@ -4625,7 +4653,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {showDigestiveRecoveryPage && (
-                        <section className="print-flow-section">
+                        <section className="print-flow-section print-page-break-before">
                             <h3 className="print-flow-title">Recuperación digestiva</h3>
                             <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{DIGESTIVE_RECOVERY_TEXT}</ReactMarkdown>
@@ -4634,7 +4662,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {showHealthyEatingGuide && healthyEatingContent.trim() && (
-                        <section className="print-flow-section">
+                        <section className="print-flow-section print-page-break-before">
                             <h3 className="print-flow-title">Guía de alimentación saludable</h3>
                             <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{healthyEatingContent}</ReactMarkdown>
@@ -4643,7 +4671,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {showTherapiesSection && therapiesContent.trim() && (
-                        <section className="print-flow-section">
+                        <section className="print-flow-section print-page-break-before">
                             <h3 className="print-flow-title">Terapias recomendadas</h3>
                             <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{therapiesContent}</ReactMarkdown>
@@ -4652,7 +4680,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {activeCategories.length > 0 && (
-                        <section className="print-flow-section">
+                        <section className="print-flow-section print-page-break-before">
                             <h3 className="print-flow-title">Pautas dietéticas {selectedDosha}</h3>
                             <div className="space-y-5">
                                 {activeCategories.map((cat: any, catIdx: number) => (
@@ -4684,7 +4712,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {cerealGuidance.trim() && (
-                        <section className="print-flow-section">
+                        <section className="print-flow-section print-page-break-before">
                             <h3 className="print-flow-title">Guía práctica de alimentos</h3>
                             <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{cerealGuidance}</ReactMarkdown>
@@ -4693,7 +4721,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {(showRecipesSection && selectedRecipes.length > 0) || cerealRecipe.trim() ? (
-                        <section className="print-flow-section">
+                        <section className={`print-flow-section${cerealGuidance.trim() ? '' : ' print-page-break-before'}`}>
                             <h3 className="print-flow-title">Recetas recomendadas</h3>
                             {showRecipesSection && selectedRecipes.length > 0 ? (
                                 <div className="space-y-5">
@@ -4722,7 +4750,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     ) : null}
 
                     {herbs.length > 0 && (
-                        <section className="print-flow-section">
+                        <section className="print-flow-section print-page-break-before">
                             <h3 className="print-flow-title">Fórmulas herbales recomendadas</h3>
                             <div className="print-flow-table-card">
                                 <table className="w-full font-sans">
@@ -5145,19 +5173,38 @@ const getHerbParts = (h: HerbalFormula) => {
                     font-size: var(--pdf-font-table-body) !important;
                 }
 
+                /* Oculto fuera de impresión: solo existe para el PDF. */
+                .print-page-bg { display: none; }
+
                 @media print {
                     body * {
                         visibility: hidden;
                     }
-                    /* Fondo crema a PÁGINA COMPLETA: el fondo del body pinta toda
-                       la hoja (incluidos los márgenes), eliminando el marco blanco
-                       alrededor del contenido. */
+                    /* Fondo crema a PÁGINA COMPLETA: el color del body pinta toda
+                       la hoja (incluidos los márgenes), eliminando el marco blanco.
+                       OJO: la ACUARELA no va aquí — un background del body se
+                       estira sobre TODO el documento (N páginas) y cada hoja
+                       mostraría solo un trozo borroso. La acuarela por hoja la
+                       pinta .print-page-bg (position:fixed se repite por página). */
                     html, body {
+                        background: ${PDF_WATERCOLOR_BG_COLOR} !important;
+                        print-color-adjust: exact !important;
+                        -webkit-print-color-adjust: exact !important;
+                    }
+                    #pdf-print-content .print-page-bg {
+                        display: block !important;
+                        visibility: visible !important;
+                        position: fixed !important;
+                        top: 0 !important;
+                        left: 0 !important;
+                        right: 0 !important;
+                        bottom: 0 !important;
+                        z-index: -1 !important;
                         background-color: ${PDF_WATERCOLOR_BG_COLOR} !important;
                         background-image: url("data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_BG_SVG)}") !important;
                         background-size: cover !important;
                         background-position: center !important;
-                        background-repeat: repeat-y !important;
+                        background-repeat: no-repeat !important;
                         print-color-adjust: exact !important;
                         -webkit-print-color-adjust: exact !important;
                     }
@@ -5183,6 +5230,10 @@ const getHerbParts = (h: HerbalFormula) => {
                         gap: 0 !important;
                         opacity: 1 !important;
                         pointer-events: auto !important;
+                        /* Transparente: la acuarela por hoja la pinta .print-page-bg;
+                           un fondo aquí se estiraría sobre todo el documento y
+                           además crearía una "costura" al acabar el contenido. */
+                        background: transparent !important;
                     }
 
                     /* Vista previa vieja: queda solo como respaldo visual; la salida real usa #pdf-print-content. */

@@ -969,7 +969,9 @@ function writePatientRecord(patientId, record) {
     if (!fs.existsSync(patientDir)) {
         fs.mkdirSync(patientDir, { recursive: true });
     }
-    fs.writeFileSync(recordsFile, JSON.stringify(normalizePatientRecord(record), null, 2), 'utf8');
+    const normalizedRecord = normalizePatientRecord(record);
+    fs.writeFileSync(recordsFile, JSON.stringify(normalizedRecord, null, 2), 'utf8');
+    writeTherapeuticTracking(patientId, normalizedRecord, patientDir);
 }
 
 function buildVisitMarkdown(visit = {}, patientName = '', intensityScale = 3) {
@@ -1132,6 +1134,505 @@ function writeVisitMarkdown(patientId, visit, patientName = '') {
         return visit.mdFile || null;
     }
 }
+
+const THERAPEUTIC_TRACKING_DIR_NAME = 'seguimiento-terapeutico';
+const THERAPEUTIC_TRACKING_RECORDS_DIR_NAME = 'registros';
+
+function safeText(value = '') {
+    return value === undefined || value === null ? '' : String(value);
+}
+
+function cleanText(value = '') {
+    return safeText(value).trim();
+}
+
+function normalizeTrackingKey(value = '') {
+    return cleanText(value)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ');
+}
+
+function toArray(value) {
+    return Array.isArray(value) ? value : [];
+}
+
+function getTrackingRecordDate(record = {}) {
+    return record.visitDate || record.date || record.updatedAt || record.createdAt || '';
+}
+
+function getTrackingRecordTime(record = {}) {
+    const parsed = new Date(getTrackingRecordDate(record)).getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function formatTrackingDate(date = '') {
+    if (!date) return 'Sin fecha';
+    const parsed = new Date(date);
+    if (Number.isNaN(parsed.getTime())) return safeText(date);
+    return parsed.toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function getTrackingVisitLabel(record = {}, type = 'plan', index = 0) {
+    const title = cleanText(record.title).toLowerCase();
+    const isFollowUp = Boolean(record.isFollowUp || record.visitNumber || type === 'visit' || title.includes('seguimiento'));
+    if (!isFollowUp && index === 0) return 'Consulta inicial';
+    if (isFollowUp) {
+        return record.visitNumber ? `Visita de seguimiento Nº ${record.visitNumber}` : 'Visita de seguimiento';
+    }
+    return type === 'visit' ? 'Visita' : 'Plan de tratamiento';
+}
+
+function readJsonCatalogCandidates(relativePath) {
+    const candidates = [
+        join(__dirname, '..', ...relativePath),
+        join(process.cwd(), ...relativePath),
+        join(USER_DATA_DIR, ...relativePath)
+    ];
+    for (const filePath of candidates) {
+        try {
+            if (fs.existsSync(filePath)) {
+                const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8') || '[]');
+                return Array.isArray(parsed) ? parsed : [];
+            }
+        } catch (error) {
+            console.error('Error reading tracking catalog:', filePath, error.message);
+        }
+    }
+    return [];
+}
+
+function buildCatalogMap(items = []) {
+    const map = new Map();
+    items.forEach(item => {
+        if (!item || typeof item !== 'object') return;
+        [item.id, item.name].forEach(key => {
+            const normalized = normalizeTrackingKey(key);
+            if (normalized && !map.has(normalized)) map.set(normalized, item);
+        });
+    });
+    return map;
+}
+
+function getTrackingCatalogs() {
+    return {
+        therapies: buildCatalogMap(readJsonCatalogCandidates(['src', 'data', 'therapies.json'])),
+        healthyHabits: buildCatalogMap(readJsonCatalogCandidates(['src', 'data', 'healthy-eating-habits.json']))
+    };
+}
+
+function resolveDetailList(record = {}, selectedKey, detailKey, catalogMap) {
+    const selected = toArray(record[selectedKey]);
+    const details = toArray(record[detailKey]);
+    const detailsByKey = new Map();
+
+    details.forEach(item => {
+        if (!item) return;
+        if (typeof item === 'string') {
+            detailsByKey.set(normalizeTrackingKey(item), { name: item });
+            return;
+        }
+        [item.id, item.name].forEach(key => {
+            const normalized = normalizeTrackingKey(key);
+            if (normalized) detailsByKey.set(normalized, item);
+        });
+    });
+
+    return selected
+        .map(item => {
+            if (item && typeof item === 'object') return item;
+            const normalized = normalizeTrackingKey(item);
+            return detailsByKey.get(normalized) || catalogMap.get(normalized) || { id: item, name: item };
+        })
+        .filter(item => item && (item.name || item.id))
+        .map(item => ({
+            id: cleanText(item.id),
+            name: cleanText(item.name || item.id),
+            emoji: cleanText(item.emoji),
+            text: cleanText(item.text)
+        }));
+}
+
+function normalizeHerbForTracking(herb = {}) {
+    return {
+        formula: cleanText(herb.formula),
+        dosage: cleanText(herb.dosage),
+        purpose: cleanText(herb.purpose),
+        instruction: cleanText(herb.instruction)
+    };
+}
+
+function normalizeRecipeForTracking(recipe = {}) {
+    return {
+        id: cleanText(recipe.id),
+        title: cleanText(recipe.title || recipe.name),
+        category: cleanText(recipe.category),
+        doshas: toArray(recipe.doshas).filter(Boolean),
+        text: cleanText(recipe.text),
+        structured: recipe.structured && typeof recipe.structured === 'object' ? recipe.structured : undefined,
+        vata_effect: cleanText(recipe.vata_effect),
+        pitta_effect: cleanText(recipe.pitta_effect),
+        kapha_effect: cleanText(recipe.kapha_effect)
+    };
+}
+
+function recordHasTherapeuticTrackingContent(record = {}) {
+    const textFields = [
+        'diagnosis', 'treatment', 'lifestyle', 'patientDiagnosis', 'patientTreatment',
+        'patientLifestyle', 'cerealGuidance', 'cerealRecipe', 'healthyEatingGuide',
+        'therapyFrequency', 'therapyCount', 'therapyNoteTitle', 'therapyNoteBody'
+    ];
+    return Boolean(
+        record.pdfFile ||
+        textFields.some(field => cleanText(record[field])) ||
+        toArray(record.categories).length ||
+        toArray(record.herbs).length ||
+        toArray(record.recipes).length ||
+        toArray(record.healthyEatingHabits).length ||
+        toArray(record.therapies).length ||
+        record.showDigestiveRecoveryPage
+    );
+}
+
+function buildTherapeuticTrackingRecord(source = {}, type = 'plan', index = 0, catalogs = getTrackingCatalogs()) {
+    // Sólo se registran terapias/hábitos si su sección se incluyó en el PDF.
+    // Registros antiguos guardaban la lista completa de hábitos aunque la sección
+    // estuviera apagada (showHealthyEatingGuide: false).
+    const therapies = source.showTherapiesSection !== false
+        ? resolveDetailList(source, 'therapies', 'therapyDetails', catalogs.therapies)
+        : [];
+    const healthyHabits = source.showHealthyEatingGuide !== false
+        ? resolveDetailList(source, 'healthyEatingHabits', 'healthyEatingHabitDetails', catalogs.healthyHabits)
+        : [];
+    const date = getTrackingRecordDate(source);
+
+    return {
+        id: cleanText(source.id),
+        type,
+        title: cleanText(source.title) || (type === 'visit' ? 'Visita' : 'Tratamiento'),
+        visitLabel: getTrackingVisitLabel(source, type, index),
+        date,
+        visitDate: cleanText(source.visitDate),
+        updatedAt: cleanText(source.updatedAt),
+        createdAt: cleanText(source.createdAt),
+        dosha: cleanText(source.dosha),
+        isFollowUp: Boolean(source.isFollowUp || type === 'visit'),
+        visitNumber: cleanText(source.visitNumber),
+        pdfFile: cleanText(source.pdfFile),
+        mdFile: cleanText(source.mdFile),
+        displayedSections: {
+            diagnosis: source.showDiagnosis !== false,
+            treatment: true,
+            lifestyle: source.showLifestylePage !== false,
+            digestiveRecovery: Boolean(source.showDigestiveRecoveryPage),
+            healthyEatingGuide: source.showHealthyEatingGuide !== false,
+            recipes: source.showRecipesSection !== false,
+            therapies: Boolean(source.showTherapiesSection)
+        },
+        indications: {
+            diagnosisForPatient: cleanText(source.patientDiagnosis),
+            clinicalDiagnosis: cleanText(source.diagnosis),
+            treatmentForPatient: cleanText(source.patientTreatment || source.treatment),
+            clinicalTreatment: cleanText(source.treatment),
+            lifestyleForPatient: cleanText(source.patientLifestyle || source.lifestyle),
+            clinicalLifestyle: cleanText(source.lifestyle)
+        },
+        food: {
+            categories: toArray(source.categories).map(cleanText).filter(Boolean),
+            practicalGuidance: cleanText(source.cerealGuidance),
+            practicalRecipe: cleanText(source.cerealRecipe),
+            healthyEatingGuide: cleanText(source.healthyEatingGuide),
+            healthyEatingHabits: healthyHabits,
+            recipes: toArray(source.recipes).map(normalizeRecipeForTracking).filter(recipe => recipe.title || recipe.id)
+        },
+        herbs: toArray(source.herbs).map(normalizeHerbForTracking).filter(herb => herb.formula || herb.dosage),
+        therapies: {
+            selected: therapies,
+            frequency: cleanText(source.therapyFrequency),
+            count: cleanText(source.therapyCount),
+            noteTitle: cleanText(source.therapyNoteTitle),
+            noteBody: cleanText(source.therapyNoteBody)
+        },
+        adherence: source.adherence && typeof source.adherence === 'object' ? source.adherence : {}
+    };
+}
+
+function touchTrackingIndex(map, name, record) {
+    const cleanName = cleanText(name);
+    const key = normalizeTrackingKey(cleanName);
+    if (!key) return;
+    const existing = map.get(key) || {
+        name: cleanName,
+        count: 0,
+        firstDate: '',
+        lastDate: '',
+        records: []
+    };
+    existing.count += 1;
+    const date = record.date || '';
+    const currentTime = new Date(date).getTime();
+    const firstTime = new Date(existing.firstDate).getTime();
+    const lastTime = new Date(existing.lastDate).getTime();
+    if (!existing.firstDate || (!Number.isNaN(currentTime) && currentTime < firstTime)) existing.firstDate = date;
+    if (!existing.lastDate || Number.isNaN(lastTime) || (!Number.isNaN(currentTime) && currentTime >= lastTime)) existing.lastDate = date;
+    existing.records.push({
+        id: record.id,
+        type: record.type,
+        title: record.title,
+        visitLabel: record.visitLabel,
+        date: record.date
+    });
+    map.set(key, existing);
+}
+
+function buildTherapeuticTrackingIndexes(records = []) {
+    const categoryMap = new Map();
+    const herbMap = new Map();
+    const therapyMap = new Map();
+    const healthyHabitMap = new Map();
+    const recipeMap = new Map();
+
+    records.forEach(record => {
+        record.food.categories.forEach(name => touchTrackingIndex(categoryMap, name, record));
+        record.herbs.forEach(herb => touchTrackingIndex(herbMap, herb.formula, record));
+        record.therapies.selected.forEach(therapy => touchTrackingIndex(therapyMap, therapy.name || therapy.id, record));
+        record.food.healthyEatingHabits.forEach(habit => touchTrackingIndex(healthyHabitMap, habit.name, record));
+        record.food.recipes.forEach(recipe => touchTrackingIndex(recipeMap, recipe.title || recipe.id, record));
+    });
+
+    const sorted = map => Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    return {
+        categories: sorted(categoryMap),
+        herbs: sorted(herbMap),
+        therapies: sorted(therapyMap),
+        healthyEatingHabits: sorted(healthyHabitMap),
+        recipes: sorted(recipeMap)
+    };
+}
+
+function appendTextSection(lines, heading, text) {
+    const clean = cleanText(text);
+    if (!clean) return;
+    lines.push(`## ${heading}`);
+    lines.push('');
+    lines.push(clean);
+    lines.push('');
+}
+
+function buildTherapeuticTrackingRecordMarkdown(record) {
+    const L = [];
+    L.push(`# ${record.title}`);
+    L.push('');
+    L.push(`**Tipo:** ${record.visitLabel}  `);
+    L.push(`**Fecha:** ${formatTrackingDate(record.date)}  `);
+    if (record.dosha) L.push(`**Dosha:** ${record.dosha}  `);
+    if (record.pdfFile) L.push(`**PDF:** ${record.pdfFile}  `);
+    L.push('');
+
+    appendTextSection(L, 'Diagnóstico para el paciente', record.indications.diagnosisForPatient);
+    appendTextSection(L, 'Tratamiento e indicaciones del PDF', record.indications.treatmentForPatient);
+    appendTextSection(L, 'Tratamiento clínico interno', record.indications.clinicalTreatment);
+    appendTextSection(L, 'Estilo de vida', record.indications.lifestyleForPatient);
+    appendTextSection(L, 'Guía práctica de alimentos', record.food.practicalGuidance);
+    appendTextSection(L, 'Receta práctica de alimentos', record.food.practicalRecipe);
+    appendTextSection(L, 'Guía de alimentación saludable', record.food.healthyEatingGuide);
+
+    if (record.food.categories.length > 0) {
+        L.push('## Categorías de alimentación');
+        L.push('');
+        record.food.categories.forEach(name => L.push(`- ${name}`));
+        L.push('');
+    }
+
+    if (record.food.healthyEatingHabits.length > 0) {
+        L.push('## Hábitos de alimentación elegidos');
+        L.push('');
+        record.food.healthyEatingHabits.forEach(habit => {
+            L.push(`### ${habit.name}`);
+            if (habit.text) L.push(habit.text);
+            L.push('');
+        });
+    }
+
+    if (record.food.recipes.length > 0) {
+        L.push('## Recetas seleccionadas');
+        L.push('');
+        record.food.recipes.forEach(recipe => {
+            const suffix = [recipe.category, toArray(recipe.doshas).join(', ')].filter(Boolean).join(' · ');
+            L.push(`- ${recipe.title || recipe.id}${suffix ? ` (${suffix})` : ''}`);
+        });
+        L.push('');
+    }
+
+    if (record.herbs.length > 0) {
+        L.push('## Fórmulas herbales');
+        L.push('');
+        L.push('| Fórmula | Dosis | Para qué sirve |');
+        L.push('| --- | --- | --- |');
+        record.herbs.forEach(herb => {
+            L.push(`| ${herb.formula || '-'} | ${herb.dosage || '-'} | ${herb.purpose || herb.instruction || '-'} |`);
+        });
+        L.push('');
+    }
+
+    if (record.therapies.selected.length > 0 || record.therapies.frequency || record.therapies.count || record.therapies.noteBody) {
+        L.push('## Terapias recomendadas');
+        L.push('');
+        if (record.therapies.count) L.push(`**Cantidad:** ${record.therapies.count}  `);
+        if (record.therapies.frequency) L.push(`**Frecuencia:** ${record.therapies.frequency}  `);
+        if (record.therapies.noteTitle || record.therapies.noteBody) {
+            L.push(`**${record.therapies.noteTitle || 'Nota'}:** ${record.therapies.noteBody}`);
+            L.push('');
+        }
+        record.therapies.selected.forEach(therapy => {
+            L.push(`### ${therapy.emoji ? `${therapy.emoji} ` : ''}${therapy.name}`);
+            if (therapy.text) L.push(therapy.text);
+            L.push('');
+        });
+    }
+
+    L.push('## Secciones visibles en el PDF');
+    L.push('');
+    Object.entries(record.displayedSections).forEach(([key, value]) => {
+        L.push(`- ${key}: ${value ? 'Sí' : 'No'}`);
+    });
+    L.push('');
+    L.push('---');
+    L.push('_Seguimiento terapéutico generado automáticamente por la app de consultas VEDAMCI._');
+    L.push('');
+    return L.join('\n');
+}
+
+function buildTherapeuticTrackingMarkdown(summary) {
+    const L = [];
+    L.push('# Seguimiento terapéutico');
+    L.push('');
+    L.push(`**Actualizado:** ${formatTrackingDate(summary.generatedAt)}  `);
+    L.push(`**Registros terapéuticos:** ${summary.records.length}`);
+    L.push('');
+
+    const addIndex = (heading, items) => {
+        L.push(`## ${heading}`);
+        L.push('');
+        if (!items.length) {
+            L.push('_Sin registros todavía._');
+            L.push('');
+            return;
+        }
+        items.forEach(item => {
+            L.push(`- **${item.name}** — ${item.count} vez/veces. Última vez: ${formatTrackingDate(item.lastDate)}.`);
+        });
+        L.push('');
+    };
+
+    addIndex('Categorías de alimentos dadas', summary.indexes.categories);
+    addIndex('Fórmulas herbales dadas', summary.indexes.herbs);
+    addIndex('Terapias indicadas', summary.indexes.therapies);
+    addIndex('Hábitos de alimentación indicados', summary.indexes.healthyEatingHabits);
+    addIndex('Recetas entregadas', summary.indexes.recipes);
+
+    L.push('## Historial por visita');
+    L.push('');
+    if (!summary.records.length) {
+        L.push('_Todavía no hay tratamientos, PDFs o visitas con indicaciones guardadas._');
+        L.push('');
+    } else {
+        summary.records.forEach(record => {
+            L.push(`### ${record.visitLabel}: ${record.title}`);
+            L.push(`- Fecha: ${formatTrackingDate(record.date)}`);
+            if (record.pdfFile) L.push(`- PDF: ${record.pdfFile}`);
+            if (record.food.categories.length) L.push(`- Categorías: ${record.food.categories.join(', ')}`);
+            if (record.herbs.length) L.push(`- Hierbas: ${record.herbs.map(herb => herb.formula).filter(Boolean).join(', ')}`);
+            if (record.therapies.selected.length) L.push(`- Terapias: ${record.therapies.selected.map(therapy => therapy.name).join(', ')}`);
+            if (record.indications.treatmentForPatient) L.push(`- Indicaciones PDF: ${record.indications.treatmentForPatient.slice(0, 180)}${record.indications.treatmentForPatient.length > 180 ? '...' : ''}`);
+            L.push('');
+        });
+    }
+
+    L.push('---');
+    L.push('_Este archivo se reescribe automáticamente cada vez que se guarda un PDF, tratamiento o visita._');
+    L.push('');
+    return L.join('\n');
+}
+
+function writeTherapeuticTracking(patientId, patientRecord = {}, patientDir = '') {
+    try {
+        if (!patientDir) return;
+        const trackingDir = join(patientDir, THERAPEUTIC_TRACKING_DIR_NAME);
+        const recordsDir = join(trackingDir, THERAPEUTIC_TRACKING_RECORDS_DIR_NAME);
+        fs.mkdirSync(recordsDir, { recursive: true });
+
+        // Rebuild only our generated per-record tracking files; leave any manual notes alone.
+        for (const entry of fs.readdirSync(recordsDir)) {
+            if (/\.(json|md)$/i.test(entry)) {
+                try { fs.unlinkSync(join(recordsDir, entry)); } catch { /* ignore */ }
+            }
+        }
+
+        const catalogs = getTrackingCatalogs();
+        const sourceRecords = [
+            ...toArray(patientRecord.treatmentPlans).map(record => ({ type: 'plan', record })),
+            ...toArray(patientRecord.visits).map(record => ({ type: 'visit', record }))
+        ]
+            .filter(({ record }) => recordHasTherapeuticTrackingContent(record))
+            .sort((a, b) => getTrackingRecordTime(a.record) - getTrackingRecordTime(b.record));
+
+        const records = sourceRecords.map(({ type, record }, index) => buildTherapeuticTrackingRecord(record, type, index, catalogs));
+        const summary = {
+            generatedAt: new Date().toISOString(),
+            patientId,
+            folder: THERAPEUTIC_TRACKING_DIR_NAME,
+            records,
+            indexes: buildTherapeuticTrackingIndexes(records)
+        };
+
+        fs.writeFileSync(join(trackingDir, 'historial-terapeutico.json'), JSON.stringify(summary, null, 2), 'utf8');
+        fs.writeFileSync(join(trackingDir, 'historial-terapeutico.md'), buildTherapeuticTrackingMarkdown(summary), 'utf8');
+
+        records.forEach((record, index) => {
+            const datePrefix = (record.date || record.createdAt || `registro-${index + 1}`).slice(0, 10);
+            const idSuffix = record.id ? `_${record.id.slice(0, 8)}` : '';
+            const baseName = sanitizeFileName(`${datePrefix}_${record.visitLabel}_${record.title}${idSuffix}`) || `registro_${index + 1}`;
+            fs.writeFileSync(join(recordsDir, `${baseName}.json`), JSON.stringify(record, null, 2), 'utf8');
+            fs.writeFileSync(join(recordsDir, `${baseName}.md`), buildTherapeuticTrackingRecordMarkdown(record), 'utf8');
+        });
+    } catch (error) {
+        console.error('Error writing therapeutic tracking:', error.message);
+    }
+}
+
+function refreshAllTherapeuticTrackingFolders() {
+    try {
+        if (!fs.existsSync(LOCAL_PATIENTS_DIR)) return;
+        const folderMap = getFolderMap();
+        const patientIdByFolder = new Map(Object.entries(folderMap).map(([patientId, folderName]) => [folderName, patientId]));
+        const folders = fs.readdirSync(LOCAL_PATIENTS_DIR, { withFileTypes: true }).filter(entry => entry.isDirectory());
+        let refreshed = 0;
+
+        folders.forEach(folder => {
+            const patientDir = join(LOCAL_PATIENTS_DIR, folder.name);
+            const recordsFile = join(patientDir, 'records.json');
+            if (!fs.existsSync(recordsFile)) return;
+            try {
+                const record = normalizePatientRecord(JSON.parse(fs.readFileSync(recordsFile, 'utf8') || '{}'));
+                const patientId = patientIdByFolder.get(folder.name) || folder.name;
+                writeTherapeuticTracking(patientId, record, patientDir);
+                refreshed += 1;
+            } catch (error) {
+                console.error('Error refreshing therapeutic tracking for folder:', folder.name, error.message);
+            }
+        });
+
+        if (refreshed > 0) {
+            console.log(`Therapeutic tracking refreshed for ${refreshed} patient folder(s).`);
+        }
+    } catch (error) {
+        console.error('Error refreshing therapeutic tracking folders:', error.message);
+    }
+}
+
+refreshAllTherapeuticTrackingFolders();
 
 function getLocalPatientRecord(patientId, patientName = '') {
     return readPatientRecord(patientId, patientName);
@@ -2527,8 +3028,11 @@ app.post('/api/patients/:id/visits', authenticateToken, async (req, res) => {
             showHealthyEatingGuide = true,
             healthyEatingGuide = '',
             healthyEatingHabits = [],
+            healthyEatingHabitDetails = [],
             therapies = [],
+            therapyDetails = [],
             showTherapiesSection = false,
+            showRecipesSection = true,
             tongue = '',
             therapyFrequency = '',
             therapyCount = '',
@@ -2570,8 +3074,11 @@ app.post('/api/patients/:id/visits', authenticateToken, async (req, res) => {
             showHealthyEatingGuide,
             healthyEatingGuide,
             healthyEatingHabits,
+            healthyEatingHabitDetails,
             therapies,
+            therapyDetails,
             showTherapiesSection,
+            showRecipesSection,
             tongue,
             therapyFrequency,
             therapyCount,
@@ -2611,6 +3118,7 @@ app.patch('/api/patients/:id/visits/:visitId', authenticateToken, async (req, re
             'cerealGuidance', 'cerealRecipe', 'herbs', 'categories', 'recipes',
             'adherence', 'subtitle', 'pdfFontSize', 'isFollowUp', 'visitNumber', 'showLifestylePage',
             'showDigestiveRecoveryPage', 'showDiagnosis', 'showHealthyEatingGuide', 'healthyEatingGuide', 'healthyEatingHabits', 'therapies', 'showTherapiesSection', 'tongue',
+            'healthyEatingHabitDetails', 'therapyDetails', 'showRecipesSection',
             'therapyFrequency', 'therapyCount', 'therapyNoteTitle', 'therapyNoteBody'
         ];
         const updates = {};
@@ -2707,8 +3215,11 @@ app.post('/api/patients/:id/treatment-plans', authenticateToken, async (req, res
             showHealthyEatingGuide = true,
             healthyEatingGuide = '',
             healthyEatingHabits = [],
+            healthyEatingHabitDetails = [],
             therapies = [],
+            therapyDetails = [],
             showTherapiesSection = false,
+            showRecipesSection = true,
             tongue = '',
             therapyFrequency = '',
             therapyCount = '',
@@ -2749,8 +3260,11 @@ app.post('/api/patients/:id/treatment-plans', authenticateToken, async (req, res
             showHealthyEatingGuide,
             healthyEatingGuide,
             healthyEatingHabits,
+            healthyEatingHabitDetails,
             therapies,
+            therapyDetails,
             showTherapiesSection,
+            showRecipesSection,
             tongue,
             therapyFrequency,
             therapyCount,
@@ -2787,6 +3301,7 @@ app.patch('/api/patients/:id/treatment-plans/:planId', authenticateToken, async 
             'cerealRecipe', 'dosha', 'herbs', 'categories', 'recipes', 'adherence', 'subtitle',
             'pdfFontSize', 'isFollowUp', 'visitNumber', 'showLifestylePage',
             'showDigestiveRecoveryPage', 'showDiagnosis', 'showHealthyEatingGuide', 'healthyEatingGuide', 'healthyEatingHabits', 'therapies', 'showTherapiesSection', 'tongue',
+            'healthyEatingHabitDetails', 'therapyDetails', 'showRecipesSection',
             'therapyFrequency', 'therapyCount', 'therapyNoteTitle', 'therapyNoteBody'
         ];
         const updates = {};
