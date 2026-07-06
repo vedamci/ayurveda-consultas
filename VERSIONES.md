@@ -7,6 +7,34 @@ https://github.com/vedamci/ayurveda-consultas
 
 ## Version actual guardada
 
+### v2026.07.06-diagnostico-ia-en-pdf
+
+- Fecha: 2026-07-06
+- Rama: `main` (fusion fast-forward de `diagnostico-ia-en-pdf`, que a su vez viene de `generacion-diagnostico-ia`)
+- Commit: `ab1c5fe`
+- Tag: `v2026.07.06-diagnostico-ia-en-pdf`
+- Mensaje del commit: `Diagnóstico IA: exigir que cite historial previo del paciente`
+- Estado: subido a GitHub
+
+Cambios principales:
+
+- El diagnostico generado con IA ahora se pega automaticamente en el PDF: el boton "Descargar Tratamiento" usa el diagnostico visible en el editor (recien generado, sin necesidad de guardarlo antes), y si ningun plan/visita tiene diagnostico guardado se usa el mas reciente del historial de diagnosticos IA (`aiDiagnoses`).
+- El campo "Diagnostico para PDF" se siembra con el texto completo del diagnostico (markdown, tablas incluidas) en vez de un resumen de 2 frases; se agregaron los botones "Pegar diagnostico IA completo" y "Usar resumen breve", y el campo ahora es redimensionable.
+- El informe de diagnostico IA debe citar explicitamente visitas, notas del profesional y planes de tratamiento anteriores (con fecha cuando exista) en las secciones "Resumen del caso", "Diagnostico integrativo" y "Factores que sostienen el desequilibrio", en vez de resumirlos de forma generica o ignorarlos.
+- PDF movil: al exportar (Imprimir/Descargar y Descargar otra vez) se pregunta el destino escritorio/movil; la version movil usa hoja angosta 120x213mm con margenes de 8mm, encabezado/pie apilados y tablas compactas (sufijo `_Movil` en el archivo). Ambos motores (Electron y Puppeteer) respetan `preferCSSPageSize`.
+
+Verificacion realizada:
+
+- `npm run build` paso correctamente (2026-07-06).
+- Verificacion manual en navegador: se sembro un diagnostico IA de prueba en un paciente de prueba, se confirmo que el texto completo (con tablas) aparece en la pagina "Diagnostico Base" del PDF, y se borraron los datos de prueba al terminar.
+
+Enlaces:
+
+- Commit: https://github.com/vedamci/ayurveda-consultas/commit/ab1c5fe
+- Version/tag: https://github.com/vedamci/ayurveda-consultas/tree/v2026.07.06-diagnostico-ia-en-pdf
+
+## Versiones anteriores
+
 ### v2026.07.05-pdf-chromium-en-main
 
 - Fecha: 2026-07-05
@@ -36,8 +64,6 @@ Enlaces:
 
 - Commit: https://github.com/vedamci/ayurveda-consultas/commit/41841ef
 - Version/tag: https://github.com/vedamci/ayurveda-consultas/tree/v2026.07.05-pdf-chromium-en-main
-
-## Versiones anteriores
 
 ### v2026.07.04-checkpoint-pdf-terapias
 
