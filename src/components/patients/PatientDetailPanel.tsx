@@ -2098,7 +2098,14 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             return dateB - dateA;
         });
 
-        return localRecords[0]?.diagnosis || '';
+        if (localRecords[0]?.diagnosis) return localRecords[0].diagnosis;
+
+        // Sin diagnóstico en planes/visitas: usamos el más reciente del historial IA,
+        // para que el diagnóstico generado con IA llegue al PDF sin pasos manuales.
+        const aiRecords = [...(patient.aiDiagnoses || [])].sort((a, b) =>
+            new Date(b.createdAt || '').getTime() - new Date(a.createdAt || '').getTime()
+        );
+        return aiRecords[0]?.diagnosis || '';
     };
 
     const getNextLocalRecordTitle = (date = new Date().toISOString()) => {
@@ -2159,8 +2166,10 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
     };
 
     const handleOpenTreatmentFromLocalDiagnosis = () => {
-        const localDiagnosis = getLatestLocalDiagnosis();
-        openTreatmentPDFEditor(localDiagnosis, null);
+        // Prioriza el diagnóstico IA visible en el editor (recién generado o editado);
+        // solo si no hay uno válido caemos al último diagnóstico guardado.
+        const aiDiagnosis = diagnosis && diagnosis.trim() && !diagnosis.startsWith('Error') ? diagnosis : '';
+        openTreatmentPDFEditor(aiDiagnosis || getLatestLocalDiagnosis(), null);
     };
 
     const handleOpenPdfFromRecord = () => {

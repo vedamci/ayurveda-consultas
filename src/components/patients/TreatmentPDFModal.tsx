@@ -332,7 +332,14 @@ const getLatestLocalDiagnosis = (patient: PatientDetail) => {
         return dateB - dateA;
     });
 
-    return records[0]?.diagnosis || '';
+    if (records[0]?.diagnosis) return records[0].diagnosis;
+
+    // Sin diagnóstico en planes/visitas: usamos el más reciente del historial IA,
+    // para que el diagnóstico generado con IA llegue al PDF sin pasos manuales.
+    const aiRecords = [...(patient.aiDiagnoses || [])].sort((a, b) =>
+        new Date(b.createdAt || '').getTime() - new Date(a.createdAt || '').getTime()
+    );
+    return aiRecords[0]?.diagnosis || '';
 };
 
 const stripMarkdownForPatient = (text: string) => text
@@ -1260,9 +1267,12 @@ const getHerbParts = (h: HerbalFormula) => {
             setClinicalTreatmentIndication(rec.treatment || '');
             setMainIndication(rec.patientTreatment || buildPatientTreatmentFallback(rec.treatment || ''));
             setLifestyleIndication(rec.patientLifestyle || rec.lifestyle || '');
+            // El diagnóstico completo (IA o clínico) se pega tal cual en el PDF;
+            // el resumen breve solo aparece cuando no hay ningún diagnóstico.
             setPatientDiagnosisText(
                 rec.patientDiagnosis ||
-                buildPatientDiagnosisFallback(rec.diagnosis || initialDiagnosis || getLatestLocalDiagnosis(patient), recDosha)
+                (rec.diagnosis || initialDiagnosis || getLatestLocalDiagnosis(patient) || '').trim() ||
+                buildPatientDiagnosisFallback('', recDosha)
             );
             setCerealGuidance(rec.cerealGuidance || getGuidanceForCategories(recCats, recDosha));
             setCerealRecipe(rec.cerealRecipe || '');
@@ -1329,7 +1339,11 @@ const getHerbParts = (h: HerbalFormula) => {
                 : DEFAULT_FOOD_CATEGORIES;
             setSelectedDosha(matchingDosha);
             setClinicalTreatmentIndication('');
-            setPatientDiagnosisText(buildPatientDiagnosisFallback(effectiveDiagnosis, matchingDosha));
+            // Pega el diagnóstico IA completo en el PDF; el resumen breve queda
+            // como respaldo cuando todavía no se ha generado ningún diagnóstico.
+            setPatientDiagnosisText(
+                (effectiveDiagnosis || '').trim() || buildPatientDiagnosisFallback('', matchingDosha)
+            );
             setCerealGuidance(getGuidanceForCategories(initialCategories, matchingDosha));
             setCerealRecipe('');
             setTitle('Bienvenido a tu Primer Tratamiento');
@@ -2643,17 +2657,27 @@ const getHerbParts = (h: HerbalFormula) => {
                             <SpeechTextarea
                                 value={patientDiagnosisText}
                                 onValueChange={setPatientDiagnosisText}
-                                rows={4}
-                                className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:border-emerald-500 resize-none font-sans"
-                                placeholder="Versión sencilla del diagnóstico para el paciente..."
+                                rows={8}
+                                className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:border-emerald-500 resize-y font-sans"
+                                placeholder="Diagnóstico que aparecerá en el PDF..."
                             />
                             <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const fullDiagnosis = (editingRecord?.record?.diagnosis || initialDiagnosis || getLatestLocalDiagnosis(patient) || '').trim();
+                                        if (fullDiagnosis) setPatientDiagnosisText(fullDiagnosis);
+                                    }}
+                                    className="text-[11px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 rounded-lg px-2.5 py-1 transition-colors"
+                                >
+                                    Pegar diagnóstico IA completo
+                                </button>
                                 <button
                                     type="button"
                                     onClick={() => setPatientDiagnosisText(buildPatientDiagnosisFallback(editingRecord?.record?.diagnosis || initialDiagnosis || getLatestLocalDiagnosis(patient), selectedDosha))}
                                     className="text-[11px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 rounded-lg px-2.5 py-1 transition-colors"
                                 >
-                                    Restaurar diagnóstico base
+                                    Usar resumen breve
                                 </button>
                                 <button
                                     type="button"
