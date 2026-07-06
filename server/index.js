@@ -3432,6 +3432,7 @@ app.post('/api/ai/diagnose', authenticateToken, async (req, res) => {
             INSTRUCCIÓN CRÍTICA DE CONTEXTO:
             - Debes analizar minuciosamente TODO el historial del paciente provisto abajo (visitas anteriores, planes terapéuticos anteriores, lecturas de pulso y evolución).
             - Si el profesional ha aportado "Documentos de contexto aportados por el profesional", debes usar esa información de forma prioritaria, ya que contiene detalles clave sobre la evolución, reportes o el estado actual del paciente.
+            - REGLA NO NEGOCIABLE: si abajo aparecen "Notas del profesional" de visitas anteriores, "Historial de Planes de Tratamiento" o "Documentos de contexto", NO los ignores ni los resumas de forma genérica. Debes citarlos explícitamente en el informe (mencionando la fecha de la visita o plan cuando exista, o el dato concreto reportado), especialmente en "Resumen del caso", "Diagnóstico integrativo" y "Factores que sostienen el desequilibrio". Si el paciente no tiene historial previo, dilo explícitamente ("Es la primera valoración, sin historial previo registrado") en vez de omitir el tema.
             
             Usa la bibliografía RAW como marco doctrinal principal. Si la ficha y la bibliografía no sostienen una afirmación, dilo como hipótesis clínica o como dato por confirmar.
 
@@ -3452,6 +3453,7 @@ app.post('/api/ai/diagnose', authenticateToken, async (req, res) => {
             ## Resumen del caso
             Escribe 2 a 4 frases cálidas, clínicas y precisas. Enfócate en el diagnóstico: síntomas principales, enfermedades o antecedentes relevantes, patrón dosha/desequilibrio observado y prioridad clínica inicial.
             No incluyas datos biográficos o administrativos como profesión, ocupación, estado civil, ciudad, escolaridad o rasgos personales si no cambian directamente la interpretación clínica. La edad sólo debe aparecer si aporta contexto diagnóstico real.
+            Si el paciente tiene visitas, planes de tratamiento o documentos de contexto previos, menciona explícitamente su evolución (por ejemplo qué ha mejorado, empeorado o se mantiene igual desde la última visita/plan registrado).
 
             ## Dosha predominante y desequilibrio actual
             - **Constitución o tendencia principal:** explica el dosha detectado.
@@ -3474,9 +3476,11 @@ app.post('/api/ai/diagnose', authenticateToken, async (req, res) => {
 
             ## Diagnóstico integrativo
             Redacta 2 a 4 párrafos. Conecta síntomas, hábitos y dosha sin sonar alarmista. Distingue claramente entre lo observado, lo probable y lo que habría que confirmar en consulta.
+            Si hay visitas anteriores, notas del profesional o planes de tratamiento previos, integra y cita esos datos concretos (con fecha si está disponible) en vez de partir de cero como si fuera la primera vez que se evalúa al paciente.
 
             ## Factores que sostienen el desequilibrio
             Lista 4 a 7 factores concretos tomados de la ficha. Si un dato no aparece, no lo inventes.
+            Incluye al menos un factor proveniente de las visitas/notas del profesional o planes de tratamiento previos cuando existan en el historial.
 
             ## Recomendaciones iniciales
             Elige y prioriza únicamente las pautas más críticas y útiles para el paciente en esta etapa inicial. Limita estrictamente la cantidad de recomendaciones a las siguientes cifras exactas:
