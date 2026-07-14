@@ -104,6 +104,7 @@ export interface TreatmentAdherence {
     categories?: TreatmentAdherenceItem[];
     herbs?: TreatmentAdherenceItem[];
     lifestyle?: TreatmentAdherenceItem[];
+    healthyHabits?: TreatmentAdherenceItem[];
     generalNote?: string;
     updatedAt?: string;
 }

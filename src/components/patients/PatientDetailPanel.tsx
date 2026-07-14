@@ -160,13 +160,6 @@ const mergeAdherenceItems = (current: TreatmentAdherenceItem[] = [], names: stri
         .map(name => byName.get(normalizeTrackingName(name)) || createAdherenceItem(name));
 };
 
-const getAdherenceLabel = (status?: TreatmentAdherenceItem['status']) => {
-    if (status === 'done') return 'Hecho';
-    if (status === 'partial') return 'Parcial';
-    if (status === 'not_done') return 'No hecho';
-    return 'Sin revisar';
-};
-
 const getAdherenceClass = (status?: TreatmentAdherenceItem['status']) => {
     if (status === 'done') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     if (status === 'partial') return 'bg-amber-50 text-amber-700 border-amber-200';
@@ -574,10 +567,12 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             ...((patient?.visits || []).map(record => ({ type: 'visit' as const, record })))
         ].sort((a, b) => new Date(getRecordDateValue(b.record)).getTime() - new Date(getRecordDateValue(a.record)).getTime());
 
-        const categories = new Map<string, { name: string; count: number; lastDate: string; lastRecency: number; lastStatus?: TreatmentAdherenceItem['status']; notes: string[] }>();
-        const herbs = new Map<string, { name: string; count: number; lastDate: string; lastRecency: number; lastStatus?: TreatmentAdherenceItem['status']; notes: string[] }>();
-        const therapies = new Map<string, { name: string; count: number; lastDate: string; lastRecency: number; lastStatus?: TreatmentAdherenceItem['status']; notes: string[] }>();
-        const healthyHabits = new Map<string, { name: string; count: number; lastDate: string; lastRecency: number; lastStatus?: TreatmentAdherenceItem['status']; notes: string[] }>();
+        type RecordRef = { type: 'plan' | 'visit'; id: string };
+        type Occurrence = { title: string; date: string };
+        const categories = new Map<string, { name: string; count: number; lastDate: string; lastRecency: number; lastStatus?: TreatmentAdherenceItem['status']; notes: string[]; lastRecordRef?: RecordRef; lastRecordTitle?: string; occurrences: Occurrence[] }>();
+        const herbs = new Map<string, { name: string; count: number; lastDate: string; lastRecency: number; lastStatus?: TreatmentAdherenceItem['status']; notes: string[]; lastRecordRef?: RecordRef; lastRecordTitle?: string; occurrences: Occurrence[] }>();
+        const therapies = new Map<string, { name: string; count: number; lastDate: string; lastRecency: number; lastStatus?: TreatmentAdherenceItem['status']; notes: string[]; lastRecordRef?: RecordRef; lastRecordTitle?: string; occurrences: Occurrence[] }>();
+        const healthyHabits = new Map<string, { name: string; count: number; lastDate: string; lastRecency: number; lastStatus?: TreatmentAdherenceItem['status']; notes: string[]; lastRecordRef?: RecordRef; lastRecordTitle?: string; occurrences: Occurrence[] }>();
         let reviewedCount = 0;
 
         const isMeaningfulStatus = (status?: TreatmentAdherenceItem['status']) => !!status && status !== 'unknown';
@@ -589,12 +584,15 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             name: string,
             date: string,
             recency: number,
-            adherence?: TreatmentAdherenceItem
+            adherence?: TreatmentAdherenceItem,
+            recordRef?: RecordRef,
+            recordTitle?: string
         ) => {
             const key = normalizeTrackingName(name);
             if (!key) return;
-            const existing = map.get(key) || { name, count: 0, lastDate: '', lastRecency: -Infinity, notes: [] };
+            const existing = map.get(key) || { name, count: 0, lastDate: '', lastRecency: -Infinity, notes: [], occurrences: [] };
             existing.count += 1;
+            existing.occurrences.push({ title: recordTitle || '', date });
             const status = adherence?.status;
             // Prefer the most recently updated record. On a tie (same timestamp, e.g. a
             // duplicate visit on the same day), prefer a record that actually has a
@@ -606,15 +604,19 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 existing.lastRecency = recency;
                 existing.lastDate = date;
                 existing.lastStatus = status;
+                existing.lastRecordRef = recordRef;
+                existing.lastRecordTitle = recordTitle;
             }
             if (adherence?.note?.trim()) existing.notes.push(adherence.note.trim());
             map.set(key, existing);
         };
 
-        records.forEach(({ record }) => {
+        records.forEach(({ type, record }) => {
             const date = getRecordDateValue(record);
             const recency = recencyOf(record);
             const adherence = record.adherence || {};
+            const recordRef: RecordRef | undefined = record.id ? { type, id: record.id } : undefined;
+            const recordTitle = record.title?.trim() || (type === 'plan' ? 'Tratamiento' : 'Visita');
             if (
                 (adherence.categories || []).some(item => item.status && item.status !== 'unknown') ||
                 (adherence.herbs || []).some(item => item.status && item.status !== 'unknown') ||
@@ -625,12 +627,12 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
 
             (record.categories || []).forEach(name => {
                 const item = (adherence.categories || []).find(entry => normalizeTrackingName(entry.name) === normalizeTrackingName(name));
-                touch(categories, name, date, recency, item);
+                touch(categories, name, date, recency, item, recordRef, recordTitle);
             });
 
             (record.herbs || []).forEach(herb => {
                 const item = (adherence.herbs || []).find(entry => normalizeTrackingName(entry.name) === normalizeTrackingName(herb.formula));
-                touch(herbs, herb.formula, date, recency, item);
+                touch(herbs, herb.formula, date, recency, item, recordRef, recordTitle);
             });
 
             // Sólo cuentan las terapias/hábitos cuya sección se incluyó realmente en el
@@ -638,13 +640,14 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             // sección estuviera apagada (showHealthyEatingGuide: false).
             if (record.showTherapiesSection !== false) {
                 getStoredTherapyNames(record).forEach(name => {
-                    touch(therapies, name, date, recency);
+                    touch(therapies, name, date, recency, undefined, recordRef, recordTitle);
                 });
             }
 
             if (record.showHealthyEatingGuide !== false) {
                 getStoredHealthyHabitNames(record).forEach(name => {
-                    touch(healthyHabits, name, date, recency);
+                    const item = (adherence.healthyHabits || []).find(entry => normalizeTrackingName(entry.name) === normalizeTrackingName(name));
+                    touch(healthyHabits, name, date, recency, item, recordRef, recordTitle);
                 });
             }
         });
@@ -703,17 +706,33 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         return { labels, symptoms, averageDelta };
     }, [patient, isAddingVisit, visitSymptoms]);
 
-    const getLatestTreatmentForVisit = () => {
+    const getLatestTreatmentForVisit = (excludeId?: string) => {
         if (!patient) return null;
 
         const records = [
             ...(patient.treatmentPlans || []).map(record => ({ type: 'plan' as const, record })),
             ...(patient.visits || []).map(record => ({ type: 'visit' as const, record }))
         ]
+            .filter(({ record }) => !excludeId || record.id !== excludeId)
             .filter(({ record }) => (record.categories || []).length > 0 || (record.herbs || []).length > 0)
             .sort((a, b) => new Date(getRecordDateValue(b.record)).getTime() - new Date(getRecordDateValue(a.record)).getTime());
 
         return records[0]?.record || null;
+    };
+
+    // Combina los nombres ya presentes en un checklist de adherencia con los del
+    // tratamiento de referencia, para no perder ítems ya marcados ni ítems nuevos.
+    const unionAdherenceNames = (current: TreatmentAdherenceItem[] = [], extraNames: string[] = []) => {
+        const names = new Map<string, string>();
+        current.forEach(item => {
+            const key = normalizeTrackingName(item.name);
+            if (key) names.set(key, item.name);
+        });
+        extraNames.forEach(name => {
+            const key = normalizeTrackingName(name);
+            if (key && !names.has(key)) names.set(key, name);
+        });
+        return Array.from(names.values());
     };
 
     const buildNewVisitAdherence = (record: TreatmentPlan | Visit | null): TreatmentAdherence => ({
@@ -783,9 +802,19 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         setVisitSymptoms({ ...(visit.symptoms || {}) });
         setVisitTrackedCategories([...(visit.categories || [])]);
         setVisitTrackedHerbs(mapHerbsWithPurpose(visit.herbs || []));
+        // Reconstruye el checklist combinando lo ya guardado en esta visita con el
+        // tratamiento previo (excluyendo la propia visita). Así, si esta visita se
+        // guardó antes de que existiera el checklist (o el profesional agregó
+        // categorías nuevas al tratamiento previo después), los ítems reaparecen
+        // listos para marcar en vez de mostrarse vacíos.
+        const previousTreatment = getLatestTreatmentForVisit(visit.id);
+        const existingCategories = visit.adherence?.categories || [];
+        const existingHerbs = visit.adherence?.herbs || [];
+        const categoryNames = unionAdherenceNames(existingCategories, previousTreatment?.categories || []);
+        const herbNames = unionAdherenceNames(existingHerbs, (previousTreatment?.herbs || []).map(herb => herb.formula));
         setVisitAdherence({
-            categories: visit.adherence?.categories ? [...visit.adherence.categories] : [],
-            herbs: visit.adherence?.herbs ? [...visit.adherence.herbs] : [],
+            categories: mergeAdherenceItems(existingCategories, categoryNames),
+            herbs: mergeAdherenceItems(existingHerbs, herbNames),
             lifestyle: visit.adherence?.lifestyle ? [...visit.adherence.lifestyle] : [],
             generalNote: visit.adherence?.generalNote || '',
             updatedAt: visit.adherence?.updatedAt
@@ -1463,10 +1492,14 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         }
         setSavingVisit(true);
         try {
+            // La adherencia ya viene correctamente mantenida en visitAdherence (sembrada
+            // del tratamiento ANTERIOR y actualizada ítem por ítem vía
+            // patchNewVisitAdherence). Antes aquí se volvía a filtrar contra
+            // visitTrackedCategories/visitTrackedHerbs —las categorías/fórmulas NUEVAS
+            // elegidas para esta visita, casi nunca los mismos nombres— lo que borraba
+            // todo lo marcado como "hizo/no hizo" al guardar.
             const nextAdherence = {
                 ...visitAdherence,
-                categories: mergeAdherenceItems(visitAdherence.categories, visitTrackedCategories),
-                herbs: mergeAdherenceItems(visitAdherence.herbs, visitTrackedHerbs.map(herb => herb.formula)),
                 updatedAt: new Date().toISOString()
             };
             const isEditing = Boolean(editingVisitId);
@@ -1613,6 +1646,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         ...(record.adherence || {}),
         categories: mergeAdherenceItems(record.adherence?.categories, record.categories || []),
         herbs: mergeAdherenceItems(record.adherence?.herbs, (record.herbs || []).map(herb => herb.formula)),
+        healthyHabits: mergeAdherenceItems(record.adherence?.healthyHabits, getStoredHealthyHabitNames(record)),
         updatedAt: record.adherence?.updatedAt
     });
 
@@ -1657,6 +1691,69 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         } else {
             patchPatientVisit(openRecord.record.id || '', { adherence: nextAdherence });
         }
+    };
+
+    // Marca/desmarca "hizo/no hizo" directamente desde el panel de Seguimiento
+    // Terapéutico (resumen acumulado de todas las visitas). Escribe en el registro
+    // (plan o visita) que dio el último estado de ese ítem, sin forzar la apertura
+    // de su panel de detalle: actualiza el estado local (se refleja al toque en
+    // Seguimiento y en la visita/plan si ya está abierto) y persiste en el backend.
+    const patchTherapeuticSummaryAdherence = (
+        section: 'categories' | 'herbs' | 'healthyHabits',
+        item: { name: string; lastRecordRef?: { type: 'plan' | 'visit'; id: string } },
+        updates: Partial<TreatmentAdherenceItem>
+    ) => {
+        const ref = item.lastRecordRef;
+        if (!ref || !patientId) {
+            window.alert(`No se pudo ubicar el registro de origen de "${item.name}" para guardar el cambio.`);
+            return;
+        }
+        const sourceRecord = ref.type === 'plan'
+            ? (patient?.treatmentPlans || []).find(p => p.id === ref.id)
+            : (patient?.visits || []).find(v => v.id === ref.id);
+        if (!sourceRecord) {
+            window.alert(`No se pudo ubicar el registro de origen de "${item.name}" para guardar el cambio.`);
+            return;
+        }
+
+        const adherence = buildRecordAdherence(sourceRecord);
+        const names = section === 'categories'
+            ? (sourceRecord.categories || [])
+            : section === 'herbs'
+            ? (sourceRecord.herbs || []).map(herb => herb.formula)
+            : getStoredHealthyHabitNames(sourceRecord);
+        const items = mergeAdherenceItems(adherence[section], names).map(entry =>
+            normalizeTrackingName(entry.name) === normalizeTrackingName(item.name)
+                ? { ...entry, ...updates }
+                : entry
+        );
+        const nextAdherence = {
+            ...adherence,
+            [section]: items,
+            updatedAt: new Date().toISOString()
+        };
+
+        // Además de guardar en adherence.updatedAt, tocamos el updatedAt del propio
+        // registro: el resumen de Seguimiento elige, para cada categoría/fórmula/
+        // hábito, el registro con el updatedAt más reciente. Si no lo actualizamos
+        // aquí, un registro más viejo con el mismo ítem podría "ganarle" a este
+        // cambio recién hecho y el estado marcado no se vería reflejado.
+        const recordUpdatedAt = new Date().toISOString();
+
+        if (ref.type === 'plan') {
+            patchPatientPlan(ref.id, { adherence: nextAdherence, updatedAt: recordUpdatedAt });
+        } else {
+            patchPatientVisit(ref.id, { adherence: nextAdherence, updatedAt: recordUpdatedAt });
+        }
+
+        const endpoint = ref.type === 'plan'
+            ? `/api/patients/${patientId}/treatment-plans/${ref.id}`
+            : `/api/patients/${patientId}/visits/${ref.id}`;
+        fetch(endpoint, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ adherence: nextAdherence })
+        }).catch(error => console.error('Error saving adherence from tracking view:', error));
     };
 
     const patchNewVisitAdherence = (
@@ -4962,54 +5059,101 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
 
                             <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Categorías usadas</p>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {therapeuticSummary.categories.length > 0 ? therapeuticSummary.categories.map(item => (
-                                                <span key={item.name} className={`px-2 py-1 rounded-lg border text-[11px] font-bold ${getAdherenceClass(item.lastStatus)}`} title={item.notes[0] || (item.lastDate ? `Última vez: ${formatNoteDate(item.lastDate)}` : '')}>
-                                                    {item.name} · {item.count} · {getAdherenceLabel(item.lastStatus)}
-                                                </span>
-                                            )) : (
-                                                <span className="text-xs text-slate-400">Todavía no hay categorías registradas.</span>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Fórmulas usadas</p>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {therapeuticSummary.herbs.length > 0 ? therapeuticSummary.herbs.map(item => (
-                                                <span key={item.name} className={`px-2 py-1 rounded-lg border text-[11px] font-bold ${getAdherenceClass(item.lastStatus)}`} title={item.notes[0] || (item.lastDate ? `Última vez: ${formatNoteDate(item.lastDate)}` : '')}>
-                                                    {item.name} · {item.count} · {getAdherenceLabel(item.lastStatus)}
-                                                </span>
-                                            )) : (
-                                                <span className="text-xs text-slate-400">Todavía no hay fórmulas registradas.</span>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Terapias indicadas</p>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {therapeuticSummary.therapies.length > 0 ? therapeuticSummary.therapies.map(item => (
-                                                <span key={item.name} className="px-2 py-1 rounded-lg border text-[11px] font-bold bg-sky-50 text-sky-700 border-sky-200" title={item.lastDate ? `Última vez: ${formatNoteDate(item.lastDate)}` : ''}>
-                                                    {item.name} · {item.count}
-                                                </span>
-                                            )) : (
-                                                <span className="text-xs text-slate-400">Todavía no hay terapias registradas.</span>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Hábitos/guías</p>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {therapeuticSummary.healthyHabits.length > 0 ? therapeuticSummary.healthyHabits.map(item => (
-                                                <span key={item.name} className="px-2 py-1 rounded-lg border text-[11px] font-bold bg-teal-50 text-teal-700 border-teal-200" title={item.lastDate ? `Última vez: ${formatNoteDate(item.lastDate)}` : ''}>
-                                                    {item.name} · {item.count}
-                                                </span>
-                                            )) : (
-                                                <span className="text-xs text-slate-400">Todavía no hay hábitos registrados.</span>
-                                            )}
-                                        </div>
-                                    </div>
+                                    {(() => {
+                                        const adherenceStatusOptions: Array<{ value: NonNullable<TreatmentAdherenceItem['status']>; label: string }> = [
+                                            { value: 'done', label: 'Hecho' },
+                                            { value: 'partial', label: 'Parcial' },
+                                            { value: 'not_done', label: 'No hecho' },
+                                            { value: 'unknown', label: 'Sin revisar' }
+                                        ];
+                                        const renderTrackableItem = (
+                                            section: 'categories' | 'herbs' | 'healthyHabits',
+                                            item: typeof therapeuticSummary.categories[number]
+                                        ) => (
+                                            <div key={item.name} className="rounded-lg border border-slate-100 bg-white px-2.5 py-2">
+                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
+                                                    <span className="flex-1 text-[11px] font-bold text-slate-700 truncate">
+                                                        {item.name} <span className="text-slate-400 font-normal">· {item.count}</span>
+                                                    </span>
+                                                    <div className="flex flex-wrap gap-1 shrink-0">
+                                                        {adherenceStatusOptions.map(option => (
+                                                            <button
+                                                                key={option.value}
+                                                                type="button"
+                                                                onClick={() => patchTherapeuticSummaryAdherence(section, item, { status: option.value })}
+                                                                className={`px-1.5 py-0.5 rounded-md border text-[9px] font-bold transition-colors ${
+                                                                    item.lastStatus === option.value
+                                                                        ? getAdherenceClass(item.lastStatus)
+                                                                        : 'bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600'
+                                                                }`}
+                                                            >
+                                                                {option.label}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                {item.occurrences.length > 0 && (
+                                                    <p
+                                                        className="mt-1 text-[10px] text-slate-400 truncate"
+                                                        title={item.occurrences.map(occ => `${occ.title}${occ.date ? ` (${formatNoteDate(occ.date)})` : ''}`).join(' · ')}
+                                                    >
+                                                        Visitas: {item.occurrences.map(occ => `${occ.title}${occ.date ? ` (${formatNoteDate(occ.date)})` : ''}`).join(' · ')}
+                                                    </p>
+                                                )}
+                                                {item.notes[0] && (
+                                                    <p className="mt-0.5 text-[10px] text-slate-400 italic truncate" title={item.notes[0]}>
+                                                        “{item.notes[0]}”
+                                                    </p>
+                                                )}
+                                            </div>
+                                        );
+                                        return (
+                                            <>
+                                                <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+                                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Categorías usadas</p>
+                                                    {therapeuticSummary.categories.length > 0 ? (
+                                                        <div className="space-y-1.5">
+                                                            {therapeuticSummary.categories.map(item => renderTrackableItem('categories', item))}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-slate-400">Todavía no hay categorías registradas.</span>
+                                                    )}
+                                                </div>
+                                                <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+                                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Fórmulas usadas</p>
+                                                    {therapeuticSummary.herbs.length > 0 ? (
+                                                        <div className="space-y-1.5">
+                                                            {therapeuticSummary.herbs.map(item => renderTrackableItem('herbs', item))}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-slate-400">Todavía no hay fórmulas registradas.</span>
+                                                    )}
+                                                </div>
+                                                <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+                                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Terapias indicadas</p>
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {therapeuticSummary.therapies.length > 0 ? therapeuticSummary.therapies.map(item => (
+                                                            <span key={item.name} className="px-2 py-1 rounded-lg border text-[11px] font-bold bg-sky-50 text-sky-700 border-sky-200" title={item.occurrences.map(occ => `${occ.title}${occ.date ? ` (${formatNoteDate(occ.date)})` : ''}`).join(' · ')}>
+                                                                {item.name} · {item.count}
+                                                            </span>
+                                                        )) : (
+                                                            <span className="text-xs text-slate-400">Todavía no hay terapias registradas.</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+                                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Hábitos/guías</p>
+                                                    {therapeuticSummary.healthyHabits.length > 0 ? (
+                                                        <div className="space-y-1.5">
+                                                            {therapeuticSummary.healthyHabits.map(item => renderTrackableItem('healthyHabits', item))}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-slate-400">Todavía no hay hábitos registrados.</span>
+                                                    )}
+                                                </div>
+                                            </>
+                                        );
+                                    })()}
                                 </div>
 
                                 <div className="rounded-xl border border-slate-100 bg-white p-4">
