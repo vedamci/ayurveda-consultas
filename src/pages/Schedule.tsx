@@ -58,7 +58,13 @@ const isEventCanceled = (summary?: string, description?: string) => {
 
 const getDefaultCalendarRedirectUri = () => {
     const currentPort = window.location.port;
-    const backendPort = currentPort === '5173' ? '3000' : currentPort === '5174' ? '3001' : currentPort || '3000';
+    const isLocalDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    if (!isLocalDevelopment) {
+        return `${window.location.origin}/api/calendar/auth/callback`;
+    }
+
+    const backendPort = currentPort === '5174' ? '3001' : '3000';
     return `${window.location.protocol}//${window.location.hostname}:${backendPort}/api/calendar/auth/callback`;
 };
 

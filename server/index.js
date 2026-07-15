@@ -496,7 +496,38 @@ function requireAdmin(req, res, next) {
 const app = express();
 const configuredPort = Number.parseInt(process.env.PORT || '3000', 10);
 const port = Number.isFinite(configuredPort) ? configuredPort : 3000;
-const getDefaultCalendarRedirectUri = () => `http://localhost:${port}/api/calendar/auth/callback`;
+const CALENDAR_CALLBACK_PATH = '/api/calendar/auth/callback';
+const isLoopbackUrl = (value = '') => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(?:\/|$)/i.test(value);
+const getRequestOrigin = (req) => {
+    if (!req) return '';
+
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
+        .split(',')[0]
+        .trim();
+    const protocol = forwardedProto || req.protocol || 'http';
+    const host = req.get('host');
+    return host ? `${protocol}://${host}` : '';
+};
+const getDefaultCalendarRedirectUri = (req) => {
+    const requestOrigin = getRequestOrigin(req);
+    if (requestOrigin && !isLoopbackUrl(requestOrigin)) {
+        return `${requestOrigin}${CALENDAR_CALLBACK_PATH}`;
+    }
+
+    return `http://localhost:${port}${CALENDAR_CALLBACK_PATH}`;
+};
+const getCalendarRedirectUri = (req) => {
+    const configuredUri = (process.env.GOOGLE_REDIRECT_URI || '').trim();
+    const requestOrigin = getRequestOrigin(req);
+
+    // A localhost callback saved during development must never be reused when
+    // the OAuth flow starts from the public deployment.
+    if (configuredUri && !(isLoopbackUrl(configuredUri) && requestOrigin && !isLoopbackUrl(requestOrigin))) {
+        return configuredUri;
+    }
+
+    return getDefaultCalendarRedirectUri(req);
+};
 
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
@@ -1791,11 +1822,11 @@ const aiModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 let oauth2Client;
 let calendar;
 
-function initGoogleCalendar() {
+function initGoogleCalendar(redirectUri = getCalendarRedirectUri()) {
     oauth2Client = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID,
         process.env.GOOGLE_CLIENT_SECRET,
-        process.env.GOOGLE_REDIRECT_URI || getDefaultCalendarRedirectUri()
+        redirectUri
     );
 
     if (process.env.GOOGLE_REFRESH_TOKEN) {
@@ -4322,7 +4353,7 @@ app.get('/api/calendar/config', authenticateToken, (req, res) => {
     res.json({
         success: true,
         clientId: process.env.GOOGLE_CLIENT_ID || '',
-        redirectUri: process.env.GOOGLE_REDIRECT_URI || getDefaultCalendarRedirectUri(),
+        redirectUri: getCalendarRedirectUri(req),
         calendarId: process.env.GOOGLE_CALENDAR_ID || 'primary',
         hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
         isConnected: !!process.env.GOOGLE_REFRESH_TOKEN,
@@ -4344,7 +4375,9 @@ app.post('/api/calendar/config', authenticateToken, (req, res) => {
         
         const updates = {
             GOOGLE_CLIENT_ID: clientId,
-            GOOGLE_REDIRECT_URI: redirectUri || getDefaultCalendarRedirectUri(),
+            GOOGLE_REDIRECT_URI: redirectUri && !isLoopbackUrl(redirectUri)
+                ? redirectUri
+                : getDefaultCalendarRedirectUri(req),
             GOOGLE_CALENDAR_ID: calendarId || 'primary',
             VITE_CALENDLY_LINK: bookingLink || '',
             ALLOWED_WORK_DAYS: allowedDays || '1,2,3,4,5',
@@ -4397,6 +4430,7 @@ app.get('/api/calendar/auth', authenticateToken, (req, res) => {
     if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
         return res.status(400).json({ error: 'Las credenciales de Google Calendar no están configuradas.' });
     }
+    initGoogleCalendar(getCalendarRedirectUri(req));
     const url = oauth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: ['https://www.googleapis.com/auth/calendar'],
@@ -4409,6 +4443,7 @@ app.get('/api/calendar/auth', authenticateToken, (req, res) => {
 app.get('/api/calendar/auth/callback', async (req, res) => {
     const { code } = req.query;
     try {
+        initGoogleCalendar(getCalendarRedirectUri(req));
         const { tokens } = await oauth2Client.getToken(code);
         oauth2Client.setCredentials(tokens);
         
