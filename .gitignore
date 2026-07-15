@@ -10,8 +10,7 @@ lerna-debug.log*
 # Dependencies
 node_modules
 
-# Build output
-dist
+# Build output (dist is tracked for cPanel deployments)
 dist-ssr
 dist-electron
 dist-verify
