@@ -103,6 +103,26 @@ Avísame y lo configuro.
 
 ---
 
+## 7. Despliegue automático desde GitHub a cPanel
+
+El servidor expone `POST /api/deploy/github` para recibir únicamente eventos firmados
+por GitHub. El receptor valida la firma HMAC-SHA256, el repositorio y la rama `main` antes
+de ejecutar `git pull --ff-only origin main` y reiniciar Passenger.
+
+1. Genera un secreto aleatorio largo y guárdalo como `GITHUB_WEBHOOK_SECRET` en el `.env`
+   privado del servidor.
+2. Configura `GITHUB_REPOSITORY=vedamci/ayurveda-consultas`.
+3. En GitHub → **Settings → Webhooks → Add webhook** usa:
+   - Payload URL: `https://consultas.vedamci.com.mx/api/deploy/github`
+   - Content type: `application/json`
+   - Secret: exactamente el mismo valor del servidor
+   - Events: solo **push events**
+4. Conserva cPanel en la rama `main` y verifica que el último delivery responda `200`.
+
+El secreto nunca debe incluirse en Git ni compartirse en registros o capturas.
+
+---
+
 ## Notas de arquitectura
 
 - **Datos clínicos principales** → viven en **Notion** (no dependen del disco de Render).

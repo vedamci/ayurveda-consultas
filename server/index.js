@@ -9,7 +9,7 @@ import { google } from 'googleapis';
 import fs from 'fs';
 import crypto from 'crypto';
 import convertHEIC from 'heic-convert';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import os from 'os';
 
 
@@ -530,7 +530,110 @@ const getCalendarRedirectUri = (req) => {
 };
 
 app.use(cors());
-app.use(express.json({ limit: '25mb' }));
+app.use(express.json({
+    limit: '25mb',
+    verify: (req, _res, buffer) => {
+        if (req.originalUrl === '/api/deploy/github') {
+            req.rawBody = Buffer.from(buffer);
+        }
+    }
+}));
+
+// ─── GitHub deployment webhook ────────────────────────────────────────────
+
+const DEPLOY_BRANCH = 'main';
+const DEPLOY_REF = `refs/heads/${DEPLOY_BRANCH}`;
+const DEPLOY_REPOSITORY = process.env.GITHUB_REPOSITORY || 'vedamci/ayurveda-consultas';
+const PROJECT_ROOT = join(__dirname, '..');
+let deploymentInProgress = false;
+
+function hasValidGitHubSignature(req) {
+    const secret = process.env.GITHUB_WEBHOOK_SECRET || '';
+    const signature = req.get('x-hub-signature-256') || '';
+    if (!secret || !req.rawBody || !signature.startsWith('sha256=')) return false;
+
+    const expected = `sha256=${crypto
+        .createHmac('sha256', secret)
+        .update(req.rawBody)
+        .digest('hex')}`;
+    const providedBuffer = Buffer.from(signature, 'utf8');
+    const expectedBuffer = Buffer.from(expected, 'utf8');
+
+    return providedBuffer.length === expectedBuffer.length
+        && crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
+function runGitCommand(args) {
+    return new Promise((resolve, reject) => {
+        execFile('git', args, {
+            cwd: PROJECT_ROOT,
+            env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+            timeout: 120_000,
+            maxBuffer: 2 * 1024 * 1024,
+        }, (error, stdout, stderr) => {
+            if (error) {
+                error.details = (stderr || stdout || error.message).trim();
+                reject(error);
+                return;
+            }
+            resolve(stdout.trim());
+        });
+    });
+}
+
+app.post('/api/deploy/github', async (req, res) => {
+    if (!process.env.GITHUB_WEBHOOK_SECRET) {
+        return res.status(503).json({ error: 'Webhook no configurado.' });
+    }
+    if (!hasValidGitHubSignature(req)) {
+        return res.status(401).json({ error: 'Firma inválida.' });
+    }
+
+    const event = req.get('x-github-event');
+    if (event === 'ping') {
+        return res.json({ success: true, message: 'Webhook listo.' });
+    }
+    if (event !== 'push') {
+        return res.status(202).json({ success: true, ignored: true });
+    }
+    if (req.body?.ref !== DEPLOY_REF || req.body?.repository?.full_name !== DEPLOY_REPOSITORY) {
+        return res.status(202).json({ success: true, ignored: true });
+    }
+    if (deploymentInProgress) {
+        return res.status(409).json({ error: 'Ya hay un despliegue en curso.' });
+    }
+
+    deploymentInProgress = true;
+    try {
+        const activeBranch = await runGitCommand(['rev-parse', '--abbrev-ref', 'HEAD']);
+        if (activeBranch !== DEPLOY_BRANCH) {
+            throw new Error(`El servidor no está en la rama ${DEPLOY_BRANCH}.`);
+        }
+
+        await runGitCommand(['pull', '--ff-only', 'origin', DEPLOY_BRANCH]);
+        const deployedCommit = await runGitCommand(['rev-parse', '--short', 'HEAD']);
+        fs.appendFileSync(
+            join(USER_DATA_DIR, 'deployments.log'),
+            `${new Date().toISOString()} ${DEPLOY_BRANCH} ${deployedCommit}\n`,
+            'utf8'
+        );
+
+        res.once('finish', () => {
+            setTimeout(() => {
+                const restartDir = join(PROJECT_ROOT, 'tmp');
+                fs.mkdirSync(restartDir, { recursive: true });
+                fs.writeFileSync(join(restartDir, 'restart.txt'), new Date().toISOString(), 'utf8');
+            }, 300);
+        });
+
+        return res.json({ success: true, deployedCommit });
+    } catch (error) {
+        console.error('GitHub deployment failed:', error.details || error.message);
+        return res.status(500).json({ error: 'No se pudo completar el despliegue.' });
+    } finally {
+        deploymentInProgress = false;
+    }
+});
 
 // ─── Authentication Endpoints ──────────────────────────────────────────────
 
