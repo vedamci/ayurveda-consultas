@@ -56,6 +56,31 @@ function normalizeDoshaValue(value = '') {
     return aliases.find(alias => alias.patterns.some(pattern => normalized.includes(pattern)))?.dosha || '';
 }
 
+// Notion does not allow commas in multi_select option names. Keep the exact
+// clinical wording in Notes, but use a readable separator in the structured
+// field so an otherwise valid patient update cannot fail.
+function toNotionMultiSelectOptions(values = []) {
+    if (!Array.isArray(values)) return [];
+
+    const names = values
+        .map(value => String(value ?? '')
+            .trim()
+            .replace(/\s*,\s*/g, ' · ')
+            .replace(/\s+/g, ' '))
+        .filter(Boolean);
+
+    return [...new Set(names)].map(name => ({ name }));
+}
+
+// A Notion rich-text content item is limited to 2,000 characters. Splitting
+// lets long clinical notes save as one paragraph without losing text.
+function toNotionRichText(content = '') {
+    return String(content).match(/[\s\S]{1,2000}/g)?.map(chunk => ({
+        type: 'text',
+        text: { content: chunk }
+    })) || [];
+}
+
 // Helper to find the actual property key in Notion page properties, ignoring whitespace variations
 // and handling duplicate column/prefix collisions by prioritizing populated fields and short Notion IDs.
 function findNotionPropertyKey(properties, namePattern) {
@@ -2691,7 +2716,7 @@ app.patch('/api/patients/:id', authenticateToken, async (req, res) => {
         const symptomsKey = findNotionPropertyKey(props, "18. Síntomas");
         if (plainSymptoms !== undefined && symptomsKey) {
             propertiesToUpdate[symptomsKey] = {
-                multi_select: plainSymptoms.map(s => ({ name: s }))
+                multi_select: toNotionMultiSelectOptions(plainSymptoms)
             };
         }
         const ageKey = findNotionPropertyKey(props, "10. Edad (1)") || findNotionPropertyKey(props, "Edad");
@@ -4945,12 +4970,7 @@ app.post('/api/patients/:id/notes', authenticateToken, async (req, res) => {
                     object: 'block',
                     type: 'paragraph',
                     paragraph: {
-                        rich_text: [
-                            {
-                                type: 'text',
-                                text: { content: noteContent }
-                            }
-                        ]
+                        rich_text: toNotionRichText(noteContent)
                     }
                 }
             ]
@@ -5232,7 +5252,7 @@ app.post('/api/consultation', async (req, res) => {
         const notesContent = formatSummary(body);
 
         const symptomOptions = Array.isArray(body.symptoms)
-            ? body.symptoms.map(s => ({ name: s }))
+            ? toNotionMultiSelectOptions(body.symptoms)
             : [];
 
         const response = await notion.pages.create({

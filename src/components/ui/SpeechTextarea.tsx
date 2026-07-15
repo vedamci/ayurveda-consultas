@@ -38,7 +38,7 @@ interface SpeechTextareaProps extends Omit<React.TextareaHTMLAttributes<HTMLText
 
 const getFriendlyErrorMessage = (error: string) => {
     const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-    const isInsecure = window.location.protocol === 'http:';
+    const isInsecure = !window.isSecureContext;
 
     switch (error) {
         case 'not-allowed':
@@ -53,7 +53,10 @@ const getFriendlyErrorMessage = (error: string) => {
             if (isSafari && isInsecure) {
                 return 'Safari bloquea el dictado de voz sobre HTTP. Abre la aplicación en Google Chrome o configura HTTPS.';
             }
-            return 'Error de red en el reconocimiento de voz. Si estás en Safari, usa Google Chrome o activa HTTPS.';
+            if (isSafari) {
+                return 'Safari no pudo iniciar su servicio de dictado. Verifica el permiso del micrófono y que Dictado o Siri estén activos; también puedes usar Google Chrome.';
+            }
+            return 'Error de red en el reconocimiento de voz. Revisa tu conexión e inténtalo de nuevo.';
         default:
             return `Error de dictado: ${error}`;
     }
@@ -74,7 +77,7 @@ export const SpeechTextarea = ({ value, onValueChange, className = '', enableAI 
     const isSupported = Boolean(SpeechRecognitionApi);
 
     const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-    const isInsecure = window.location.protocol === 'http:';
+    const isInsecure = !window.isSecureContext;
     const isSafariHTTP = isSafari && isInsecure;
 
     // Keep track of the current textarea value so we can capture it when dictation starts
@@ -158,7 +161,14 @@ export const SpeechTextarea = ({ value, onValueChange, className = '', enableAI 
         };
 
         recognitionRef.current = recognition;
-        recognition.start();
+        try {
+            recognition.start();
+        } catch (startError) {
+            console.error('Failed to start speech recognition:', startError);
+            isListeningRef.current = false;
+            setIsListening(false);
+            setError('not-allowed');
+        }
     };
 
     const toggleDictation = () => {
