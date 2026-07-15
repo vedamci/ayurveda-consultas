@@ -35,8 +35,8 @@ Copia los valores desde tu `.env` local:
 
 | Variable | Qué es | Ejemplo / valor |
 |---|---|---|
-| `VITE_NOTION_API_KEY` | Token de la integración de Notion | `ntn_...` |
-| `VITE_NOTION_DATABASE_ID` | ID de la base de datos de pacientes | `83edcbb7-9ce1-4251-95fe-1cf01820210a` |
+| `NOTION_API_KEY` | Token privado de la integración de Notion (solo servidor) | `ntn_...` |
+| `NOTION_DATABASE_ID` | ID de la base de datos de pacientes | `83edcbb7-9ce1-4251-95fe-1cf01820210a` |
 | `DEEPSEEK_API_KEY` | Clave de DeepSeek (IA) | `sk-...` |
 | `DEEPSEEK_MODEL` | Modelo | `deepseek-v4-flash` |
 | `DEEPSEEK_BASE_URL` | URL base | `https://api.deepseek.com` |

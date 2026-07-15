@@ -7,8 +7,8 @@ const __dirname = dirname(__filename);
 
 dotenv.config({ path: join(__dirname, '../.env') });
 
-const apiKey = process.env.VITE_NOTION_API_KEY;
-const databaseId = process.env.VITE_NOTION_DATABASE_ID;
+const apiKey = process.env.NOTION_API_KEY || process.env.VITE_NOTION_API_KEY;
+const databaseId = process.env.NOTION_DATABASE_ID || process.env.VITE_NOTION_DATABASE_ID;
 
 console.log('Querying Database:', databaseId);
 

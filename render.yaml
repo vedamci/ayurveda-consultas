@@ -30,9 +30,9 @@ services:
       - key: HOST
         value: 0.0.0.0
       # --- Secretos: se configuran en el panel de Render, NO en el repo ---
-      - key: VITE_NOTION_API_KEY
+      - key: NOTION_API_KEY
         sync: false
-      - key: VITE_NOTION_DATABASE_ID
+      - key: NOTION_DATABASE_ID
         sync: false
       - key: DEEPSEEK_API_KEY
         sync: false

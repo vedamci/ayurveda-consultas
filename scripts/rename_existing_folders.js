@@ -14,7 +14,7 @@ const LOCAL_DATA_DIR = join(__dirname, '../local-data');
 const LOCAL_PATIENTS_DIR = join(LOCAL_DATA_DIR, 'patients');
 const MAP_FILE = join(LOCAL_DATA_DIR, 'patient_folders.json');
 
-const notion = new Client({ auth: process.env.VITE_NOTION_API_KEY });
+const notion = new Client({ auth: process.env.NOTION_API_KEY || process.env.VITE_NOTION_API_KEY });
 
 function getFolderMap() {
     try {

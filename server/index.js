@@ -693,8 +693,9 @@ app.put('/api/users/:id/role', authenticateToken, requireAdmin, (req, res) => {
     }
 });
 
-const notion = new Client({ auth: process.env.VITE_NOTION_API_KEY });
-const databaseId = process.env.VITE_NOTION_DATABASE_ID;
+const notionApiKey = process.env.NOTION_API_KEY || process.env.VITE_NOTION_API_KEY;
+const databaseId = process.env.NOTION_DATABASE_ID || process.env.VITE_NOTION_DATABASE_ID;
+const notion = new Client({ auth: notionApiKey });
 const PROFESSIONAL_PROPERTY = "36. Nombre del profesional de Ayurveda que te atiende.";
 const KRISHNA_PROFESSIONAL_NAME = "Krishna Das";
 const LOCAL_DATA_DIR = join(USER_DATA_DIR, 'local-data');
@@ -1821,7 +1822,7 @@ async function fetchBotUserId() {
     try {
         const response = await fetch('https://api.notion.com/v1/users/me', {
             headers: {
-                'Authorization': `Bearer ${process.env.VITE_NOTION_API_KEY}`,
+                'Authorization': `Bearer ${notionApiKey}`,
                 'Notion-Version': '2022-06-28',
             },
         });
@@ -1845,8 +1846,6 @@ app.get('/api/patients/recent-dashboard', authenticateToken, async (req, res) =>
         if (!databaseId) {
             throw new Error('Database ID is not configured');
         }
-
-        const notionApiKey = process.env.VITE_NOTION_API_KEY;
 
         const krishnaFilter = {
             or: [
@@ -2009,8 +2008,6 @@ app.get('/api/patients/search', authenticateToken, async (req, res) => {
         if (!databaseId) {
             throw new Error('Database ID is not configured');
         }
-
-        const notionApiKey = process.env.VITE_NOTION_API_KEY;
 
         const payload = {
             sorts: [
@@ -5158,14 +5155,14 @@ app.post('/api/consultation', async (req, res) => {
 app.get('/api/health', async (req, res) => {
     const result = {
         server: 'ok',
-        notionConfigured: !!process.env.VITE_NOTION_API_KEY && !!databaseId,
+        notionConfigured: !!notionApiKey && !!databaseId,
         notionAuth: false,
         notionDatabase: false,
     };
     try {
         const meRes = await fetch('https://api.notion.com/v1/users/me', {
             headers: {
-                'Authorization': `Bearer ${process.env.VITE_NOTION_API_KEY}`,
+                'Authorization': `Bearer ${notionApiKey}`,
                 'Notion-Version': '2022-06-28',
             },
         });
@@ -5175,7 +5172,7 @@ app.get('/api/health', async (req, res) => {
             const dbRes = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${process.env.VITE_NOTION_API_KEY}`,
+                    'Authorization': `Bearer ${notionApiKey}`,
                     'Notion-Version': '2022-06-28',
                     'Content-Type': 'application/json',
                 },
