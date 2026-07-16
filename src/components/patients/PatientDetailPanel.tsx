@@ -1374,7 +1374,9 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
 
     // Guarda el "Editar Caso" (modo Nueva Visita) en la consulta inicial del paciente:
     // actualiza la ficha (calibración de síntomas) sin perder lo demás, y guarda los
-    // campos clínicos en el plan base (PATCH si existe, POST si no). (fix #12)
+    // campos clínicos en el registro inicial real. Algunos datos antiguos guardaron
+    // la consulta inicial como visita en vez de plan; respetamos ese tipo para no crear
+    // un segundo registro ni dejar los cambios en un lugar que el editor no vuelve a leer.
     const handleSaveCaseFromVisit = async (options: { openPdf?: boolean; silent?: boolean } = {}) => {
         const targetPatientId = patientId || patient?.id;
         if (!targetPatientId || !patient) return null;
@@ -1413,8 +1415,8 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             setVisitSymptoms(resolvedSymptoms);
             if (hadPendingSymptom) setNewVisitSymptomName('');
 
-            // 2) Campos clínicos en el plan base (consulta inicial).
-            const initial = getInitialPlan();
+            // 2) Campos clínicos en la consulta inicial local.
+            const initial = getInitialClinicalRecord();
             const planBody: Record<string, unknown> = {
                 diagnosis: visitDiagnosis,
                 treatment: visitTreatment,
@@ -1425,16 +1427,41 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 categories: visitTrackedCategories,
                 patientTreatment: visitNote
             };
-            const hasClinical = `${visitDiagnosis}${visitTreatment}${visitLifestyle}${visitTongue}`.trim().length > 0
+            const hasClinical = `${visitNote}${visitDiagnosis}${visitTreatment}${visitLifestyle}${visitTongue}`.trim().length > 0
                 || visitTrackedHerbs.length > 0 || visitTrackedCategories.length > 0;
 
-            let planRecord: TreatmentPlan | null = initial;
-            if (initial?.id) {
-                const res = await fetch(`/api/patients/${targetPatientId}/treatment-plans/${initial.id}`, {
+            let savedInitial: { type: 'plan'; record: TreatmentPlan } | { type: 'visit'; record: Visit } | null = initial;
+            if (initial?.type === 'plan' && initial.record.id) {
+                const res = await fetch(`/api/patients/${targetPatientId}/treatment-plans/${initial.record.id}`, {
                     method: 'PATCH', headers, body: JSON.stringify(planBody)
                 });
                 const data = await res.json().catch(() => ({}));
-                if (data.success) planRecord = data.plan as TreatmentPlan;
+                if (!res.ok || !data.success) {
+                    throw new Error(data.error || 'No se pudo actualizar la consulta inicial.');
+                }
+                savedInitial = { type: 'plan', record: data.plan as TreatmentPlan };
+            } else if (initial?.type === 'visit' && initial.record.id) {
+                const res = await fetch(`/api/patients/${targetPatientId}/visits/${initial.record.id}`, {
+                    method: 'PATCH',
+                    headers,
+                    body: JSON.stringify({
+                        note: visitNote,
+                        diagnosis: visitDiagnosis,
+                        treatment: visitTreatment,
+                        lifestyle: visitLifestyle,
+                        tongue: visitTongue,
+                        dosha: patient.dosha,
+                        symptoms: resolvedSymptoms,
+                        herbs: mapHerbsWithPurpose(visitTrackedHerbs),
+                        categories: visitTrackedCategories,
+                        patientName: patient.name
+                    })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.success) {
+                    throw new Error(data.error || 'No se pudo actualizar la consulta inicial.');
+                }
+                savedInitial = { type: 'visit', record: data.visit as Visit };
             } else if (hasClinical) {
                 const res = await fetch(`/api/patients/${targetPatientId}/treatment-plans`, {
                     method: 'POST', headers,
@@ -1442,12 +1469,16 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                         ...planBody,
                         date: new Date().toISOString(),
                         visitDate,
-                        title: getNextLocalRecordTitle(visitDate),
-                        patientName: patient.name
+                        title: `Consulta inicial - ${patient.name}`,
+                        patientName: patient.name,
+                        isFollowUp: false
                     })
                 });
                 const data = await res.json().catch(() => ({}));
-                if (data.success) planRecord = data.plan as TreatmentPlan;
+                if (!res.ok || !data.success) {
+                    throw new Error(data.error || 'No se pudo crear la consulta inicial.');
+                }
+                savedInitial = { type: 'plan', record: data.plan as TreatmentPlan };
             }
 
             // El autosave (silent) refresca los datos del paciente (para que la
@@ -1464,8 +1495,11 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 setVisitSymptoms({}); setVisitAdherence({ categories: [], herbs: [], generalNote: '' });
                 setVisitTrackedCategories([]); setVisitTrackedHerbs([]);
 
-                if (options.openPdf && planRecord) {
-                    openTreatmentPDFEditor(planRecord.diagnosis || visitDiagnosis || getLatestLocalDiagnosis(), { type: 'plan', record: planRecord });
+                if (options.openPdf && savedInitial) {
+                    openTreatmentPDFEditor(
+                        savedInitial.record.diagnosis || visitDiagnosis || getLatestLocalDiagnosis(),
+                        savedInitial
+                    );
                 }
             }
         } catch (error: any) {
@@ -2327,12 +2361,25 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         }
     };
 
-    // Consulta inicial = el tratamiento base más antiguo del paciente (si existe).
-    const getInitialPlan = (): TreatmentPlan | null => {
-        const plans = [...(patient?.treatmentPlans || [])].sort(
-            (a, b) => new Date(a.date || a.createdAt || '').getTime() - new Date(b.date || b.createdAt || '').getTime()
-        );
-        return plans[0] || null;
+    // Normalmente la consulta inicial es el plan base más antiguo. Versiones previas
+    // también llegaron a guardarla dentro de `visits`, por lo que primero buscamos un
+    // título explícito y luego usamos el plan/registro más antiguo como compatibilidad.
+    const getInitialClinicalRecord = (): { type: 'plan'; record: TreatmentPlan } | { type: 'visit'; record: Visit } | null => {
+        const plans = (patient?.treatmentPlans || []).map(record => ({ type: 'plan' as const, record }));
+        const visits = (patient?.visits || []).map(record => ({ type: 'visit' as const, record }));
+        const recordTime = ({ record }: { record: TreatmentPlan | Visit }) =>
+            new Date((record as TreatmentPlan).visitDate || record.date || record.createdAt || '').getTime() || 0;
+        const isExplicitInitial = ({ record }: { record: TreatmentPlan | Visit }) =>
+            (record.title || '').toLocaleLowerCase('es').includes('consulta inicial');
+
+        const explicit = [...plans, ...visits].filter(isExplicitInitial).sort((a, b) => recordTime(a) - recordTime(b));
+        if (explicit[0]) return explicit[0];
+
+        const sortedPlans = [...plans].sort((a, b) => recordTime(a) - recordTime(b));
+        if (sortedPlans[0]) return sortedPlans[0];
+
+        const sortedVisits = [...visits].sort((a, b) => recordTime(a) - recordTime(b));
+        return sortedVisits[0] || null;
     };
 
     /*
@@ -2374,9 +2421,10 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
 
         // Campos clínicos: desde la consulta inicial si existe; el diagnóstico cae al
         // de IA / último local para no perder lo generado.
-        const initial = getInitialPlan();
+        const initialRecord = getInitialClinicalRecord();
+        const initial = initialRecord?.record;
         const aiDiagnosis = diagnosis && diagnosis.trim() && !diagnosis.startsWith('Error') ? diagnosis : '';
-        setVisitNote(initial?.patientTreatment || '');
+        setVisitNote(initialRecord?.type === 'visit' ? initialRecord.record.note || '' : initial?.patientTreatment || '');
         setVisitDiagnosis(initial?.diagnosis || aiDiagnosis || getLatestLocalDiagnosis() || '');
         setVisitTreatment(initial?.treatment || '');
         setVisitLifestyle(initial?.lifestyle || '');

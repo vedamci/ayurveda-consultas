@@ -3383,8 +3383,18 @@ app.post('/api/patients/:id/treatment-plans', authenticateToken, async (req, res
             therapyNoteBody = ''
         } = req.body;
 
-        if (!diagnosis && !treatment && !lifestyle) {
-            return res.status(400).json({ error: 'Diagnosis, treatment, or lifestyle is required' });
+        // "Editar Caso" puede comenzar únicamente con una nota, observación de
+        // lengua, fórmula o categoría. Esos datos también forman una consulta inicial
+        // válida y antes el servidor los rechazaba aunque la interfaz indicara guardar.
+        const hasClinicalContent = [
+            diagnosis, treatment, lifestyle, patientDiagnosis, patientTreatment,
+            patientLifestyle, cerealGuidance, cerealRecipe, tongue
+        ].some(value => String(value || '').trim())
+            || (Array.isArray(herbs) && herbs.length > 0)
+            || (Array.isArray(categories) && categories.length > 0)
+            || (Array.isArray(recipes) && recipes.length > 0);
+        if (!hasClinicalContent) {
+            return res.status(400).json({ error: 'La consulta inicial necesita al menos una nota o indicación clínica.' });
         }
 
         const patientRecord = readPatientRecord(id);
