@@ -220,6 +220,14 @@ const PDF_WATERCOLOR_BG_SVG = `
   <circle cx='630' cy='60' r='80' fill='#C9A84C' fill-opacity='0.13' filter='url(#wcBlur)'/>
 </svg>`;
 
+// html-to-image no interpreta de forma fiable los filtros SVG usados arriba:
+// en algunos Chromium del servidor/navegador convierte las manchas filtradas
+// en bandas negras. Para la exportación directa conservamos las mismas formas,
+// gradientes y transparencias, pero sin el blur problemático.
+const PDF_WATERCOLOR_RASTER_SVG = PDF_WATERCOLOR_BG_SVG
+    .replace(/\sfilter='url\(#wcBlur\)'/g, '');
+const PDF_WATERCOLOR_RASTER_URL = `url("data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_RASTER_SVG)}")`;
+
 const waitForBrowserPaint = () => new Promise<void>(resolve => {
     requestAnimationFrame(() => {
         requestAnimationFrame(() => resolve());
@@ -1786,6 +1794,13 @@ const getHerbParts = (h: HerbalFormula) => {
                 pixelRatio: 1.5,
                 backgroundColor: PDF_WATERCOLOR_BG_COLOR,
                 cacheBust: true,
+                style: {
+                    backgroundColor: PDF_WATERCOLOR_BG_COLOR,
+                    backgroundImage: PDF_WATERCOLOR_RASTER_URL,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    backgroundRepeat: 'no-repeat',
+                },
             });
             pdf.addImage(dataUrl, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
             await yieldToMainThread(0);
