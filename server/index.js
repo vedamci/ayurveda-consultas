@@ -663,8 +663,13 @@ app.post('/api/deploy/github', async (req, res) => {
         // Puppeteer aún falta), instala las dependencias de producción antes de
         // reiniciar Passenger. Esto evita que el endpoint PDF responda 501.
         let dependenciesInstalled = false;
-        const puppeteerMissing = !fs.existsSync(join(PROJECT_ROOT, 'node_modules', 'puppeteer', 'package.json'));
-        if (puppeteerMissing || previousPackageLock !== currentPackageLock) {
+        let puppeteerUnavailable = false;
+        try {
+            await import('puppeteer');
+        } catch {
+            puppeteerUnavailable = true;
+        }
+        if (puppeteerUnavailable || previousPackageLock !== currentPackageLock) {
             await runNpmCommand(['install', '--omit=dev', '--no-audit', '--no-fund']);
             dependenciesInstalled = true;
         }
