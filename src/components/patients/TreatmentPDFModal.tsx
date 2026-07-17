@@ -1756,6 +1756,36 @@ const getHerbParts = (h: HerbalFormula) => {
         return css;
     };
 
+    const printInPreparedWindow = async (printWindow: Window): Promise<void> => {
+        const node = document.getElementById('pdf-print-content') || document.getElementById('pdf-content');
+        if (!node) throw new Error('No se encontró el contenido imprimible.');
+
+        const css = collectDocumentCss();
+        const baseHref = `${window.location.origin}/`;
+        printWindow.document.open();
+        printWindow.document.write(
+            '<!DOCTYPE html><html><head><meta charset="utf-8">'
+            + `<base href="${baseHref}">`
+            + `<style>${css}</style>`
+            + `</head><body>${node.outerHTML}</body></html>`
+        );
+        printWindow.document.close();
+
+        if (printWindow.document.readyState !== 'complete') {
+            await new Promise<void>((resolve) => {
+                printWindow.addEventListener('load', () => resolve(), { once: true });
+                setTimeout(resolve, 3000);
+            });
+        }
+        try { await (printWindow.document as any).fonts?.ready; } catch { /* noop */ }
+        const images = Array.from(printWindow.document.images || []);
+        await Promise.all(images.map(async (img) => {
+            try { if (!img.complete) await img.decode(); } catch { /* noop */ }
+        }));
+        printWindow.focus();
+        printWindow.print();
+    };
+
     // ── Motor unificado de PDF (raíz del arreglo) ─────────────────────────────
     // La plantilla continua (#pdf-print-content) es la ÚNICA fuente del PDF:
     // Chromium pagina de verdad (texto vectorial, sin cortes, página llena).
@@ -1763,6 +1793,7 @@ const getHerbParts = (h: HerbalFormula) => {
     //  2) Web → Puppeteer en el servidor (Chromium headless), misma plantilla.
     //  3) Último recurso → diálogo de impresión del navegador (sin bytes).
     const generatePdfBytes = async (
+        preparedPrintWindow?: Window | null,
         onProgress?: (progress: number, status?: string) => void
     ): Promise<Uint8Array | null> => {
         const electronPrint = (typeof window !== 'undefined') ? (window as any).vedamciPrint : undefined;
@@ -1806,6 +1837,7 @@ const getHerbParts = (h: HerbalFormula) => {
                 if (res.ok) {
                     const data = await res.json();
                     if (data?.success && data.pdfBase64) {
+                        if (preparedPrintWindow && !preparedPrintWindow.closed) preparedPrintWindow.close();
                         onProgress?.(90, 'PDF listo');
                         const binary = atob(data.pdfBase64);
                         const bytes = new Uint8Array(binary.length);
@@ -1824,7 +1856,16 @@ const getHerbParts = (h: HerbalFormula) => {
         // impresión del navegador (misma plantilla y paginación nativa); el
         // usuario puede «Guardar como PDF» desde ahí. No devuelve bytes.
         onProgress?.(60, 'Abriendo el diálogo de impresión del navegador...');
-        try { window.print(); } catch { /* noop */ }
+        try {
+            if (preparedPrintWindow && !preparedPrintWindow.closed) {
+                await printInPreparedWindow(preparedPrintWindow);
+            } else {
+                window.print();
+            }
+        } catch (error) {
+            try { if (preparedPrintWindow && !preparedPrintWindow.closed) preparedPrintWindow.close(); } catch { /* noop */ }
+            throw error;
+        }
         return null;
     };
 
@@ -2046,6 +2087,16 @@ const getHerbParts = (h: HerbalFormula) => {
     ]);
 
     const handlePrint = async (format: PdfPageFormat = 'desktop') => {
+        // En web se prepara la ventana mientras el clic del usuario sigue activo.
+        // Si esperamos primero la respuesta de Puppeteer, Chrome bloquea la
+        // impresión de respaldo por considerarla un popup tardío.
+        const electronPrint = (typeof window !== 'undefined') ? (window as any).vedamciPrint : undefined;
+        const preparedPrintWindow = !electronPrint?.isElectron ? window.open('', '_blank') : null;
+        if (preparedPrintWindow) {
+            preparedPrintWindow.opener = null;
+            preparedPrintWindow.document.write('<!DOCTYPE html><title>Preparando PDF…</title><p style="font:16px system-ui;padding:24px">Preparando el PDF de VEDAMCI…</p>');
+            preparedPrintWindow.document.close();
+        }
         // Aplicar el formato ANTES de esperar el repintado: la plantilla y su
         // CSS (@page, paddings) se regeneran con el tamaño de hoja elegido.
         setPdfPageFormat(format);
@@ -2056,7 +2107,7 @@ const getHerbParts = (h: HerbalFormula) => {
         await yieldToMainThread(240);
 
         try {
-            const bytes = await generatePdfBytes((progress, status) => {
+            const bytes = await generatePdfBytes(preparedPrintWindow, (progress, status) => {
                 setDownloadProgress(progress);
                 if (status) setDownloadStatus(status);
             });
