@@ -257,6 +257,24 @@ const getPdfWatercolorPngUrl = (): Promise<string> => {
     return pdfWatercolorPngUrlPromise;
 };
 
+type PdfLinkRect = { url: string; left: number; top: number; width: number; height: number };
+const collectPdfLinkRects = (root: HTMLElement): PdfLinkRect[] => {
+    const rootRect = root.getBoundingClientRect();
+    return Array.from(root.querySelectorAll<HTMLAnchorElement>('a[href]')).flatMap((anchor) => {
+        const url = anchor.href;
+        if (!/^(https?:|mailto:|tel:)/i.test(url)) return [];
+        return Array.from(anchor.getClientRects())
+            .filter(rect => rect.width > 0 && rect.height > 0)
+            .map(rect => ({
+                url,
+                left: rect.left - rootRect.left,
+                top: rect.top - rootRect.top,
+                width: rect.width,
+                height: rect.height,
+            }));
+    });
+};
+
 const waitForBrowserPaint = () => new Promise<void>(resolve => {
     requestAnimationFrame(() => {
         requestAnimationFrame(() => resolve());
@@ -1826,6 +1844,7 @@ const getHerbParts = (h: HerbalFormula) => {
             let mobileDataUrl = '';
             let captureWidth = 0;
             let captureHeight = 0;
+            let mobileLinks: PdfLinkRect[] = [];
             try {
                 Object.assign(printContent.style, {
                     display: 'block',
@@ -1845,9 +1864,10 @@ const getHerbParts = (h: HerbalFormula) => {
                 await waitForBrowserPaint();
                 captureWidth = Math.ceil(printContent.scrollWidth);
                 captureHeight = Math.ceil(printContent.scrollHeight);
+                mobileLinks = collectPdfLinkRects(printContent);
                 mobileDataUrl = await toJpeg(printContent, {
-                    quality: 0.94,
-                    pixelRatio: 1.5,
+                    quality: 0.98,
+                    pixelRatio: 2.25,
                     width: captureWidth,
                     height: captureHeight,
                     backgroundColor: PDF_WATERCOLOR_BG_COLOR,
@@ -1877,6 +1897,7 @@ const getHerbParts = (h: HerbalFormula) => {
             raster.src = mobileDataUrl;
             await raster.decode();
             const pagePixelHeight = Math.round(raster.naturalWidth * 213 / 120);
+            const pageCssHeight = captureWidth * 213 / 120;
             const pageCount = Math.max(1, Math.ceil(raster.naturalHeight / pagePixelHeight));
             const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [120, 213], compress: true });
 
@@ -1898,7 +1919,25 @@ const getHerbParts = (h: HerbalFormula) => {
                 );
                 const progress = 64 + Math.round(((pageIndex + 1) / pageCount) * 24);
                 onProgress?.(progress, `Procesando página móvil ${pageIndex + 1} de ${pageCount}...`);
-                pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.94), 'JPEG', 0, 0, 120, 213, undefined, 'FAST');
+                pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.98), 'JPEG', 0, 0, 120, 213, undefined, 'FAST');
+
+                // La página es una imagen de alta definición, pero los enlaces se
+                // agregan como anotaciones PDF reales para que audio, videos,
+                // WhatsApp y cualquier liga compartida sigan siendo pulsables.
+                const pageTop = pageIndex * pageCssHeight;
+                const pageBottom = pageTop + pageCssHeight;
+                mobileLinks.forEach((link) => {
+                    const overlapTop = Math.max(link.top, pageTop);
+                    const overlapBottom = Math.min(link.top + link.height, pageBottom);
+                    if (overlapBottom <= overlapTop) return;
+                    pdf.link(
+                        link.left / captureWidth * 120,
+                        (overlapTop - pageTop) / pageCssHeight * 213,
+                        link.width / captureWidth * 120,
+                        (overlapBottom - overlapTop) / pageCssHeight * 213,
+                        { url: link.url }
+                    );
+                });
                 await yieldToMainThread(0);
             }
 
@@ -1912,8 +1951,8 @@ const getHerbParts = (h: HerbalFormula) => {
             const progress = 64 + Math.round(((index + 1) / pages.length) * 24);
             onProgress?.(progress, `Procesando página ${index + 1} de ${pages.length}...`);
             const dataUrl = await toJpeg(pages[index], {
-                quality: 0.94,
-                pixelRatio: 1.5,
+                quality: 0.98,
+                pixelRatio: 2.25,
                 backgroundColor: PDF_WATERCOLOR_BG_COLOR,
                 cacheBust: true,
                 style: {
@@ -1925,6 +1964,16 @@ const getHerbParts = (h: HerbalFormula) => {
                 },
             });
             pdf.addImage(dataUrl, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+            const pageRect = pages[index].getBoundingClientRect();
+            collectPdfLinkRects(pages[index]).forEach((link) => {
+                pdf.link(
+                    link.left / pageRect.width * 210,
+                    link.top / pageRect.height * 297,
+                    link.width / pageRect.width * 210,
+                    link.height / pageRect.height * 297,
+                    { url: link.url }
+                );
+            });
             await yieldToMainThread(0);
         }
         onProgress?.(90, 'PDF listo');
