@@ -228,6 +228,35 @@ const PDF_WATERCOLOR_RASTER_SVG = PDF_WATERCOLOR_BG_SVG
     .replace(/\sfilter='url\(#wcBlur\)'/g, '');
 const PDF_WATERCOLOR_RASTER_URL = `url("data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_RASTER_SVG)}")`;
 
+let pdfWatercolorPngUrlPromise: Promise<string> | null = null;
+const getPdfWatercolorPngUrl = (): Promise<string> => {
+    if (pdfWatercolorPngUrlPromise) return pdfWatercolorPngUrlPromise;
+
+    pdfWatercolorPngUrlPromise = new Promise((resolve) => {
+        const image = new Image();
+        image.onload = () => {
+            try {
+                // Chromium sí pinta correctamente el blur SVG al dibujarlo primero
+                // en canvas. html-to-image recibe después un PNG plano y ya no puede
+                // convertir las transparencias difuminadas en manchas negras.
+                const canvas = document.createElement('canvas');
+                canvas.width = 1050;
+                canvas.height = 1485;
+                const context = canvas.getContext('2d');
+                if (!context) throw new Error('Canvas no disponible');
+                context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                resolve(`url("${canvas.toDataURL('image/png')}")`);
+            } catch {
+                resolve(PDF_WATERCOLOR_RASTER_URL);
+            }
+        };
+        image.onerror = () => resolve(PDF_WATERCOLOR_RASTER_URL);
+        image.src = `data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_BG_SVG)}`;
+    });
+
+    return pdfWatercolorPngUrlPromise;
+};
+
 const waitForBrowserPaint = () => new Promise<void>(resolve => {
     requestAnimationFrame(() => {
         requestAnimationFrame(() => resolve());
@@ -1784,6 +1813,99 @@ const getHerbParts = (h: HerbalFormula) => {
             try { if (!img.complete) await img.decode(); } catch { /* noop */ }
         }));
 
+        const watercolorBackground = await getPdfWatercolorPngUrl();
+
+        // El formato móvil necesita una hoja realmente estrecha. La vista previa
+        // está pre-paginada en A4, así que aquí rasterizamos la plantilla continua
+        // ya refluida a 120 mm y la dividimos en páginas 120 × 213 mm.
+        if (pdfPageFormat === 'mobile') {
+            const printContent = document.getElementById('pdf-print-content');
+            if (!printContent) throw new Error('No se encontró la plantilla para móvil.');
+
+            const originalStyle = printContent.getAttribute('style');
+            let mobileDataUrl = '';
+            let captureWidth = 0;
+            let captureHeight = 0;
+            try {
+                Object.assign(printContent.style, {
+                    display: 'block',
+                    position: 'fixed',
+                    left: '-10000px',
+                    top: '0',
+                    width: '120mm',
+                    height: 'auto',
+                    maxHeight: 'none',
+                    overflow: 'visible',
+                    backgroundColor: PDF_WATERCOLOR_BG_COLOR,
+                    backgroundImage: watercolorBackground,
+                    backgroundSize: '120mm 213mm',
+                    backgroundPosition: 'top center',
+                    backgroundRepeat: 'repeat-y',
+                });
+                await waitForBrowserPaint();
+                captureWidth = Math.ceil(printContent.scrollWidth);
+                captureHeight = Math.ceil(printContent.scrollHeight);
+                mobileDataUrl = await toJpeg(printContent, {
+                    quality: 0.94,
+                    pixelRatio: 1.5,
+                    width: captureWidth,
+                    height: captureHeight,
+                    backgroundColor: PDF_WATERCOLOR_BG_COLOR,
+                    cacheBust: true,
+                    style: {
+                        display: 'block',
+                        position: 'relative',
+                        left: '0',
+                        top: '0',
+                        width: `${captureWidth}px`,
+                        height: `${captureHeight}px`,
+                        maxHeight: 'none',
+                        overflow: 'visible',
+                        backgroundColor: PDF_WATERCOLOR_BG_COLOR,
+                        backgroundImage: watercolorBackground,
+                        backgroundSize: `${captureWidth}px ${Math.round(captureWidth * 213 / 120)}px`,
+                        backgroundPosition: 'top center',
+                        backgroundRepeat: 'repeat-y',
+                    },
+                });
+            } finally {
+                if (originalStyle === null) printContent.removeAttribute('style');
+                else printContent.setAttribute('style', originalStyle);
+            }
+
+            const raster = new Image();
+            raster.src = mobileDataUrl;
+            await raster.decode();
+            const pagePixelHeight = Math.round(raster.naturalWidth * 213 / 120);
+            const pageCount = Math.max(1, Math.ceil(raster.naturalHeight / pagePixelHeight));
+            const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [120, 213], compress: true });
+
+            for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+                if (pageIndex > 0) pdf.addPage([120, 213], 'portrait');
+                const sliceCanvas = document.createElement('canvas');
+                sliceCanvas.width = raster.naturalWidth;
+                sliceCanvas.height = pagePixelHeight;
+                const context = sliceCanvas.getContext('2d');
+                if (!context) throw new Error('No se pudo preparar la página móvil.');
+                context.fillStyle = PDF_WATERCOLOR_BG_COLOR;
+                context.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+                const sourceY = pageIndex * pagePixelHeight;
+                const sourceHeight = Math.min(pagePixelHeight, raster.naturalHeight - sourceY);
+                context.drawImage(
+                    raster,
+                    0, sourceY, raster.naturalWidth, sourceHeight,
+                    0, 0, raster.naturalWidth, sourceHeight
+                );
+                const progress = 64 + Math.round(((pageIndex + 1) / pageCount) * 24);
+                onProgress?.(progress, `Procesando página móvil ${pageIndex + 1} de ${pageCount}...`);
+                pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.94), 'JPEG', 0, 0, 120, 213, undefined, 'FAST');
+                await yieldToMainThread(0);
+            }
+
+            onProgress?.(90, 'PDF móvil listo');
+            return new Uint8Array(pdf.output('arraybuffer'));
+        }
+
         const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
         for (let index = 0; index < pages.length; index++) {
             if (index > 0) pdf.addPage('a4', 'portrait');
@@ -1796,7 +1918,7 @@ const getHerbParts = (h: HerbalFormula) => {
                 cacheBust: true,
                 style: {
                     backgroundColor: PDF_WATERCOLOR_BG_COLOR,
-                    backgroundImage: PDF_WATERCOLOR_RASTER_URL,
+                    backgroundImage: watercolorBackground,
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
                     backgroundRepeat: 'no-repeat',
