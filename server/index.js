@@ -608,7 +608,12 @@ function runGitCommand(args) {
 
 function runNpmCommand(args) {
     return new Promise((resolve, reject) => {
-        execFile('npm', args, {
+        // Passenger/cPanel suele iniciar Node con un PATH mínimo. El ejecutable
+        // de npm vive junto al binario de Node aunque `npm` no esté en PATH.
+        const bundledNpm = join(dirname(process.execPath), 'npm');
+        const npmExecutable = process.env.NPM_EXECUTABLE
+            || (fs.existsSync(bundledNpm) ? bundledNpm : 'npm');
+        execFile(npmExecutable, args, {
             cwd: PROJECT_ROOT,
             env: { ...process.env },
             // La primera instalación de Puppeteer también descarga Chromium y
@@ -649,6 +654,7 @@ app.post('/api/deploy/github', async (req, res) => {
     }
 
     deploymentInProgress = true;
+    let repositoryUpdated = false;
     try {
         const activeBranch = await runGitCommand(['rev-parse', '--abbrev-ref', 'HEAD']);
         if (activeBranch !== DEPLOY_BRANCH) {
@@ -657,6 +663,7 @@ app.post('/api/deploy/github', async (req, res) => {
 
         const previousPackageLock = await runGitCommand(['rev-parse', 'HEAD:package-lock.json']).catch(() => '');
         await runGitCommand(['pull', '--ff-only', 'origin', DEPLOY_BRANCH]);
+        repositoryUpdated = true;
         const currentPackageLock = await runGitCommand(['rev-parse', 'HEAD:package-lock.json']).catch(() => '');
 
         // Un `git pull` no actualiza node_modules. Si package-lock cambió (o si
@@ -691,7 +698,23 @@ app.post('/api/deploy/github', async (req, res) => {
         return res.json({ success: true, deployedCommit, dependenciesInstalled });
     } catch (error) {
         console.error('GitHub deployment failed:', error.details || error.message);
-        return res.status(500).json({ error: 'No se pudo completar el despliegue.' });
+        // Si el pull sí terminó, reinicia aunque una instalación posterior
+        // haya fallado. Así el siguiente webhook usa el mecanismo corregido.
+        if (repositoryUpdated) {
+            res.once('finish', () => {
+                setTimeout(() => {
+                    const restartDir = join(PROJECT_ROOT, 'tmp');
+                    fs.mkdirSync(restartDir, { recursive: true });
+                    fs.writeFileSync(join(restartDir, 'restart.txt'), new Date().toISOString(), 'utf8');
+                }, 300);
+            });
+        }
+        const details = String(error.details || error.message || '')
+            .split('\n')
+            .slice(-6)
+            .join('\n')
+            .slice(0, 2000);
+        return res.status(500).json({ error: 'No se pudo completar el despliegue.', details });
     } finally {
         deploymentInProgress = false;
     }
