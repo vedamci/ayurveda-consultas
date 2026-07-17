@@ -606,6 +606,26 @@ function runGitCommand(args) {
     });
 }
 
+function runNpmCommand(args) {
+    return new Promise((resolve, reject) => {
+        execFile('npm', args, {
+            cwd: PROJECT_ROOT,
+            env: { ...process.env },
+            // La primera instalación de Puppeteer también descarga Chromium y
+            // puede tardar varios minutos en un hosting compartido.
+            timeout: 10 * 60_000,
+            maxBuffer: 8 * 1024 * 1024,
+        }, (error, stdout, stderr) => {
+            if (error) {
+                error.details = (stderr || stdout || error.message).trim();
+                reject(error);
+                return;
+            }
+            resolve(stdout.trim());
+        });
+    });
+}
+
 app.post('/api/deploy/github', async (req, res) => {
     if (!process.env.GITHUB_WEBHOOK_SECRET) {
         return res.status(503).json({ error: 'Webhook no configurado.' });
@@ -635,7 +655,19 @@ app.post('/api/deploy/github', async (req, res) => {
             throw new Error(`El servidor no está en la rama ${DEPLOY_BRANCH}.`);
         }
 
+        const previousPackageLock = await runGitCommand(['rev-parse', 'HEAD:package-lock.json']).catch(() => '');
         await runGitCommand(['pull', '--ff-only', 'origin', DEPLOY_BRANCH]);
+        const currentPackageLock = await runGitCommand(['rev-parse', 'HEAD:package-lock.json']).catch(() => '');
+
+        // Un `git pull` no actualiza node_modules. Si package-lock cambió (o si
+        // Puppeteer aún falta), instala las dependencias de producción antes de
+        // reiniciar Passenger. Esto evita que el endpoint PDF responda 501.
+        let dependenciesInstalled = false;
+        const puppeteerMissing = !fs.existsSync(join(PROJECT_ROOT, 'node_modules', 'puppeteer', 'package.json'));
+        if (puppeteerMissing || previousPackageLock !== currentPackageLock) {
+            await runNpmCommand(['install', '--omit=dev', '--no-audit', '--no-fund']);
+            dependenciesInstalled = true;
+        }
         const deployedCommit = await runGitCommand(['rev-parse', '--short', 'HEAD']);
         fs.appendFileSync(
             join(USER_DATA_DIR, 'deployments.log'),
@@ -651,7 +683,7 @@ app.post('/api/deploy/github', async (req, res) => {
             }, 300);
         });
 
-        return res.json({ success: true, deployedCommit });
+        return res.json({ success: true, deployedCommit, dependenciesInstalled });
     } catch (error) {
         console.error('GitHub deployment failed:', error.details || error.message);
         return res.status(500).json({ error: 'No se pudo completar el despliegue.' });

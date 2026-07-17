@@ -107,7 +107,9 @@ Avísame y lo configuro.
 
 El servidor expone `POST /api/deploy/github` para recibir únicamente eventos firmados
 por GitHub. El receptor valida la firma HMAC-SHA256, el repositorio y la rama `main` antes
-de ejecutar `git pull --ff-only origin main` y reiniciar Passenger.
+de ejecutar `git pull --ff-only origin main`. Si cambió `package-lock.json` o falta
+Puppeteer, también ejecuta `npm install --omit=dev` antes de reiniciar Passenger. Esto es
+necesario para que la exportación PDF disponga de Chromium en cPanel.
 
 1. Genera un secreto aleatorio largo y guárdalo como `GITHUB_WEBHOOK_SECRET` en el `.env`
    privado del servidor.
