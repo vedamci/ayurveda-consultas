@@ -275,6 +275,147 @@ const collectPdfLinkRects = (root: HTMLElement): PdfLinkRect[] => {
     });
 };
 
+type PdfMakeRun = { text: string; bold?: boolean; italics?: boolean; link?: string; color?: string; decoration?: string };
+
+const pdfMakeInlineRuns = (
+    element: Element,
+    inherited: Omit<PdfMakeRun, 'text'> = {}
+): PdfMakeRun[] => {
+    const runs: PdfMakeRun[] = [];
+    element.childNodes.forEach((node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+            const text = (node.textContent || '').replace(/\s+/g, ' ');
+            if (text) runs.push({ text, ...inherited });
+            return;
+        }
+        if (!(node instanceof Element)) return;
+        if (node.tagName === 'BR') {
+            runs.push({ text: '\n', ...inherited });
+            return;
+        }
+        const next = { ...inherited };
+        if (node.matches('strong, b')) next.bold = true;
+        if (node.matches('em, i')) next.italics = true;
+        if (node instanceof HTMLAnchorElement && /^(https?:|mailto:|tel:)/i.test(node.href)) {
+            next.link = node.href;
+            next.color = '#047857';
+            next.decoration = 'underline';
+        }
+        runs.push(...pdfMakeInlineRuns(node, next));
+    });
+    return runs;
+};
+
+const pdfMakeCard = (stack: any[], fillColor = '#ffffff', borderColor = '#dbe5df') => ({
+    table: {
+        widths: ['*'],
+        body: [[{
+            stack,
+            fillColor,
+            margin: [8, 7, 8, 7],
+        }]],
+    },
+    layout: {
+        hLineWidth: () => 0.6,
+        vLineWidth: () => 0.6,
+        hLineColor: () => borderColor,
+        vLineColor: () => borderColor,
+        paddingLeft: () => 0,
+        paddingRight: () => 0,
+        paddingTop: () => 0,
+        paddingBottom: () => 0,
+    },
+    margin: [0, 3, 0, 7],
+});
+
+const pdfMakeTableFromElement = (table: HTMLTableElement, fontSize: number) => {
+    const rows = Array.from(table.rows);
+    const columnCount = Math.max(1, ...rows.map(row => row.cells.length));
+    const body = rows.map((row, rowIndex) => Array.from(row.cells).map(cell => ({
+        text: pdfMakeInlineRuns(cell),
+        bold: rowIndex === 0 || cell.tagName === 'TH',
+        fillColor: rowIndex === 0 || cell.tagName === 'TH' ? '#edf4ef' : '#ffffff',
+        color: '#334155',
+        fontSize: rowIndex === 0 ? Math.max(fontSize - 0.5, 8) : fontSize,
+        margin: [3, 3, 3, 3],
+    })));
+
+    return {
+        table: {
+            headerRows: rows.length > 1 ? 1 : 0,
+            widths: Array.from({ length: columnCount }, () => '*'),
+            body,
+            dontBreakRows: true,
+        },
+        layout: {
+            hLineWidth: () => 0.45,
+            vLineWidth: () => 0.45,
+            hLineColor: () => '#cbd5e1',
+            vLineColor: () => '#cbd5e1',
+        },
+        margin: [0, 3, 0, 8],
+    };
+};
+
+const pdfMakeBlocksFromElement = (element: Element, fontSize: number): any[] => {
+    const tag = element.tagName.toLowerCase();
+    if (tag === 'script' || tag === 'style' || tag === 'img') return [];
+    if (tag === 'table') return [pdfMakeTableFromElement(element as HTMLTableElement, fontSize)];
+    if (/^h[1-6]$/.test(tag)) {
+        const level = Number(tag.slice(1));
+        return [{
+            text: pdfMakeInlineRuns(element),
+            bold: true,
+            color: level <= 2 ? '#14532d' : '#16a34a',
+            fontSize: level <= 2 ? fontSize + 4 : fontSize + 1.5,
+            margin: [0, level <= 2 ? 7 : 4, 0, 4],
+        }];
+    }
+    if (tag === 'p') {
+        return [{ text: pdfMakeInlineRuns(element), color: '#334155', fontSize, lineHeight: 1.35, margin: [0, 1, 0, 4] }];
+    }
+    if (tag === 'ul' || tag === 'ol') {
+        const items = Array.from(element.children)
+            .filter(child => child.tagName === 'LI')
+            .map(item => ({ text: pdfMakeInlineRuns(item), color: '#334155', fontSize, lineHeight: 1.3, margin: [0, 1, 0, 1] }));
+        return [{ [tag === 'ol' ? 'ol' : 'ul']: items, margin: [8, 2, 0, 6] }];
+    }
+
+    const children = Array.from(element.children).flatMap(child => pdfMakeBlocksFromElement(child, fontSize));
+    if (children.length === 0) {
+        const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!text) return [];
+        return [{ text, color: '#334155', fontSize, lineHeight: 1.35, margin: [0, 1, 0, 4] }];
+    }
+
+    const classes = element.classList;
+    const isCard = classes.contains('print-flow-card')
+        || classes.contains('print-flow-instruction-block')
+        || classes.contains('print-flow-food-intro')
+        || classes.contains('print-flow-hero');
+    const node: any = isCard
+        ? pdfMakeCard(children, classes.contains('print-flow-hero') ? '#eef8f1' : '#ffffff')
+        : { stack: children };
+    if (classes.contains('print-page-break-before')) node.pageBreak = 'before';
+    if (tag === 'section' && !isCard) node.margin = [0, 0, 0, 5];
+    return [node];
+};
+
+let pdfMakeRuntimePromise: Promise<any> | null = null;
+const getPdfMakeRuntime = async () => {
+    if (!pdfMakeRuntimePromise) {
+        pdfMakeRuntimePromise = Promise.all([
+            import('pdfmake/build/pdfmake'),
+            import('pdfmake/build/vfs_fonts'),
+        ]).then(([pdfModule, fontsModule]) => {
+            const runtime = pdfModule.default;
+            runtime.addVirtualFileSystem(fontsModule.default);
+            return runtime;
+        });
+    }
+    return pdfMakeRuntimePromise;
+};
+
 const waitForBrowserPaint = () => new Promise<void>(resolve => {
     requestAnimationFrame(() => {
         requestAnimationFrame(() => resolve());
@@ -1813,6 +1954,99 @@ const getHerbParts = (h: HerbalFormula) => {
         return css;
     };
 
+    const generateVectorClientPdfBytes = async (
+        onProgress?: (progress: number, status?: string) => void
+    ): Promise<Uint8Array> => {
+        const printContent = document.getElementById('pdf-print-content');
+        const bodyCell = printContent?.querySelector<HTMLElement>('td.plt-body');
+        if (!bodyCell) throw new Error('No se encontró el contenido vectorial del tratamiento.');
+
+        onProgress?.(64, 'Componiendo texto vectorial...');
+        const runtime = await getPdfMakeRuntime();
+        const backgroundCss = await getPdfWatercolorPngUrl();
+        const backgroundImage = backgroundCss.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
+        const mobile = pdfPageFormat === 'mobile';
+        const pageWidth = mobile ? 120 * 72 / 25.4 : 595.28;
+        const pageHeight = mobile ? 213 * 72 / 25.4 : 841.89;
+        const baseFontSize = mobile ? 10.5 : 10;
+        const content = Array.from(bodyCell.children)
+            .flatMap(child => pdfMakeBlocksFromElement(child, baseFontSize));
+        const whatsappUrl = professionalContact.phone
+            ? buildWhatsAppUrl(professionalContact.phone, `Hola ${professionalContact.name}, tengo una duda sobre mi tratamiento de Ayurveda.`)
+            : '';
+
+        const header = () => mobile ? ({
+            margin: [22, 17, 22, 0],
+            stack: [
+                { text: 'VEDAMCI', bold: true, color: '#16a34a', fontSize: 18, characterSpacing: 0.7 },
+                { text: 'INSTITUTO DE MEDICINA AYURVÉDICA', bold: true, color: '#c99832', fontSize: 6.8, characterSpacing: 0.5 },
+                { text: `Paciente: ${patient.name}  ·  Dosha: ${selectedDosha}`, color: '#475569', fontSize: 7.5, margin: [0, 5, 0, 0] },
+            ],
+        }) : ({
+            margin: [50, 25, 50, 0],
+            columns: [
+                {
+                    stack: [
+                        { text: 'VEDAMCI', bold: true, color: '#16a34a', fontSize: 19, characterSpacing: 0.8 },
+                        { text: 'INSTITUTO DE MEDICINA AYURVÉDICA', bold: true, color: '#c99832', fontSize: 7, characterSpacing: 0.6 },
+                    ],
+                },
+                {
+                    width: 220,
+                    alignment: 'right',
+                    stack: [
+                        { text: 'Tratamiento e Indicaciones', bold: true, color: '#334155', fontSize: 8 },
+                        { text: `Paciente: ${patient.name}`, color: '#475569', fontSize: 8 },
+                        { text: `Dosha: ${selectedDosha}`, color: '#16a34a', fontSize: 8 },
+                    ],
+                },
+            ],
+        });
+
+        const footer = (currentPage: number, pageCount: number) => ({
+            margin: mobile ? [22, 0, 22, 14] : [50, 0, 50, 18],
+            columns: [
+                {
+                    stack: [
+                        { text: 'VEDAMCI · Instituto de Medicina Ayurvédica', bold: true, color: '#334155', fontSize: 7 },
+                        { text: `Página ${currentPage} de ${pageCount}`, color: '#64748b', fontSize: 6.5 },
+                    ],
+                },
+                {
+                    alignment: 'right',
+                    width: mobile ? 130 : 260,
+                    text: whatsappUrl ? [{
+                        text: `WhatsApp: ${professionalContact.phone}`,
+                        link: whatsappUrl,
+                        color: '#047857',
+                        decoration: 'underline',
+                    }] : (professionalContact.email || professionalContact.name),
+                    fontSize: 7,
+                },
+            ],
+        });
+
+        const definition: any = {
+            info: {
+                title: `Tratamiento Ayurveda - ${patient.name}`,
+                author: `VEDAMCI - ${professionalContact.name}`,
+                subject: 'Tratamiento e indicaciones ayurvédicas',
+            },
+            pageSize: mobile ? { width: pageWidth, height: pageHeight } : 'A4',
+            pageMargins: mobile ? [22, 72, 22, 42] : [50, 78, 50, 52],
+            defaultStyle: { font: 'Roboto', fontSize: baseFontSize, color: '#334155', lineHeight: 1.3 },
+            background: () => ({ image: backgroundImage, width: pageWidth, height: pageHeight }),
+            header,
+            footer,
+            content,
+        };
+
+        onProgress?.(78, 'Generando páginas nítidas...');
+        const buffer = await runtime.createPdf(definition).getBuffer();
+        onProgress?.(90, 'PDF vectorial listo');
+        return buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    };
+
     const generateClientPdfBytes = async (
         onProgress?: (progress: number, status?: string) => void
     ): Promise<Uint8Array> => {
@@ -1980,6 +2214,10 @@ const getHerbParts = (h: HerbalFormula) => {
         return new Uint8Array(pdf.output('arraybuffer'));
     };
 
+    // Se conserva únicamente como respaldo técnico para navegadores antiguos;
+    // la salida web normal usa el compositor vectorial de abajo.
+    void generateClientPdfBytes;
+
     // ── Motor unificado de PDF (raíz del arreglo) ─────────────────────────────
     // La plantilla continua (#pdf-print-content) es la ÚNICA fuente del PDF:
     // Chromium pagina de verdad (texto vectorial, sin cortes, página llena).
@@ -2044,9 +2282,10 @@ const getHerbParts = (h: HerbalFormula) => {
             console.warn('PDF por servidor falló:', e);
         }
 
-        // 3) cPanel no ofrece Chromium: genera un PDF real y descargable en el
-        // navegador. No abre window.print ni requiere interacción adicional.
-        return generateClientPdfBytes(onProgress);
+        // 3) cPanel no ofrece Chromium: compone el documento con texto vectorial
+        // dentro del navegador. Mantiene nitidez, selección, enlaces y paginación
+        // real sin abrir window.print ni depender de una captura de pantalla.
+        return generateVectorClientPdfBytes(onProgress);
     };
 
     const handleSavePlan = async (options: { saveFlatPdf?: boolean; isAutoSave?: boolean; existingBytes?: Uint8Array } = {}) => {
