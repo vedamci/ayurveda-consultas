@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { X, Printer, Plus, Trash2, ChevronDown, Loader2, Sparkles, CheckCircle, AlertCircle, Send, FileText, Salad, Leaf, ClipboardList, Stethoscope, Settings2, Phone, Type, Utensils, HeartHandshake, Search, Monitor, Smartphone } from 'lucide-react';
+import { X, Printer, Plus, Trash2, ChevronDown, Loader2, Sparkles, CheckCircle, AlertCircle, Send, FileText, Salad, Leaf, ClipboardList, Stethoscope, Settings2, Phone, Type, Utensils, HeartHandshake, Search, Monitor, Smartphone, CheckSquare, Droplet, Heart } from 'lucide-react';
 
 type EditorTabId = 'documento' | 'ia' | 'alimentacion' | 'hierbas' | 'terapias' | 'indicaciones';
 
@@ -193,11 +193,10 @@ La sopa de carne se prepara hirviendo carne y huesos, colándolos, y dejando sol
 const DEFAULT_FOOD_CATEGORIES = ['Cereales', 'Hortalizas'];
 const MAX_FOOD_CATEGORIES = 12;
 
-// Fondo "acuarela" (río en tonos verde/dorado) que va detrás del contenido
-// de cada página del PDF. Se codifica como data URI SVG e inyecta vía CSS
-// background-image, así que aparece tanto en la vista previa como en la
-// impresión nativa (Chromium).
-const PDF_WATERCOLOR_BG_COLOR = '#F5EEDC';
+// Fondo de página del PDF: blanco liso (diseño burdeos/dorado). El SVG de
+// acuarela de abajo queda definido solo para la vía de respaldo legacy
+// (generateClientPdfBytes, código muerto) — la salida real ya no lo usa.
+const PDF_WATERCOLOR_BG_COLOR = '#ffffff';
 const PDF_WATERCOLOR_BG_SVG = `
 <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 700 990' preserveAspectRatio='xMidYMid slice'>
   <defs>
@@ -227,6 +226,31 @@ const PDF_WATERCOLOR_BG_SVG = `
 const PDF_WATERCOLOR_RASTER_SVG = PDF_WATERCOLOR_BG_SVG
     .replace(/\sfilter='url\(#wcBlur\)'/g, '');
 const PDF_WATERCOLOR_RASTER_URL = `url("data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_RASTER_SVG)}")`;
+
+// ─── Tokens de diseño del PDF de tratamiento (mockup "VEDAMCI Tratamiento.dc.html") ───
+const PDF_THEME = {
+    burgundy: '#7A1F2B',
+    gold: '#C9A84C',
+    goldDarkText: '#8a6d1f',
+    terracotta: '#C16E2B',
+    linkGreen: '#4A7C2F',
+    creamBg: '#F5EDD6',
+    chipBestBg: '#F3DFC0',
+    chipBestText: '#7A1F2B',
+    chipModBg: '#F5EDD6',
+    chipModText: '#8a6d1f',
+    chipAvoidBg: '#FBEAE7',
+    chipAvoidText: '#8a3327',
+    cardBorder: '#E8E2D4',
+    textBody: '#333333',
+    textMuted: '#666666',
+    white: '#ffffff',
+    fontHeading: "'Eczar', Georgia, serif",
+    fontBody: "'Mukta', ui-sans-serif, system-ui, sans-serif",
+} as const;
+const PDF_GOOGLE_FONTS_URL =
+    'https://fonts.googleapis.com/css2?family=Eczar:wght@500;600;700&family=Mukta:wght@400;500;600;700&display=swap';
+const PDF_GRATITUDE_NOTE_TEXT = 'No es un detalle menor, es parte del tratamiento. Antes de comer, haz una pausa y agradece el alimento que tienes frente a ti. Cuando agradeces, tu conciencia mejora; y cuando tu conciencia mejora, tu digestión también.';
 
 let pdfWatercolorPngUrlPromise: Promise<string> | null = null;
 const getPdfWatercolorPngUrl = (): Promise<string> => {
@@ -306,7 +330,7 @@ const pdfMakeInlineRuns = (
     return runs;
 };
 
-const pdfMakeCard = (stack: any[], fillColor = '#ffffff', borderColor = '#dbe5df') => ({
+const pdfMakeCard = (stack: any[], fillColor = '#ffffff', borderColor = PDF_THEME.cardBorder) => ({
     table: {
         widths: ['*'],
         body: [[{
@@ -334,8 +358,8 @@ const pdfMakeTableFromElement = (table: HTMLTableElement, fontSize: number) => {
     const body = rows.map((row, rowIndex) => Array.from(row.cells).map(cell => ({
         text: pdfMakeInlineRuns(cell),
         bold: rowIndex === 0 || cell.tagName === 'TH',
-        fillColor: rowIndex === 0 || cell.tagName === 'TH' ? '#edf4ef' : '#ffffff',
-        color: '#334155',
+        fillColor: rowIndex === 0 || cell.tagName === 'TH' ? PDF_THEME.gold : '#ffffff',
+        color: rowIndex === 0 || cell.tagName === 'TH' ? PDF_THEME.burgundy : PDF_THEME.textBody,
         fontSize: rowIndex === 0 ? Math.max(fontSize - 0.5, 8) : fontSize,
         margin: [3, 3, 3, 3],
     })));
@@ -350,8 +374,8 @@ const pdfMakeTableFromElement = (table: HTMLTableElement, fontSize: number) => {
         layout: {
             hLineWidth: () => 0.45,
             vLineWidth: () => 0.45,
-            hLineColor: () => '#cbd5e1',
-            vLineColor: () => '#cbd5e1',
+            hLineColor: () => PDF_THEME.cardBorder,
+            vLineColor: () => PDF_THEME.cardBorder,
         },
         margin: [0, 3, 0, 8],
     };
@@ -366,18 +390,18 @@ const pdfMakeBlocksFromElement = (element: Element, fontSize: number): any[] => 
         return [{
             text: pdfMakeInlineRuns(element),
             bold: true,
-            color: level <= 2 ? '#14532d' : '#16a34a',
+            color: level <= 2 ? PDF_THEME.burgundy : PDF_THEME.gold,
             fontSize: level <= 2 ? fontSize + 4 : fontSize + 1.5,
             margin: [0, level <= 2 ? 7 : 4, 0, 4],
         }];
     }
     if (tag === 'p') {
-        return [{ text: pdfMakeInlineRuns(element), color: '#334155', fontSize, lineHeight: 1.35, margin: [0, 1, 0, 4] }];
+        return [{ text: pdfMakeInlineRuns(element), color: PDF_THEME.textBody, fontSize, lineHeight: 1.35, margin: [0, 1, 0, 4] }];
     }
     if (tag === 'ul' || tag === 'ol') {
         const items = Array.from(element.children)
             .filter(child => child.tagName === 'LI')
-            .map(item => ({ text: pdfMakeInlineRuns(item), color: '#334155', fontSize, lineHeight: 1.3, margin: [0, 1, 0, 1] }));
+            .map(item => ({ text: pdfMakeInlineRuns(item), color: PDF_THEME.textBody, fontSize, lineHeight: 1.3, margin: [0, 1, 0, 1] }));
         return [{ [tag === 'ol' ? 'ol' : 'ul']: items, margin: [8, 2, 0, 6] }];
     }
 
@@ -385,16 +409,15 @@ const pdfMakeBlocksFromElement = (element: Element, fontSize: number): any[] => 
     if (children.length === 0) {
         const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
         if (!text) return [];
-        return [{ text, color: '#334155', fontSize, lineHeight: 1.35, margin: [0, 1, 0, 4] }];
+        return [{ text, color: PDF_THEME.textBody, fontSize, lineHeight: 1.35, margin: [0, 1, 0, 4] }];
     }
 
     const classes = element.classList;
     const isCard = classes.contains('print-flow-card')
         || classes.contains('print-flow-instruction-block')
-        || classes.contains('print-flow-food-intro')
-        || classes.contains('print-flow-hero');
+        || classes.contains('print-flow-food-intro');
     const node: any = isCard
-        ? pdfMakeCard(children, classes.contains('print-flow-hero') ? '#eef8f1' : '#ffffff')
+        ? pdfMakeCard(children, '#ffffff')
         : { stack: children };
     if (classes.contains('print-page-break-before')) node.pageBreak = 'before';
     if (tag === 'section' && !isCard) node.margin = [0, 0, 0, 5];
@@ -864,6 +887,25 @@ const getHerbParts = (h: HerbalFormula) => {
              : parseRecipeTextForPrint(recipe.text || '')
      };
  };
+
+// Extrae ingredientes/preparación/comentarios ya estructurados de una receta,
+// para dibujarlos como listas reales (en vez de re-parsear el texto plano).
+// Devuelve null si la receta no trae `structured`, para poder recurrir al
+// texto formateado de siempre (misma convención que getPrintableRecipe).
+const getStructuredRecipeParts = (recipe: any) => {
+    const s = recipe?.structured;
+    if (!s) return null;
+    const ingredients = (s.ingredients || []).map((i: string) => i.trim()).filter(Boolean);
+    const preparation = (s.preparation || '').trim();
+    if (ingredients.length === 0 && !preparation) return null;
+    return {
+        prepTime: (s.prepTime || '').trim(),
+        yieldText: (s.yield || '').trim(),
+        ingredients,
+        preparation,
+        comments: (s.comments || '').trim(),
+    };
+};
 
  // Builds a plain-text fallback (used for search/DB storage) from the structured
  // ingredient/preparation fields, so "Preparación" always stays under its own
@@ -1447,7 +1489,7 @@ const getHerbParts = (h: HerbalFormula) => {
             if (!computedVisitNumber) computedVisitNumber = '2';
 
             // The internal record title is auto-generated as "Consulta seguimiento - <name> - <date>".
-            // For the PDF header we prefer the clean "Visita de Seguimiento Nº X" label, while
+            // For the PDF header we prefer the clean "Visita de Seguimiento No. X" label, while
             // still respecting any custom title the professional typed manually.
             const isAutoInternalTitle = !rec.title
                 || recordTitle.startsWith('consulta seguimiento')
@@ -1455,7 +1497,7 @@ const getHerbParts = (h: HerbalFormula) => {
             const headerTitle = !isAutoInternalTitle
                 ? rec.title
                 : inferredIsFollowUp
-                    ? `Visita de Seguimiento Nº ${computedVisitNumber}`
+                    ? `Visita de Seguimiento No. ${computedVisitNumber}`
                     : 'Bienvenido a tu Primer Tratamiento';
 
             setSelectedDosha(recDosha);
@@ -1963,8 +2005,6 @@ const getHerbParts = (h: HerbalFormula) => {
 
         onProgress?.(64, 'Componiendo texto vectorial...');
         const runtime = await getPdfMakeRuntime();
-        const backgroundCss = await getPdfWatercolorPngUrl();
-        const backgroundImage = backgroundCss.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
         const mobile = pdfPageFormat === 'mobile';
         const pageWidth = mobile ? 120 * 72 / 25.4 : 595.28;
         const pageHeight = mobile ? 213 * 72 / 25.4 : 841.89;
@@ -1975,41 +2015,41 @@ const getHerbParts = (h: HerbalFormula) => {
             ? buildWhatsAppUrl(professionalContact.phone, `Hola ${professionalContact.name}, tengo una duda sobre mi tratamiento de Ayurveda.`)
             : '';
 
-        const header = () => mobile ? ({
+        const header = (currentPage: number) => currentPage !== 1 ? undefined : (mobile ? ({
             margin: [22, 17, 22, 0],
             stack: [
-                { text: 'VEDAMCI', bold: true, color: '#16a34a', fontSize: 18, characterSpacing: 0.7 },
-                { text: 'INSTITUTO DE MEDICINA AYURVÉDICA', bold: true, color: '#c99832', fontSize: 6.8, characterSpacing: 0.5 },
-                { text: `Paciente: ${patient.name}  ·  Dosha: ${selectedDosha}`, color: '#475569', fontSize: 7.5, margin: [0, 5, 0, 0] },
+                { text: 'VEDAMCI', bold: true, color: PDF_THEME.burgundy, fontSize: 18, characterSpacing: 0.7 },
+                { text: 'INSTITUTO DE MEDICINA AYURVÉDICA', bold: true, color: PDF_THEME.gold, fontSize: 6.8, characterSpacing: 0.5 },
+                { text: `Paciente: ${patient.name}  ·  Dosha: ${selectedDosha}`, color: PDF_THEME.textMuted, fontSize: 7.5, margin: [0, 5, 0, 0] },
             ],
         }) : ({
             margin: [50, 25, 50, 0],
             columns: [
                 {
                     stack: [
-                        { text: 'VEDAMCI', bold: true, color: '#16a34a', fontSize: 19, characterSpacing: 0.8 },
-                        { text: 'INSTITUTO DE MEDICINA AYURVÉDICA', bold: true, color: '#c99832', fontSize: 7, characterSpacing: 0.6 },
+                        { text: 'VEDAMCI', bold: true, color: PDF_THEME.burgundy, fontSize: 19, characterSpacing: 0.8 },
+                        { text: 'INSTITUTO DE MEDICINA AYURVÉDICA', bold: true, color: PDF_THEME.gold, fontSize: 7, characterSpacing: 0.6 },
                     ],
                 },
                 {
                     width: 220,
                     alignment: 'right',
                     stack: [
-                        { text: 'Tratamiento e Indicaciones', bold: true, color: '#334155', fontSize: 8 },
-                        { text: `Paciente: ${patient.name}`, color: '#475569', fontSize: 8 },
-                        { text: `Dosha: ${selectedDosha}`, color: '#16a34a', fontSize: 8 },
+                        { text: 'Tratamiento e Indicaciones', bold: true, color: PDF_THEME.textBody, fontSize: 8 },
+                        { text: `Paciente: ${patient.name}`, color: PDF_THEME.textMuted, fontSize: 8 },
+                        { text: `Dosha: ${selectedDosha}`, color: PDF_THEME.burgundy, fontSize: 8 },
                     ],
                 },
             ],
-        });
+        }));
 
         const footer = (currentPage: number, pageCount: number) => ({
             margin: mobile ? [22, 0, 22, 14] : [50, 0, 50, 18],
             columns: [
                 {
                     stack: [
-                        { text: 'VEDAMCI · Instituto de Medicina Ayurvédica', bold: true, color: '#334155', fontSize: 7 },
-                        { text: `Página ${currentPage} de ${pageCount}`, color: '#64748b', fontSize: 6.5 },
+                        { text: 'VEDAMCI · Instituto de Medicina Ayurvédica', bold: true, color: PDF_THEME.textBody, fontSize: 7 },
+                        { text: `Página ${currentPage} de ${pageCount}`, color: PDF_THEME.textMuted, fontSize: 6.5 },
                     ],
                 },
                 {
@@ -2018,7 +2058,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     text: whatsappUrl ? [{
                         text: `WhatsApp: ${professionalContact.phone}`,
                         link: whatsappUrl,
-                        color: '#047857',
+                        color: PDF_THEME.goldDarkText,
                         decoration: 'underline',
                     }] : (professionalContact.email || professionalContact.name),
                     fontSize: 7,
@@ -2034,8 +2074,7 @@ const getHerbParts = (h: HerbalFormula) => {
             },
             pageSize: mobile ? { width: pageWidth, height: pageHeight } : 'A4',
             pageMargins: mobile ? [22, 72, 22, 42] : [50, 78, 50, 52],
-            defaultStyle: { font: 'Roboto', fontSize: baseFontSize, color: '#334155', lineHeight: 1.3 },
-            background: () => ({ image: backgroundImage, width: pageWidth, height: pageHeight }),
+            defaultStyle: { font: 'Roboto', fontSize: baseFontSize, color: PDF_THEME.textBody, lineHeight: 1.3 },
             header,
             footer,
             content,
@@ -2672,7 +2711,7 @@ const getHerbParts = (h: HerbalFormula) => {
         : '';
     const professionalContactLine = professionalWhatsAppUrl ? (
         <p>
-            <a href={professionalWhatsAppUrl} target="_blank" rel="noopener noreferrer" className="text-[#16a34a] underline font-semibold">
+            <a href={professionalWhatsAppUrl} target="_blank" rel="noopener noreferrer" className="pdf-c-gold-dark underline font-semibold">
                 Haz clic aqui para escribirme por WhatsApp: {professionalContact.phone}
             </a>
             {professionalContact.email ? ` · ${professionalContact.email}` : ''}
@@ -2852,10 +2891,10 @@ const getHerbParts = (h: HerbalFormula) => {
                                     setIsFollowUp(checked);
                                     if (checked) {
                                         if (title === 'Bienvenido a tu Primer Tratamiento' || title === '') {
-                                            setTitle(`Visita de Seguimiento Nº ${visitNumber}`);
+                                            setTitle(`Visita de Seguimiento No. ${visitNumber}`);
                                         }
                                     } else {
-                                        if (title.startsWith('Visita de Seguimiento Nº')) {
+                                        if (title.startsWith('Visita de Seguimiento No.')) {
                                             setTitle('Bienvenido a tu Primer Tratamiento');
                                         }
                                     }
@@ -2870,8 +2909,8 @@ const getHerbParts = (h: HerbalFormula) => {
                                         onChange={(e) => {
                                             const val = e.target.value;
                                             setVisitNumber(val);
-                                            if (title.startsWith('Visita de Seguimiento Nº')) {
-                                                setTitle(`Visita de Seguimiento Nº ${val}`);
+                                            if (title.startsWith('Visita de Seguimiento No.')) {
+                                                setTitle(`Visita de Seguimiento No. ${val}`);
                                             }
                                         }}
                                         className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:border-emerald-500"
@@ -4300,70 +4339,75 @@ const getHerbParts = (h: HerbalFormula) => {
                 >
                     
                     {/* PAGE 1: Intro and General Instructions */}
-                    <div className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
+                    <div className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-white pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
                         
                         {/* Document Header */}
-                        <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
+                        <div className="pdf-header-border pb-4 flex items-center shrink-0">
                             <div className="flex items-center gap-3">
                                 <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
                                 <div>
-                                    <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
-                                    <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                    <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                    <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
                                 </div>
-                            </div>
-                            <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
-                                <p className="font-semibold text-[#334155]">Paciente: <span className="font-bold text-[#0f172a] font-serif text-sm">{patient.name}</span></p>
-                                <p>Edad: {patient.age || 'N/A'} años</p>
-                                <p>Fecha: {new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                                <p>Dosha principal: <span className="font-semibold text-[#16a34a]">{selectedDosha}</span></p>
-                                <p>Profesional: <span className="font-semibold text-[#334155]">{professionalContact.name}</span></p>
                             </div>
                         </div>
 
                         <div className="mt-5 space-y-5 flex-1">
                             {/* Welcome Banner */}
-                            <div className="text-center bg-[#22c55e]/5 py-3 px-5 rounded-xl border border-[#22c55e]/10">
-                                <h2 className="text-[18px] font-bold text-[#1e293b] mb-1 pdf-title">{title}</h2>
-                                <p className="text-[12.5px] text-[#64748b] font-sans italic pdf-subtitle">{subtitle}</p>
+                            <div className="pb-5" style={{ borderBottom: `1px dashed ${PDF_THEME.cardBorder}` }}>
+                                <p className="pdf-c-terracotta text-[10px] uppercase tracking-widest font-bold font-sans">{title}</p>
+                                <h2 className="font-bold pdf-c-burgundy pdf-font-heading mt-1.5 mb-2 pdf-hero-name">{patient.name}</h2>
+                                <div className="flex flex-wrap gap-2 mt-3">
+                                    <span className="pdf-chip pdf-chip-best">{patient.age ? `${String(patient.age).replace(/\s*años?\s*$/i, '')} años` : 'N/A'}</span>
+                                    <span className="pdf-chip pdf-chip-hero">Dosha: {selectedDosha}</span>
+                                    <span className="pdf-chip pdf-chip-mod">{new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                                    <span className="pdf-chip pdf-chip-mod">Prof. {professionalContact.name}</span>
+                                </div>
                             </div>
 
                             {!isFollowUp ? (
                                 <>
                                     {/* CÓMO SEGUIR LAS INDICACIONES */}
-                                    <div className="space-y-2">
-                                        <div className="bg-[#113f26] text-white flex items-center border-l-[5px] border-[#d4a853] py-1.5 px-3">
-                                            <span className="font-sans font-bold tracking-wider text-[11px] uppercase">01 CÓMO SEGUIR LAS INDICACIONES</span>
+                                    <div className="space-y-1.5">
+                                        <h3 className="text-[13.5px] font-bold pdf-c-burgundy pdf-font-heading pdf-heading flex items-center gap-2">
+                                            <CheckSquare size={15} className="pdf-c-burgundy shrink-0" />
+                                            Cómo seguir las indicaciones
+                                        </h3>
+                                        <div className="flex items-center gap-2 my-1.5">
+                                            <div className="pdf-diamond-line"></div>
+                                            <div className="pdf-diamond"></div>
+                                            <div className="pdf-diamond-line"></div>
                                         </div>
-                                        <ol className="list-decimal pl-5 space-y-1.5 text-[11px] leading-relaxed text-[#334155] font-sans pdf-base-text">
+                                        <ol className="list-decimal pl-5 space-y-1.5 text-[11px] leading-relaxed pdf-c-text-muted font-sans pdf-base-text">
                                             <li>Lee las indicaciones generales que vienen en este documento.</li>
-                                            <li>Descarga y revisa los archivos adjuntos. A lado de tratamientos se indicará si hay anexo. <span className="italic text-[#64748b]">(No siempre hay archivos adjuntos.)</span></li>
+                                            <li>Descarga y revisa los archivos adjuntos. A lado de tratamientos se indicará si hay anexo. <span className="italic pdf-c-text-muted">(No siempre hay archivos adjuntos.)</span></li>
                                             <li>Mantente en contacto conmigo; no esperes hasta la consulta para resolver dudas o reportar cualquier cambio en tu salud.</li>
                                             <li>
                                                 Visita los siguientes videos para el mejor entendimiento del Ayurveda:
-                                                <div className="mt-1 pl-1 space-y-1 text-[#113f26]">
+                                                <div className="mt-1 pl-1 space-y-1 pdf-c-text-muted">
                                                     <div className="flex items-start gap-1">
-                                                        <span className="text-[#d4a853]">→</span>
+                                                        <span className="pdf-c-gold-dark">→</span>
                                                         <span>
-                                                            <strong className="text-[#113f26]">Doshas:</strong>{' '}
-                                                            <a href="https://youtu.be/iHlND1C8WoE" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:text-[#22c55e] underline font-semibold break-all">
+                                                            <strong className="pdf-c-burgundy">Doshas:</strong>{' '}
+                                                            <a href="https://youtu.be/iHlND1C8WoE" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
                                                                 https://youtu.be/iHlND1C8WoE
                                                             </a>
                                                         </span>
                                                     </div>
                                                     <div className="flex items-start gap-1">
-                                                        <span className="text-[#d4a853]">→</span>
+                                                        <span className="pdf-c-gold-dark">→</span>
                                                         <span>
-                                                            <strong className="text-[#113f26]">Los tres pilares de la salud:</strong>{' '}
-                                                            <a href="https://youtu.be/v8aPGf8LNSk" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:text-[#22c55e] underline font-semibold break-all">
+                                                            <strong className="pdf-c-burgundy">Los tres pilares de la salud:</strong>{' '}
+                                                            <a href="https://youtu.be/v8aPGf8LNSk" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
                                                                 https://youtu.be/v8aPGf8LNSk
                                                             </a>
                                                         </span>
                                                     </div>
                                                     <div className="flex items-start gap-1">
-                                                        <span className="text-[#d4a853]">→</span>
+                                                        <span className="pdf-c-gold-dark">→</span>
                                                         <span>
-                                                            <strong className="text-[#113f26]">La verdadera salud con Ayurveda:</strong>{' '}
-                                                            <a href="https://youtu.be/g2FqJDZGS_A" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:text-[#22c55e] underline font-semibold break-all">
+                                                            <strong className="pdf-c-burgundy">La verdadera salud con Ayurveda:</strong>{' '}
+                                                            <a href="https://youtu.be/g2FqJDZGS_A" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
                                                                 https://youtu.be/g2FqJDZGS_A
                                                             </a>
                                                         </span>
@@ -4375,53 +4419,70 @@ const getHerbParts = (h: HerbalFormula) => {
 
                                     {/* Alimentacion instructions intro */}
                                     <div className="space-y-2.5">
-                                        <h3 className="text-[13.5px] font-bold uppercase tracking-wider text-[#16a34a] font-sans pdf-heading">Cómo Seguir la Alimentación</h3>
-                                        <p className="text-[12px] leading-relaxed text-[#475569] font-sans pdf-base-text">
+                                        <h3 className="text-[13.5px] font-bold pdf-c-burgundy pdf-font-heading pdf-heading flex items-center gap-2">
+                                            <Droplet size={15} className="pdf-c-burgundy shrink-0" />
+                                            Cómo seguir la alimentación
+                                        </h3>
+                                        <div className="flex items-center gap-2 my-1.5">
+                                            <div className="pdf-diamond-line"></div>
+                                            <div className="pdf-diamond"></div>
+                                            <div className="pdf-diamond-line"></div>
+                                        </div>
+                                        <p className="text-[12px] leading-relaxed pdf-c-text-muted font-sans pdf-base-text">
                                             En la alimentación la clave es hacer cambios graduales para permitir al cuerpo adaptarse. En Ayurveda la alimentación se basa en los seis sabores; para elegir los alimentos adecuados estos tienen que tener los sabores correctos para tu constitución.
                                             Empezaremos haciendo cambios en dos categorías a la vez, esto quiere decir que todas las demás categorías seguirán sin ningún cambio.
                                         </p>
-                                        
+
                                         {/* Color Legend */}
-                                        <div className="grid grid-cols-3 gap-2.5 bg-[#f8fafc] p-2 rounded-lg border border-[#f1f5f9] text-[10px] font-sans mt-0.5 pdf-meta">
+                                        <div className="grid grid-cols-3 gap-2.5 pdf-bg-cream p-2 rounded-lg text-[10px] font-sans mt-0.5 pdf-meta">
                                             <div className="flex items-center gap-1.5">
-                                                <span className="w-2 h-2 rounded bg-[#22c55e] block shrink-0"></span>
-                                                <div><span className="font-bold text-[#15803d]">■ Mejor:</span> Sin reservas.</div>
+                                                <span className="pdf-legend-square" style={{ background: PDF_THEME.chipBestText }}></span>
+                                                <div><span className="font-bold pdf-c-burgundy">Mejor:</span> Sin reservas.</div>
                                             </div>
-                                            <div className="flex items-center gap-1.5 border-x border-[#e2e8f0] px-2.5">
-                                                <span className="w-2 h-2 rounded bg-[#f59e0b] block shrink-0"></span>
-                                                <div><span className="font-bold text-[#b45309]">■■ Moderación:</span> Porción pequeña.</div>
+                                            <div className="flex items-center gap-1.5 px-2.5">
+                                                <span className="pdf-legend-square" style={{ background: PDF_THEME.goldDarkText }}></span>
+                                                <div><span className="font-bold pdf-c-gold-dark">Moderación:</span> Porción pequeña.</div>
                                             </div>
                                             <div className="flex items-center gap-1.5 pl-1.5">
-                                                <span className="w-2 h-2 rounded bg-[#ef4444] block shrink-0"></span>
-                                                <div><span className="font-bold text-[#b91c1c]">■ Evitar:</span> Raras ocasiones.</div>
+                                                <span className="pdf-legend-square" style={{ background: PDF_THEME.chipAvoidText }}></span>
+                                                <div><span className="font-bold" style={{ color: PDF_THEME.chipAvoidText }}>Evitar:</span> Raras ocasiones.</div>
+                                            </div>
+                                        </div>
+
+                                        {/* Aviso de gratitud */}
+                                        <div className="pdf-bg-cream rounded-r-xl p-3.5 flex gap-3" style={{ borderLeft: `4px solid ${PDF_THEME.gold}` }}>
+                                            <Heart size={16} className="pdf-c-terracotta shrink-0 mt-0.5" strokeWidth={2} />
+                                            <div>
+                                                <p className="pdf-c-burgundy pdf-font-heading font-bold text-[12px]">Antes de comer</p>
+                                                <p className="text-[11px] pdf-c-text-muted font-sans mt-0.5">{PDF_GRATITUDE_NOTE_TEXT}</p>
                                             </div>
                                         </div>
                                     </div>
                                 </>
                             ) : (
-                                <div className="my-auto py-8 px-6 rounded-xl border border-[#d4a853] bg-[#fffbeb]/50 text-center font-sans space-y-4 shadow-sm">
-                                    <div className="w-12 h-12 rounded-full bg-[#113f26] text-[#d4a853] flex items-center justify-center font-bold text-xl mx-auto shadow-md">
-                                        i
+                                <div className="rounded-xl pdf-bg-cream p-4 flex gap-3 items-start font-sans" style={{ border: `1px solid ${PDF_THEME.gold}` }}>
+                                    <AlertCircle size={20} className="pdf-c-burgundy shrink-0 mt-0.5" strokeWidth={1.75} />
+                                    <div>
+                                        <h4 className="font-bold pdf-c-burgundy pdf-font-heading text-[13px] mb-1">
+                                            Indicación de seguimiento importante
+                                        </h4>
+                                        <p className="text-[12px] leading-relaxed pdf-c-text-muted font-medium pdf-base-text">
+                                            Es importante continuar con las pautas y tratamientos indicados en las visitas anteriores, sumando de manera gradual el nuevo tratamiento y las modificaciones detalladas en este documento.
+                                        </p>
                                     </div>
-                                    <h4 className="text-[15px] font-bold uppercase tracking-wider text-[#113f26] font-bold">
-                                        Indicación de Seguimiento Importante
-                                    </h4>
-                                    <p className="text-[13px] leading-relaxed text-[#334155] max-w-[85%] mx-auto font-medium">
-                                        Es importante continuar con las pautas y tratamientos indicados en las visitas anteriores, sumando de manera gradual el nuevo tratamiento y las modificaciones detalladas en este documento.
-                                    </p>
                                 </div>
                             )}
 
                         </div>
 
                         {/* Page 1 Footer */}
-                        <div className="border-t border-[#22c55e]/25 pt-3 mt-4 flex justify-between items-center text-[9px] font-sans text-[#64748b] shrink-0 pdf-meta">
+                        <div className="pdf-footer-border pt-3 mt-4 flex justify-between items-center text-[9px] font-sans pdf-c-text-muted shrink-0 pdf-meta">
                             <div>
-                                <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                                 <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
                             </div>
                             <div className="text-right">
-                                <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                                <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
                                 {professionalContactLine}
                             </div>
                         </div>
@@ -4429,42 +4490,48 @@ const getHerbParts = (h: HerbalFormula) => {
 
                     {/* PAGE 2: Base Diagnosis Pages */}
                     {showDiagnosis && (!isFollowUp || recordDiagnosisPreview.trim() || patientDiagnosisText.trim()) && diagnosisPreview && diagnosisPages.map((pageText, idx) => (
-                        <div key={`diagnosis-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
+                        <div key={`diagnosis-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-white pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
                             {/* Document Header */}
-                            <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
+                            <div className="pdf-header-border pb-4 flex justify-between items-center shrink-0">
                                 <div className="flex items-center gap-3">
                                     <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
                                     <div>
-                                        <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
-                                        <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                        <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                        <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
                                     </div>
                                 </div>
-                                <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
-                                    <p className="font-semibold text-[#334155]">Diagnóstico Base</p>
-                                    {diagnosisPages.length > 1 && <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {diagnosisPages.length}</p>}
-                                    <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
+                                <div className="text-right text-xs font-sans pdf-c-text-muted space-y-0.5 pdf-meta">
+                                    <p className="font-semibold pdf-c-burgundy">Diagnóstico Base</p>
+                                    {diagnosisPages.length > 1 && <p className="text-[10px] pdf-c-text-muted">Parte {idx + 1} de {diagnosisPages.length}</p>}
+                                    <p>Paciente: <span className="font-bold pdf-c-burgundy">{patient.name}</span></p>
                                 </div>
                             </div>
 
                             <div className="mt-5 space-y-4 flex-1">
                                 <div className="space-y-1.5">
-                                    <h3 className="text-[13.5px] font-bold uppercase tracking-wider text-[#16a34a] font-sans pdf-heading">
+                                    <h3 className="text-[13.5px] font-bold pdf-c-burgundy pdf-font-heading pdf-heading flex items-center gap-2">
+                                        <Stethoscope size={15} className="pdf-c-burgundy shrink-0" />
                                         Diagnóstico Base {diagnosisPages.length > 1 ? `(Parte ${idx + 1})` : ''}
                                     </h3>
-                                    <div className="diagnosis-markdown bg-[#f8fafc] p-4 rounded-xl border border-[#dbeafe] text-[12px] leading-relaxed text-[#334155] font-sans prose prose-sm max-w-none prose-p:text-[#334155] prose-p:my-1 prose-headings:text-slate-800 prose-headings:font-bold prose-headings:text-[13px] prose-headings:my-1.5 prose-strong:text-slate-900 prose-ul:list-disc prose-ul:pl-4 prose-ul:my-1 prose-li:my-0.5 pdf-base-text">
+                                    <div className="flex items-center gap-2 my-1.5">
+                                        <div className="pdf-diamond-line"></div>
+                                        <div className="pdf-diamond"></div>
+                                        <div className="pdf-diamond-line"></div>
+                                    </div>
+                                    <div className="diagnosis-markdown pdf-bg-cream p-4 rounded-xl pdf-border-card border text-[12px] leading-relaxed pdf-c-text-muted font-sans prose prose-sm max-w-none prose-p:text-[#333333] prose-p:my-1 prose-headings:text-[#7A1F2B] prose-headings:font-bold prose-headings:text-[13px] prose-headings:my-1.5 prose-strong:text-[#7A1F2B] prose-ul:list-disc prose-ul:pl-4 prose-ul:my-1 prose-li:my-0.5 pdf-base-text">
                                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{pageText}</ReactMarkdown>
                                     </div>
                                 </div>
                             </div>
 
                             {/* Page Footer */}
-                            <div className="border-t border-[#22c55e]/25 pt-3 mt-4 flex justify-between items-center text-[9px] font-sans text-[#64748b] shrink-0 pdf-meta">
+                            <div className="pdf-footer-border pt-3 mt-4 flex justify-between items-center text-[9px] font-sans pdf-c-text-muted shrink-0 pdf-meta">
                                 <div>
-                                    <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                    <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                                     <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                                    <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
                                     {professionalContactLine}
                                 </div>
                             </div>
@@ -4473,43 +4540,49 @@ const getHerbParts = (h: HerbalFormula) => {
 
                     {/* PAGES 3+: Treatment Pages */}
                     {treatmentPages.length > 0 && treatmentPages.map((pageText, idx) => (
-                        <div key={`treatment-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
+                        <div key={`treatment-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-white pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
                             
                             {/* Document Header */}
-                            <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
+                            <div className="pdf-header-border pb-4 flex justify-between items-center shrink-0">
                                 <div className="flex items-center gap-3">
                                     <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
                                     <div>
-                                        <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
-                                        <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                        <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                        <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
                                     </div>
                                 </div>
-                                <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
-                                    <p className="font-semibold text-[#334155]">Tratamiento e Indicaciones</p>
-                                    {treatmentPages.length > 1 && <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {treatmentPages.length}</p>}
-                                    <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
+                                <div className="text-right text-xs font-sans pdf-c-text-muted space-y-0.5 pdf-meta">
+                                    <p className="font-semibold pdf-c-burgundy">Tratamiento e Indicaciones</p>
+                                    {treatmentPages.length > 1 && <p className="text-[10px] pdf-c-text-muted">Parte {idx + 1} de {treatmentPages.length}</p>}
+                                    <p>Paciente: <span className="font-bold pdf-c-burgundy">{patient.name}</span></p>
                                 </div>
                             </div>
 
                             <div className="mt-5 space-y-4 flex-1">
                                 <div className="space-y-1.5">
-                                    <h3 className="text-[13.5px] font-bold uppercase tracking-wider text-[#16a34a] font-sans pdf-heading">
+                                    <h3 className="text-[13.5px] font-bold pdf-c-burgundy pdf-font-heading pdf-heading flex items-center gap-2">
+                                        <ClipboardList size={15} className="pdf-c-burgundy shrink-0" />
                                         Tratamiento e Indicaciones {treatmentPages.length > 1 ? `(Parte ${idx + 1})` : ''}
                                     </h3>
-                                    <div className="bg-[#ffffff] p-3.5 rounded-xl border border-[#fde68a] prose prose-sm prose-emerald max-w-none text-[12px] leading-relaxed text-[#334155] font-sans prose-p:text-[#334155] prose-p:my-1 prose-headings:text-slate-800 prose-headings:font-bold prose-headings:text-[13px] prose-headings:my-1.5 prose-strong:text-slate-900 prose-ul:list-disc prose-ul:pl-4 prose-ul:my-1 prose-li:my-0.5 pdf-base-text">
+                                    <div className="flex items-center gap-2 my-1.5">
+                                        <div className="pdf-diamond-line"></div>
+                                        <div className="pdf-diamond"></div>
+                                        <div className="pdf-diamond-line"></div>
+                                    </div>
+                                    <div className="bg-white p-3.5 rounded-xl pdf-border-card border prose prose-sm max-w-none text-[12px] leading-relaxed pdf-c-text-muted font-sans prose-p:text-[#333333] prose-p:my-1 prose-headings:text-[#7A1F2B] prose-headings:font-bold prose-headings:text-[13px] prose-headings:my-1.5 prose-strong:text-[#7A1F2B] prose-ul:list-disc prose-ul:pl-4 prose-ul:my-1 prose-li:my-0.5 pdf-base-text">
                                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{pageText}</ReactMarkdown>
                                     </div>
                                 </div>
                             </div>
 
                             {/* Page Footer */}
-                            <div className="border-t border-[#22c55e]/25 pt-3 mt-4 flex justify-between items-center text-[9px] font-sans text-[#64748b] shrink-0 pdf-meta">
+                            <div className="pdf-footer-border pt-3 mt-4 flex justify-between items-center text-[9px] font-sans pdf-c-text-muted shrink-0 pdf-meta">
                                 <div>
-                                    <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                    <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                                     <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                                    <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
                                     {professionalContactLine}
                                 </div>
                             </div>
@@ -4520,43 +4593,49 @@ const getHerbParts = (h: HerbalFormula) => {
 
                     {/* Lifestyle Pages */}
                     {showLifestylePage && lifestylePages.length > 0 && lifestylePages.map((pageText, idx) => (
-                        <div key={`lifestyle-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
+                        <div key={`lifestyle-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-white pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col font-serif relative">
                             
                             {/* Document Header */}
-                            <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
+                            <div className="pdf-header-border pb-4 flex justify-between items-center shrink-0">
                                 <div className="flex items-center gap-3">
                                     <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
                                     <div>
-                                        <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
-                                        <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                        <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                        <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
                                     </div>
                                 </div>
-                                <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
-                                    <p className="font-semibold text-[#334155]">Estilo de Vida</p>
-                                    {lifestylePages.length > 1 && <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {lifestylePages.length}</p>}
-                                    <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
+                                <div className="text-right text-xs font-sans pdf-c-text-muted space-y-0.5 pdf-meta">
+                                    <p className="font-semibold pdf-c-burgundy">Estilo de Vida</p>
+                                    {lifestylePages.length > 1 && <p className="text-[10px] pdf-c-text-muted">Parte {idx + 1} de {lifestylePages.length}</p>}
+                                    <p>Paciente: <span className="font-bold pdf-c-burgundy">{patient.name}</span></p>
                                 </div>
                             </div>
 
                             <div className="mt-5 space-y-4 flex-1">
                                 <div className="space-y-1.5">
-                                    <h3 className="text-[13.5px] font-bold uppercase tracking-wider text-[#16a34a] font-sans pdf-heading">
+                                    <h3 className="text-[13.5px] font-bold pdf-c-burgundy pdf-font-heading pdf-heading flex items-center gap-2">
+                                        <HeartHandshake size={15} className="pdf-c-burgundy shrink-0" />
                                         Estilo de Vida {lifestylePages.length > 1 ? `(Parte ${idx + 1})` : ''}
                                     </h3>
-                                    <div className="bg-[#ecfdf5] p-4 rounded-xl border border-[#bbf7d0] text-[12px] leading-relaxed text-[#334155] font-sans whitespace-pre-line pdf-base-text">
+                                    <div className="flex items-center gap-2 my-1.5">
+                                        <div className="pdf-diamond-line"></div>
+                                        <div className="pdf-diamond"></div>
+                                        <div className="pdf-diamond-line"></div>
+                                    </div>
+                                    <div className="pdf-bg-cream p-4 rounded-xl pdf-border-card border text-[12px] leading-relaxed pdf-c-text-muted font-sans whitespace-pre-line pdf-base-text">
                                         {pageText}
                                     </div>
                                 </div>
                             </div>
 
                             {/* Page Footer */}
-                            <div className="border-t border-[#22c55e]/25 pt-3 mt-4 flex justify-between items-center text-[9px] font-sans text-[#64748b] shrink-0 pdf-meta">
+                            <div className="pdf-footer-border pt-3 mt-4 flex justify-between items-center text-[9px] font-sans pdf-c-text-muted shrink-0 pdf-meta">
                                 <div>
-                                    <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                    <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                                     <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                                    <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
                                     {professionalContactLine}
                                 </div>
                             </div>
@@ -4565,27 +4644,27 @@ const getHerbParts = (h: HerbalFormula) => {
 
                     {/* Digestive Recovery Pages */}
                     {showDigestiveRecoveryPage && digestiveRecoveryPages.map((pageText, idx) => (
-                        <div key={`digestive-recovery-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                        <div key={`digestive-recovery-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-white pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                             <div className="flex-1 flex flex-col">
                                 {/* Document Header */}
-                                <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
+                                <div className="pdf-header-border pb-4 flex justify-between items-center shrink-0">
                                     <div className="flex items-center gap-3">
                                         <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
                                         <div>
-                                            <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
-                                            <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                            <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                            <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
                                         </div>
                                     </div>
-                                    <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
-                                        <p className="font-semibold text-[#334155]">Recuperación Digestiva</p>
-                                        {digestiveRecoveryPages.length > 1 && <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {digestiveRecoveryPages.length}</p>}
-                                        <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
+                                    <div className="text-right text-xs font-sans pdf-c-text-muted space-y-0.5 pdf-meta">
+                                        <p className="font-semibold pdf-c-burgundy">Recuperación Digestiva</p>
+                                        {digestiveRecoveryPages.length > 1 && <p className="text-[10px] pdf-c-text-muted">Parte {idx + 1} de {digestiveRecoveryPages.length}</p>}
+                                        <p>Paciente: <span className="font-bold pdf-c-burgundy">{patient.name}</span></p>
                                     </div>
                                 </div>
 
                                 <div className="mt-5 space-y-4 flex-1 flex flex-col">
-                                    <div className="space-y-1.5 flex-1 bg-[#fffbeb] p-5 rounded-xl border border-[#fde68a] overflow-hidden">
-                                        <div className="text-[11.5px] leading-relaxed text-[#334155] font-sans prose prose-sm max-w-none prose-p:text-[#334155] prose-p:my-1.5 prose-strong:text-slate-900 prose-em:text-[#475569] prose-h1:text-[13px] prose-h1:font-bold prose-h1:uppercase prose-h1:tracking-wider prose-h1:text-[#b45309] prose-h1:mt-0 prose-h1:mb-2 prose-h2:text-[11.5px] prose-h2:font-bold prose-h2:text-[#92400e] prose-h2:mt-2.5 prose-h2:mb-1 prose-ul:my-1 prose-li:my-0.5 pdf-base-text">
+                                    <div className="space-y-1.5 flex-1 pdf-bg-cream p-5 rounded-xl pdf-border-card border overflow-hidden">
+                                        <div className="text-[11.5px] leading-relaxed pdf-c-text-muted font-sans prose prose-sm max-w-none prose-p:text-[#333333] prose-p:my-1.5 prose-strong:text-[#7A1F2B] prose-em:text-[#666666] prose-h1:text-[13px] prose-h1:font-bold prose-h1:uppercase prose-h1:tracking-wider prose-h1:text-[#7A1F2B] prose-h1:mt-0 prose-h1:mb-2 prose-h2:text-[11.5px] prose-h2:font-bold prose-h2:text-[#8a6d1f] prose-h2:mt-2.5 prose-h2:mb-1 prose-ul:my-1 prose-li:my-0.5 pdf-base-text">
                                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{pageText}</ReactMarkdown>
                                         </div>
                                     </div>
@@ -4593,13 +4672,13 @@ const getHerbParts = (h: HerbalFormula) => {
                             </div>
 
                             {/* Footer */}
-                            <div className="border-t border-[#22c55e]/25 pt-3 mt-4 flex justify-between items-center text-[9px] font-sans text-[#64748b] shrink-0 pdf-meta">
+                            <div className="pdf-footer-border pt-3 mt-4 flex justify-between items-center text-[9px] font-sans pdf-c-text-muted shrink-0 pdf-meta">
                                 <div>
-                                    <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                    <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                                     <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                                    <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
                                     {professionalContactLine}
                                 </div>
                             </div>
@@ -4608,39 +4687,39 @@ const getHerbParts = (h: HerbalFormula) => {
 
                     {/* Guía de alimentación saludable (fix #6) */}
                     {showHealthyEatingGuide && healthyEatingGuidePages.map((pageText, idx) => (
-                        <div key={`healthy-eating-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                        <div key={`healthy-eating-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-white pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                             <div className="flex-1 flex flex-col">
-                                <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
+                                <div className="pdf-header-border pb-4 flex justify-between items-center shrink-0">
                                     <div className="flex items-center gap-3">
                                         <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
                                         <div>
-                                            <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
-                                            <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                            <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                            <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
                                         </div>
                                     </div>
-                                    <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
-                                        <p className="font-semibold text-[#334155]">Guía de Alimentación Saludable</p>
-                                        {healthyEatingGuidePages.length > 1 && <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {healthyEatingGuidePages.length}</p>}
-                                        <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
+                                    <div className="text-right text-xs font-sans pdf-c-text-muted space-y-0.5 pdf-meta">
+                                        <p className="font-semibold pdf-c-burgundy">Guía de Alimentación Saludable</p>
+                                        {healthyEatingGuidePages.length > 1 && <p className="text-[10px] pdf-c-text-muted">Parte {idx + 1} de {healthyEatingGuidePages.length}</p>}
+                                        <p>Paciente: <span className="font-bold pdf-c-burgundy">{patient.name}</span></p>
                                     </div>
                                 </div>
 
                                 <div className="mt-5 space-y-4 flex-1 flex flex-col">
-                                    <div className="space-y-1.5 flex-1 bg-[#f0fdf4] p-5 rounded-xl border border-[#bbf7d0] overflow-hidden">
-                                        <div className="text-[11.5px] leading-relaxed text-[#334155] font-sans prose prose-sm max-w-none prose-p:text-[#334155] prose-p:my-1.5 prose-strong:text-slate-900 prose-em:text-[#475569] prose-h1:text-[13px] prose-h1:font-bold prose-h1:uppercase prose-h1:tracking-wider prose-h1:text-[#16a34a] prose-h1:mt-0 prose-h1:mb-2 prose-h2:text-[11.5px] prose-h2:font-bold prose-h2:text-[#15803d] prose-h2:mt-2.5 prose-h2:mb-1 prose-ul:my-1 prose-li:my-0.5 pdf-base-text">
+                                    <div className="space-y-1.5 flex-1 pdf-bg-cream p-5 rounded-xl pdf-border-card border overflow-hidden">
+                                        <div className="text-[11.5px] leading-relaxed pdf-c-text-muted font-sans prose prose-sm max-w-none prose-p:text-[#333333] prose-p:my-1.5 prose-strong:text-[#7A1F2B] prose-em:text-[#666666] prose-h1:text-[13px] prose-h1:font-bold prose-h1:uppercase prose-h1:tracking-wider prose-h1:text-[#7A1F2B] prose-h1:mt-0 prose-h1:mb-2 prose-h2:text-[11.5px] prose-h2:font-bold prose-h2:text-[#8a6d1f] prose-h2:mt-2.5 prose-h2:mb-1 prose-ul:my-1 prose-li:my-0.5 pdf-base-text">
                                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{pageText}</ReactMarkdown>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="border-t border-[#22c55e]/25 pt-3 mt-4 flex justify-between items-center text-[9px] font-sans text-[#64748b] shrink-0 pdf-meta">
+                            <div className="pdf-footer-border pt-3 mt-4 flex justify-between items-center text-[9px] font-sans pdf-c-text-muted shrink-0 pdf-meta">
                                 <div>
-                                    <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                    <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                                     <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                                    <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
                                     {professionalContactLine}
                                 </div>
                             </div>
@@ -4649,39 +4728,39 @@ const getHerbParts = (h: HerbalFormula) => {
 
                     {/* Terapias Recomendadas */}
                     {showTherapiesSection && therapiesPages.map((pageText, idx) => (
-                        <div key={`therapies-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                        <div key={`therapies-${idx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-white pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                             <div className="flex-1 flex flex-col">
-                                <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
+                                <div className="pdf-header-border pb-4 flex justify-between items-center shrink-0">
                                     <div className="flex items-center gap-3">
                                         <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
                                         <div>
-                                            <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
-                                            <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                            <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                            <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
                                         </div>
                                     </div>
-                                    <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
-                                        <p className="font-semibold text-[#334155]">Terapias Recomendadas</p>
-                                        {therapiesPages.length > 1 && <p className="text-[10px] text-[#64748b]">Parte {idx + 1} de {therapiesPages.length}</p>}
-                                        <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
+                                    <div className="text-right text-xs font-sans pdf-c-text-muted space-y-0.5 pdf-meta">
+                                        <p className="font-semibold pdf-c-burgundy">Terapias Recomendadas</p>
+                                        {therapiesPages.length > 1 && <p className="text-[10px] pdf-c-text-muted">Parte {idx + 1} de {therapiesPages.length}</p>}
+                                        <p>Paciente: <span className="font-bold pdf-c-burgundy">{patient.name}</span></p>
                                     </div>
                                 </div>
 
                                 <div className="mt-5 space-y-4 flex-1 flex flex-col">
-                                    <div className="space-y-1.5 flex-1 bg-[#fffbeb] p-5 rounded-xl border border-[#fde68a] overflow-hidden">
-                                        <div className="text-[11.5px] leading-relaxed text-[#334155] font-sans prose prose-sm max-w-none prose-p:text-[#334155] prose-p:my-1.5 prose-strong:text-slate-900 prose-em:text-[#475569] prose-h1:text-[13px] prose-h1:font-bold prose-h1:uppercase prose-h1:tracking-wider prose-h1:text-[#b45309] prose-h1:mt-3 prose-h1:mb-2 prose-h1:first:mt-0 prose-h2:text-[11.5px] prose-h2:font-bold prose-h2:text-[#15803d] prose-h2:mt-2.5 prose-h2:mb-1 prose-h3:text-[11px] prose-h3:font-bold prose-h3:text-[#334155] prose-h3:mt-2 prose-h3:mb-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 pdf-base-text">
+                                    <div className="space-y-1.5 flex-1 pdf-bg-cream p-5 rounded-xl pdf-border-card border overflow-hidden">
+                                        <div className="text-[11.5px] leading-relaxed pdf-c-text-muted font-sans prose prose-sm max-w-none prose-p:text-[#333333] prose-p:my-1.5 prose-strong:text-[#7A1F2B] prose-em:text-[#666666] prose-h1:text-[13px] prose-h1:font-bold prose-h1:uppercase prose-h1:tracking-wider prose-h1:text-[#7A1F2B] prose-h1:mt-3 prose-h1:mb-2 prose-h1:first:mt-0 prose-h2:text-[11.5px] prose-h2:font-bold prose-h2:text-[#8a6d1f] prose-h2:mt-2.5 prose-h2:mb-1 prose-h3:text-[11px] prose-h3:font-bold prose-h3:text-[#333333] prose-h3:mt-2 prose-h3:mb-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 pdf-base-text">
                                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{pageText}</ReactMarkdown>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="border-t border-[#22c55e]/25 pt-3 mt-4 flex justify-between items-center text-[9px] font-sans text-[#64748b] shrink-0 pdf-meta">
+                            <div className="pdf-footer-border pt-3 mt-4 flex justify-between items-center text-[9px] font-sans pdf-c-text-muted shrink-0 pdf-meta">
                                 <div>
-                                    <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                    <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                                     <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                                    <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
                                     {professionalContactLine}
                                 </div>
                             </div>
@@ -4690,81 +4769,71 @@ const getHerbParts = (h: HerbalFormula) => {
 
                     {/* PAGES 3+: Dynamic Diet Category Tables (Paged in pairs) */}
                     {categoryChunks.map((chunk, chunkIdx) => (
-                        <div key={chunkIdx} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                        <div key={chunkIdx} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-white pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                             <div className="space-y-6 flex-1">
                                 {/* Header */}
-                                <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
+                                <div className="pdf-header-border pb-4 flex justify-between items-center shrink-0">
                                     <div className="flex items-center gap-3">
                                         <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
                                         <div>
-                                            <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
-                                            <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                            <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                            <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
                                         </div>
                                     </div>
-                                    <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
-                                        <p className="font-semibold text-[#334155]">Pautas Dietéticas {selectedDosha}</p>
-                                        {categoryChunks.length > 1 && <p className="text-[10px] text-[#64748b]">Parte {chunkIdx + 1} de {categoryChunks.length}</p>}
-                                        <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
+                                    <div className="text-right text-xs font-sans pdf-c-text-muted space-y-0.5 pdf-meta">
+                                        <p className="font-semibold pdf-c-burgundy">Pautas Dietéticas {selectedDosha}</p>
+                                        {categoryChunks.length > 1 && <p className="text-[10px] pdf-c-text-muted">Parte {chunkIdx + 1} de {categoryChunks.length}</p>}
+                                        <p>Paciente: <span className="font-bold pdf-c-burgundy">{patient.name}</span></p>
                                     </div>
                                 </div>
 
                                 {/* Chunk categories */}
                                 <div className="space-y-6 mt-4">
                                     {chunk.map((cat: any, catIdx: number) => (
-                                        <div key={catIdx} className="border border-[#e2e8f0] rounded-xl overflow-hidden shadow-sm">
-                                            <div className="bg-[#f8fafc]/85 border-b border-[#e2e8f0] px-4 py-2.5 flex flex-col md:flex-row justify-between md:items-center gap-1">
-                                                <span className="text-[13px] font-bold font-sans text-[#334155] pdf-base-text">
-                                                    Categoría — {cat.nombre}
+                                        <div key={catIdx} className="pdf-border-card border overflow-hidden shadow-sm" style={{ borderRadius: '14px' }}>
+                                            <div className="px-4 py-2.5 flex flex-col md:flex-row justify-between md:items-center gap-1" style={{ background: PDF_THEME.gold }}>
+                                                <span className="text-[13px] font-bold font-sans pdf-c-burgundy pdf-font-heading pdf-base-text">
+                                                    {cat.nombre}
                                                 </span>
                                                 {cat.consejo && (
-                                                    <span className="text-[10px] text-[#475569] font-sans italic leading-tight max-w-[70%] text-left md:text-right pdf-subtitle">
+                                                    <span className="text-[10px] pdf-c-burgundy font-sans italic leading-tight max-w-[70%] text-left md:text-right pdf-subtitle opacity-80">
                                                         {cat.consejo}
                                                     </span>
                                                 )}
                                             </div>
-                                            <table className="w-full text-[12px] font-sans border-separate border-spacing-0">
-                                                <thead>
-                                                    <tr className="bg-[#ffffff] text-[10px] uppercase font-bold border-b border-[#e2e8f0] pdf-meta">
-                                                        <th className="w-1/3 px-4 py-2 text-left text-[#15803d] border-r border-[#e2e8f0]">
-                                                            <span className="text-[#16a34a] mr-1.5 text-[9px]">■</span>MEJOR
-                                                        </th>
-                                                        <th className="w-1/3 px-4 py-2 text-left text-[#b45309] border-r border-[#e2e8f0]">
-                                                            <span className="text-[#d97706] mr-1.5 tracking-tighter text-[9px]">■■</span>MODERACIÓN
-                                                        </th>
-                                                        <th className="w-1/3 px-4 py-2 text-left text-[#b91c1c]">
-                                                            <span className="text-[#dc2626] mr-1.5 text-[9px]">■</span>EVITAR
-                                                        </th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <tr className="align-top bg-[#ffffff] divide-x divide-[#e2e8f0] pdf-base-text">
-                                                        <td className="px-4 py-3 text-[#475569] leading-relaxed border-r border-[#e2e8f0] text-[11.5px] pdf-base-text">
-                                                            {cat.mejor && cat.mejor.length > 0 ? cat.mejor.join(', ') : '—'}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-[#475569] leading-relaxed border-r border-[#e2e8f0] text-[11.5px] pdf-base-text">
-                                                            {((cat.pequenas_cantidades || cat.moderacion) && (cat.pequenas_cantidades || cat.moderacion).length > 0)
-                                                                ? (cat.pequenas_cantidades || cat.moderacion).join(', ')
-                                                                : '—'}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-[#475569] leading-relaxed text-[11.5px] pdf-base-text">
-                                                            {cat.evitar && cat.evitar.length > 0 ? cat.evitar.join(', ') : '—'}
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
+                                            <div className="grid grid-cols-3 gap-3 p-3.5 font-sans">
+                                                <div className="pr-3" style={{ borderRight: `1px solid ${PDF_THEME.cardBorder}` }}>
+                                                    <p className="pdf-c-burgundy text-[9px] uppercase font-bold tracking-wide mb-1.5">Mejor</p>
+                                                    {cat.mejor && cat.mejor.length > 0
+                                                        ? cat.mejor.map((item: string, i: number) => <span key={i} className="pdf-chip pdf-chip-best">{item}</span>)
+                                                        : <span className="pdf-c-text-muted text-[11px]">-</span>}
+                                                </div>
+                                                <div className="pr-3" style={{ borderRight: `1px solid ${PDF_THEME.cardBorder}` }}>
+                                                    <p className="pdf-c-gold-dark text-[9px] uppercase font-bold tracking-wide mb-1.5">Moderación</p>
+                                                    {(cat.pequenas_cantidades || cat.moderacion) && (cat.pequenas_cantidades || cat.moderacion).length > 0
+                                                        ? (cat.pequenas_cantidades || cat.moderacion).map((item: string, i: number) => <span key={i} className="pdf-chip pdf-chip-mod">{item}</span>)
+                                                        : <span className="pdf-c-text-muted text-[11px]">-</span>}
+                                                </div>
+                                                <div>
+                                                    <p className="text-[9px] uppercase font-bold tracking-wide mb-1.5" style={{ color: PDF_THEME.chipAvoidText }}>Evitar</p>
+                                                    {cat.evitar && cat.evitar.length > 0
+                                                        ? cat.evitar.map((item: string, i: number) => <span key={i} className="pdf-chip pdf-chip-avoid">{item}</span>)
+                                                        : <span className="pdf-c-text-muted text-[11px]">-</span>}
+                                                </div>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
                             </div>
 
                             {/* Footer */}
-                            <div className="border-t border-[#22c55e]/25 pt-3 mt-4 flex justify-between items-center text-[9px] font-sans text-[#64748b] shrink-0 pdf-meta">
+                            <div className="pdf-footer-border pt-3 mt-4 flex justify-between items-center text-[9px] font-sans pdf-c-text-muted shrink-0 pdf-meta">
                                 <div>
-                                    <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                    <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                                     <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                                    <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
                                     {professionalContactLine}
                                 </div>
                             </div>
@@ -4772,77 +4841,77 @@ const getHerbParts = (h: HerbalFormula) => {
                     ))}
 
                     {/* Cereals and manual recipes page */}
-                    <div className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                    <div className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-white pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                         <div className="space-y-6 flex-1">
                             {/* Header */}
-                            <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
+                            <div className="pdf-header-border pb-4 flex justify-between items-center shrink-0">
                                 <div className="flex items-center gap-3">
                                     <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
                                     <div>
-                                        <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
-                                        <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                        <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                        <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
                                     </div>
                                 </div>
-                                <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
-                                    <p className="font-semibold text-[#334155]">Cómo Comer los Cereales</p>
-                                    <p className="text-[10px] text-[#64748b]">Preparación y Recetas</p>
-                                    <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
+                                <div className="text-right text-xs font-sans pdf-c-text-muted space-y-0.5 pdf-meta">
+                                    <p className="font-semibold pdf-c-burgundy">Cómo Comer los Cereales</p>
+                                    <p className="text-[10px] pdf-c-text-muted">Preparación y Recetas</p>
+                                    <p>Paciente: <span className="font-bold pdf-c-burgundy">{patient.name}</span></p>
                                 </div>
                             </div>
 
                             <div className="space-y-4 mt-5">
-                                <div className="rounded-xl border border-[#bbf7d0] bg-[#f0fdf4] p-5">
-                                    <h4 className="text-[12px] font-bold uppercase tracking-wider text-[#16a34a] font-sans mb-2 pdf-subtitle">
+                                <div className="rounded-xl pdf-border-card border pdf-bg-cream p-5">
+                                    <h4 className="text-[12px] font-bold pdf-c-terracotta pdf-font-heading mb-2 pdf-subtitle">
                                         Guía práctica
                                     </h4>
-                                    <div className="text-[12px] leading-relaxed text-[#334155] font-sans prose prose-sm max-w-none prose-p:text-[#334155] prose-p:my-1 prose-strong:text-slate-900 prose-em:text-[#475569] pdf-base-text">
+                                    <div className="text-[12px] leading-relaxed pdf-c-text-muted font-sans prose prose-sm max-w-none prose-p:text-[#333333] prose-p:my-1 prose-strong:text-[#7A1F2B] prose-em:text-[#666666] pdf-base-text">
                                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{cerealGuidance}</ReactMarkdown>
                                     </div>
                                 </div>
 
-                                <div className="rounded-xl border border-[#fde68a] bg-[#fffbeb] p-5 min-h-[148mm] flex flex-col">
-                                    <h4 className="text-[12px] font-bold uppercase tracking-wider text-[#b45309] font-sans mb-3 pdf-subtitle">
+                                <div className="rounded-xl pdf-border-card border bg-white p-5 min-h-[148mm] flex flex-col">
+                                    <h4 className="text-[12px] font-bold pdf-c-terracotta pdf-font-heading font-sans mb-3 pdf-subtitle">
                                         Recetas recomendadas
                                     </h4>
                                     {showRecipesSection && selectedRecipes.length > 0 ? (
-                                        <div className="flex-1 flex flex-col justify-center items-center text-center p-6 bg-white/60 rounded-xl border border-dashed border-[#fde68a] text-slate-600 font-sans">
-                                            <p className="font-bold text-[#b45309] text-[12.5px] mb-2">
+                                        <div className="flex-1 flex flex-col justify-center items-center text-center p-6 pdf-bg-cream rounded-xl font-sans" style={{ border: `1px dashed ${PDF_THEME.gold}` }}>
+                                            <p className="font-bold pdf-c-gold-dark text-[12.5px] mb-2">
                                                 Se han adjuntado las siguientes recetas personalizadas en las páginas siguientes:
                                             </p>
-                                            <ul className="list-disc text-left text-[11.5px] text-[#334155] space-y-1.5 mt-1 max-w-[85%]">
+                                            <ul className="list-disc text-left text-[11.5px] pdf-c-text-muted space-y-1.5 mt-1 max-w-[85%]">
                                                 {selectedRecipes.map((r, i) => (
                                                     <li key={i} className="font-semibold">
-                                                        {r.title} <span className="font-normal text-slate-500">({r.category} · {r.doshas.join(', ')})</span>
+                                                        {r.title} <span className="font-normal pdf-c-text-muted">({r.category} · {r.doshas.join(', ')})</span>
                                                     </li>
                                                 ))}
                                             </ul>
                                         </div>
                                     ) : cerealRecipe.trim() ? (
-                                        <div className="text-[12px] leading-relaxed text-[#334155] font-sans whitespace-pre-line pdf-base-text">
+                                        <div className="text-[12px] leading-relaxed pdf-c-text-muted font-sans whitespace-pre-line pdf-base-text">
                                             {cerealRecipe}
                                         </div>
                                     ) : (
-                                        <div className="flex-1 grid grid-rows-[auto_auto_1fr] gap-4 text-[#94a3b8] font-sans pdf-meta">
+                                        <div className="flex-1 grid grid-rows-[auto_auto_1fr] gap-4 pdf-c-text-muted font-sans pdf-meta">
                                             <div>
-                                                <p className="text-[10px] font-bold uppercase tracking-wider text-[#b45309] mb-2 pdf-meta">Nombre</p>
-                                                <div className="border-b border-dashed border-[#d6a64a] h-8"></div>
+                                                <p className="text-[10px] font-bold pdf-c-gold-dark mb-2 pdf-meta">Nombre</p>
+                                                <div className="border-b border-dashed h-8" style={{ borderColor: PDF_THEME.gold }}></div>
                                             </div>
                                             <div>
-                                                <p className="text-[10px] font-bold uppercase tracking-wider text-[#b45309] mb-2 pdf-meta">Ingredientes</p>
+                                                <p className="text-[10px] font-bold pdf-c-gold-dark mb-2 pdf-meta">Ingredientes</p>
                                                 <div className="space-y-4">
-                                                    <div className="border-b border-dashed border-[#d6a64a] h-5"></div>
-                                                    <div className="border-b border-dashed border-[#d6a64a] h-5"></div>
-                                                    <div className="border-b border-dashed border-[#d6a64a] h-5"></div>
+                                                    <div className="border-b border-dashed h-5" style={{ borderColor: PDF_THEME.gold }}></div>
+                                                    <div className="border-b border-dashed h-5" style={{ borderColor: PDF_THEME.gold }}></div>
+                                                    <div className="border-b border-dashed h-5" style={{ borderColor: PDF_THEME.gold }}></div>
                                                 </div>
                                             </div>
                                             <div>
-                                                <p className="text-[10px] font-bold uppercase tracking-wider text-[#b45309] mb-2 pdf-meta">Preparación</p>
+                                                <p className="text-[10px] font-bold pdf-c-gold-dark mb-2 pdf-meta">Preparación</p>
                                                 <div className="space-y-4">
-                                                    <div className="border-b border-dashed border-[#d6a64a] h-5"></div>
-                                                    <div className="border-b border-dashed border-[#d6a64a] h-5"></div>
-                                                    <div className="border-b border-dashed border-[#d6a64a] h-5"></div>
-                                                    <div className="border-b border-dashed border-[#d6a64a] h-5"></div>
-                                                    <div className="border-b border-dashed border-[#d6a64a] h-5"></div>
+                                                    <div className="border-b border-dashed h-5" style={{ borderColor: PDF_THEME.gold }}></div>
+                                                    <div className="border-b border-dashed h-5" style={{ borderColor: PDF_THEME.gold }}></div>
+                                                    <div className="border-b border-dashed h-5" style={{ borderColor: PDF_THEME.gold }}></div>
+                                                    <div className="border-b border-dashed h-5" style={{ borderColor: PDF_THEME.gold }}></div>
+                                                    <div className="border-b border-dashed h-5" style={{ borderColor: PDF_THEME.gold }}></div>
                                                 </div>
                                             </div>
                                         </div>
@@ -4851,13 +4920,13 @@ const getHerbParts = (h: HerbalFormula) => {
                             </div>
                         </div>
 
-                        <div className="border-t border-[#22c55e]/25 pt-3 mt-4 flex justify-between items-center text-[9px] font-sans text-[#64748b] shrink-0 pdf-meta">
+                        <div className="pdf-footer-border pt-3 mt-4 flex justify-between items-center text-[9px] font-sans pdf-c-text-muted shrink-0 pdf-meta">
                             <div>
-                                <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                                 <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
                             </div>
                             <div className="text-right">
-                                <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                                <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
                                 {professionalContactLine}
                             </div>
                         </div>
@@ -4866,88 +4935,107 @@ const getHerbParts = (h: HerbalFormula) => {
                     {/* Dedicated page for each selected recipe */}
                     {showRecipesSection && selectedRecipes.map((recipe, index) => {
                         const printableRecipe = getPrintableRecipe(recipe);
+                        const structuredParts = getStructuredRecipeParts(recipe);
                         const recipePages = [printableRecipe.printableText];
                         return recipePages.map((pageText, pageIdx) => (
-                            <div key={`recipe-page-${recipe.id}-${index}-${pageIdx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                            <div key={`recipe-page-${recipe.id}-${index}-${pageIdx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-white pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                                 <div className="space-y-6 flex-1">
                                     {/* Header */}
-                                    <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
+                                    <div className="pdf-header-border pb-4 flex justify-between items-center shrink-0">
                                         <div className="flex items-center gap-3">
                                             <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
                                             <div>
-                                                <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
-                                                <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                                <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                                <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
                                             </div>
                                         </div>
-                                        <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
-                                            <p className="font-semibold text-[#334155]">Receta Recomendada</p>
-                                            <p className="text-[10px] text-[#64748b]">
+                                        <div className="text-right text-xs font-sans pdf-c-text-muted space-y-0.5 pdf-meta">
+                                            <p className="font-semibold pdf-c-burgundy">Receta Recomendada</p>
+                                            <p className="text-[10px] pdf-c-text-muted">
                                                 {recipePages.length > 1 ? `Parte ${pageIdx + 1} de ${recipePages.length}` : 'Detalle'}
                                             </p>
-                                            <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
+                                            <p>Paciente: <span className="font-bold pdf-c-burgundy">{patient.name}</span></p>
                                         </div>
                                     </div>
 
                                     <div className="space-y-4 mt-6">
-                                        <div className="rounded-xl border border-[#fde68a] bg-[#fffbeb] p-6 flex flex-col">
+                                        <div className="rounded-xl pdf-border-card border overflow-hidden flex flex-col">
                                             {pageIdx === 0 && (
                                                 <>
-                                                    <div className="flex justify-between items-start gap-3 border-b border-[#fde68a] pb-3">
-                                                        <div>
-                                                            <h4 className="text-[16px] font-bold text-[#1e293b] font-sans leading-snug">{recipe.title}</h4>
-                                                            <p className="text-[10px] uppercase tracking-wider text-[#b45309] font-bold mt-1 font-sans">
-                                                                Categoría: {recipe.category} · Doshas: {printableRecipe.doshaLabel}
-                                                            </p>
-                                                        </div>
+                                                    <div className="pdf-recipe-header">
+                                                        <h4 className="text-[16px] font-bold pdf-c-burgundy pdf-font-heading leading-snug">{recipe.title}</h4>
+                                                        <p className="text-[10px] uppercase tracking-wider pdf-c-burgundy font-bold mt-1 font-sans opacity-80">
+                                                            Categoría: {recipe.category} · Doshas: {printableRecipe.doshaLabel}
+                                                        </p>
                                                     </div>
-                                                    
-                                                    {/* Dosha Effects */}
-                                                    <div className="grid grid-cols-3 gap-2 bg-white/60 p-2.5 rounded-lg border border-[#fde68a]/50 text-[10px] text-[#475569] mt-3 font-sans">
-                                                        <div><span className="font-bold text-[#334155]">Vata:</span> {printableRecipe.vataEffect}</div>
-                                                        <div><span className="font-bold text-[#334155]">Pitta:</span> {printableRecipe.pittaEffect}</div>
-                                                        <div><span className="font-bold text-[#334155]">Kapha:</span> {printableRecipe.kaphaEffect}</div>
+
+                                                    {/* Chips: tiempo/porciones/doshas */}
+                                                    <div className="flex flex-wrap gap-1.5 px-6 pt-4">
+                                                        {structuredParts?.prepTime && <span className="pdf-chip pdf-chip-mod">⏱ {structuredParts.prepTime}</span>}
+                                                        {structuredParts?.yieldText && <span className="pdf-chip pdf-chip-mod">🍽 {structuredParts.yieldText}</span>}
+                                                        <span className="pdf-chip pdf-chip-best">Vata: {printableRecipe.vataEffect}</span>
+                                                        <span className="pdf-chip pdf-chip-best">Pitta: {printableRecipe.pittaEffect}</span>
+                                                        <span className="pdf-chip pdf-chip-best">Kapha: {printableRecipe.kaphaEffect}</span>
                                                     </div>
                                                 </>
                                             )}
 
-                                            {/* Recipe Content - Large and Readable */}
-                                            <div className="text-[13.5px] leading-relaxed text-[#334155] mt-4 font-sans pdf-base-text">
-                                                {pageText.split('\n').map((line: string, lineIdx: number) => {
-                                                    const isSectionTitle = ['Datos de la receta', 'Ingredientes', 'Preparación', 'Comentarios'].includes(line.trim());
-                                                    if (isSectionTitle) {
+                                            {/* Recipe Content */}
+                                            <div className="text-[13.5px] leading-relaxed pdf-c-text-muted px-6 pb-6 mt-4 font-sans pdf-base-text">
+                                                {structuredParts ? (
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <p className="pdf-c-burgundy text-[10px] uppercase font-bold tracking-wide mb-1.5">Ingredientes</p>
+                                                            <ul className="list-disc pl-4 space-y-1">
+                                                                {structuredParts.ingredients.map((ing: string, i: number) => <li key={i}>{ing}</li>)}
+                                                            </ul>
+                                                        </div>
+                                                        <div>
+                                                            <p className="pdf-c-burgundy text-[10px] uppercase font-bold tracking-wide mb-1.5">Preparación</p>
+                                                            <p className="leading-relaxed whitespace-pre-line">{structuredParts.preparation}</p>
+                                                            {structuredParts.comments && (
+                                                                <div className="pdf-bg-cream rounded-lg p-2.5 mt-2 text-[11px] italic">{structuredParts.comments}</div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    pageText.split('\n').map((line: string, lineIdx: number) => {
+                                                        const isSectionTitle = ['Datos de la receta', 'Ingredientes', 'Preparación', 'Comentarios'].includes(line.trim());
+                                                        if (isSectionTitle) {
+                                                            return (
+                                                                <h5 key={lineIdx} className="text-[12px] font-extrabold uppercase tracking-wider pdf-c-gold-dark mt-4 mb-1 first:mt-0">
+                                                                    {line}
+                                                                </h5>
+                                                            );
+                                                        }
+                                                        if (line.trim().startsWith('- ')) {
+                                                            return (
+                                                                <div key={lineIdx} className="mb-1.5 flex items-start gap-2">
+                                                                    <span className="mt-[0.55em] h-1.5 w-1.5 rounded-full shrink-0" style={{ background: PDF_THEME.gold }} />
+                                                                    <span>{line.trim().slice(2)}</span>
+                                                                </div>
+                                                            );
+                                                        }
                                                         return (
-                                                            <h5 key={lineIdx} className="text-[12px] font-extrabold uppercase tracking-wider text-[#b45309] mt-4 mb-1 first:mt-0">
+                                                            <p key={lineIdx} className={line.trim() ? 'mb-1.5' : 'h-2'}>
                                                                 {line}
-                                                            </h5>
+                                                            </p>
                                                         );
-                                                    }
-                                                    if (line.trim().startsWith('- ')) {
-                                                        return (
-                                                            <div key={lineIdx} className="mb-1.5 flex items-start gap-2">
-                                                                <span className="mt-[0.55em] h-1.5 w-1.5 rounded-full bg-[#b45309] shrink-0" />
-                                                                <span>{line.trim().slice(2)}</span>
-                                                            </div>
-                                                        );
-                                                    }
-                                                    return (
-                                                        <p key={lineIdx} className={line.trim() ? 'mb-1.5' : 'h-2'}>
-                                                            {line}
-                                                        </p>
-                                                    );
-                                                })}
+                                                    })
+                                                )}
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* Footer */}
-                                <div className="border-t border-[#22c55e]/25 pt-3 mt-4 flex justify-between items-center text-[9px] font-sans text-[#64748b] shrink-0 pdf-meta">
+                                <div className="pdf-footer-border pt-3 mt-4 flex justify-between items-center text-[9px] font-sans pdf-c-text-muted shrink-0 pdf-meta">
                                     <div>
-                                        <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                        <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                                         <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
                                     </div>
                                     <div className="text-right">
-                                        <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                                        <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
                                         {professionalContactLine}
                                     </div>
                                 </div>
@@ -4957,45 +5045,53 @@ const getHerbParts = (h: HerbalFormula) => {
 
                     {/* Final pages: Herbal formulas, only when manually added */}
                     {herbalFormulaPages.map((herbalPage, herbalPageIdx) => (
-                        <div key={`herbal-formulas-${herbalPageIdx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-[#F5EEDC] text-[#1e293b] pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                        <div key={`herbal-formulas-${herbalPageIdx}`} className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-white pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
                             <div className="space-y-6 flex-1">
                                 {/* Header */}
-                                <div className="border-b border-[#22c55e]/20 pb-4 flex justify-between items-center shrink-0">
+                                <div className="pdf-header-border pb-4 flex justify-between items-center shrink-0">
                                     <div className="flex items-center gap-3">
                                         <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
                                         <div>
-                                            <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
-                                            <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                            <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                            <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
                                         </div>
                                     </div>
-                                    <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
-                                        <p className="font-semibold text-[#334155]">Prescripción Herbal</p>
-                                        <p className="text-[10px] text-[#64748b]">
+                                    <div className="text-right text-xs font-sans pdf-c-text-muted space-y-0.5 pdf-meta">
+                                        <p className="font-semibold pdf-c-burgundy">Prescripción Herbal</p>
+                                        <p className="text-[10px] pdf-c-text-muted">
                                             {herbalFormulaPages.length > 1 ? `Parte ${herbalPageIdx + 1} de ${herbalFormulaPages.length}` : 'Suplementación y Fitoterapia'}
                                         </p>
-                                        <p>Paciente: <span className="font-bold text-[#0f172a]">{patient.name}</span></p>
+                                        <p>Paciente: <span className="font-bold pdf-c-burgundy">{patient.name}</span></p>
                                     </div>
                                 </div>
 
                                 <div className="space-y-4 mt-6">
-                                    <h3 className="text-[15px] font-bold uppercase tracking-wider text-[#16a34a] font-sans pdf-heading">Fórmulas Herbales Recomendadas</h3>
-                                    <div className="border border-[#e2e8f0] rounded-xl overflow-hidden shadow-sm">
-                                        <table className="w-full text-[12.5px] font-sans border-separate border-spacing-0">
+                                    <h3 className="text-[15px] font-bold pdf-c-burgundy pdf-font-heading pdf-heading flex items-center gap-2">
+                                        <Leaf size={16} className="pdf-c-burgundy shrink-0" />
+                                        Fórmulas Herbales Recomendadas
+                                    </h3>
+                                    <div className="flex items-center gap-2 my-1.5">
+                                        <div className="pdf-diamond-line"></div>
+                                        <div className="pdf-diamond"></div>
+                                        <div className="pdf-diamond-line"></div>
+                                    </div>
+                                    <div className="pdf-border-card border rounded-xl overflow-hidden shadow-sm">
+                                        <table className="w-full text-[12.5px] font-sans border-separate border-spacing-0 herbal-table">
                                             <thead>
-                                                <tr className="bg-[#f8fafc]/60 text-[#64748b] font-bold text-left border-b border-[#e2e8f0] pdf-meta">
-                                                    <th className="px-4 py-2.5 w-3/12 border-r border-[#e2e8f0]">Fórmula / Hierba</th>
-                                                    <th className="px-4 py-2.5 w-4/12 border-r border-[#e2e8f0]">Dosis e Indicaciones</th>
-                                                    <th className="px-4 py-2.5 w-5/12">¿Para qué sirve?</th>
+                                                <tr className="font-bold text-left pdf-meta">
+                                                    <th className="px-4 py-2.5 w-3/12 herbal-th">Fórmula / Hierba</th>
+                                                    <th className="px-4 py-2.5 w-4/12 herbal-th">Dosis e Indicaciones</th>
+                                                    <th className="px-4 py-2.5 w-5/12 herbal-th">¿Para qué sirve?</th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="bg-[#ffffff] divide-y divide-[#f1f5f9]">
+                                            <tbody>
                                                 {herbalPage.map((h, idx) => {
                                                     const { dosage, purpose } = getHerbParts(h);
                                                     return (
-                                                        <tr key={idx} className="align-top divide-x divide-[#f1f5f9]/65 pdf-base-text">
-                                                            <td className="px-4 py-2.5 font-bold text-[#1e293b] pr-6 leading-snug border-r border-[#f1f5f9]/60 pdf-base-text">{h.formula}</td>
-                                                            <td className="px-4 py-2.5 text-[#475569] leading-snug whitespace-pre-line pdf-base-text">{dosage}</td>
-                                                            <td className="px-4 py-2.5 text-[#475569] leading-snug whitespace-pre-line pdf-base-text">{purpose}</td>
+                                                        <tr key={idx} className="align-top pdf-base-text">
+                                                            <td className="px-4 py-2.5 font-bold pdf-c-burgundy pdf-font-heading pr-6 leading-snug pdf-base-text">{h.formula}</td>
+                                                            <td className="px-4 py-2.5 pdf-c-text-muted leading-snug whitespace-pre-line pdf-base-text">{dosage}</td>
+                                                            <td className="px-4 py-2.5 pdf-c-text-muted leading-snug whitespace-pre-line pdf-base-text">{purpose}</td>
                                                         </tr>
                                                     );
                                                 })}
@@ -5006,25 +5102,58 @@ const getHerbParts = (h: HerbalFormula) => {
                             </div>
 
                             {/* Document Footer */}
-                            <div className="border-t border-[#22c55e]/25 pt-3 mt-4 flex justify-between items-center text-[9px] font-sans text-[#64748b] shrink-0 pdf-meta">
+                            <div className="pdf-footer-border pt-3 mt-4 flex justify-between items-center text-[9px] font-sans pdf-c-text-muted shrink-0 pdf-meta">
                                 <div>
-                                    <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                    <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                                     <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                                    <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
                                     {professionalContactLine}
                                 </div>
                             </div>
                         </div>
                     ))}
+
+                    {/* Página final: banner de contacto (siempre visible, cierre del documento) */}
+                    <div className="pdf-page w-[210mm] min-h-[297mm] shrink-0 bg-white pt-[15mm] pb-[15mm] px-[20mm] rounded-sm shadow-xl print:shadow-none print:w-full print:p-0 print:m-0 flex flex-col justify-between font-serif relative">
+                        <div className="flex-1 flex flex-col">
+                            <div className="pdf-header-border pb-4 flex justify-between items-center shrink-0">
+                                <div className="flex items-center gap-3">
+                                    <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-11 w-auto object-contain shrink-0" />
+                                    <div>
+                                        <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                        <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                                    </div>
+                                </div>
+                                <div className="text-right text-xs font-sans pdf-c-text-muted space-y-0.5 pdf-meta">
+                                    <p className="font-semibold pdf-c-burgundy">{patient.name}</p>
+                                </div>
+                            </div>
+                            <div className="flex-1 flex items-center justify-center">
+                                <div className="pdf-cta-banner text-center rounded-xl p-6 max-w-[70%]">
+                                    <p className="pdf-c-burgundy font-bold pdf-font-heading text-[14px]">¿Tienes dudas? Escríbeme antes de tu próxima consulta — estoy aquí para acompañarte.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="pdf-footer-border pt-3 mt-4 flex justify-between items-center text-[9px] font-sans pdf-c-text-muted shrink-0 pdf-meta">
+                            <div>
+                                <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                                <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
+                                {professionalContactLine}
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
 
                 {/* Continuous Chromium print template (hidden on screen, sole source for real PDF output) */}
                 <div
                     id="pdf-print-content"
-                    className="print-area print-flow hidden bg-[#F5EEDC] text-[#1e293b] font-serif"
+                    className="print-area print-flow hidden bg-white font-serif"
                     style={{
                         '--pdf-font-base': FONT_SIZE_PRESETS[pdfFontSize].base,
                         '--pdf-font-title': FONT_SIZE_PRESETS[pdfFontSize].title,
@@ -5040,75 +5169,72 @@ const getHerbParts = (h: HerbalFormula) => {
                         así cada página luce la acuarela completa como en pantalla
                         en vez de un único fondo estirado sobre todo el documento. */}
                     <div className="print-page-bg" aria-hidden="true"></div>
-                    {/* Estructura de tabla: thead y tfoot se REPITEN en cada hoja
-                        impresa → encabezado y pie de marca por página, y con
-                        @page margin:0 el fondo crema cubre la hoja completa. */}
+                    {/* Estructura de tabla: solo el tfoot se REPITE en cada hoja
+                        impresa (pie de marca), y con @page margin:0 el fondo
+                        crema cubre la hoja completa. El encabezado con datos
+                        del paciente vive dentro del tbody para que aparezca
+                        UNA sola vez, en la primera hoja. */}
                     <table className="print-layout-table">
-                    <thead className="print-layout-head">
-                    <tr><td className="plt-head">
-                    <div className="print-flow-header">
-                        <div className="flex items-center gap-3">
-                            <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-12 w-auto object-contain shrink-0" />
-                            <div>
-                                <h1 className="text-2xl font-extrabold tracking-wide text-[#16a34a] font-serif uppercase leading-none">VEDAMCI</h1>
-                                <p className="text-[10px] uppercase tracking-wider text-[#d4a853] font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
-                            </div>
-                        </div>
-                        <div className="text-right text-xs font-sans text-[#64748b] space-y-0.5 pdf-meta">
-                            <p className="font-semibold text-[#334155]">Paciente: <span className="font-bold text-[#0f172a] font-serif text-sm">{patient.name}</span></p>
-                            <p>Edad: {patient.age ? `${String(patient.age).replace(/\s*años?\s*$/i, '')} años` : 'N/A'}</p>
-                            <p>Fecha: {new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                            <p>Dosha principal: <span className="font-semibold text-[#16a34a]">{selectedDosha}</span></p>
-                            <p>Profesional: <span className="font-semibold text-[#334155]">{professionalContact.name}</span></p>
-                        </div>
-                    </div>
-                    </td></tr>
-                    </thead>
                     <tbody className="print-layout-rows">
                     <tr><td className="plt-body">
 
-                    <section className="print-flow-section print-flow-hero print-avoid text-center bg-[#22c55e]/5 py-4 px-6 rounded-xl border border-[#22c55e]/10">
-                        <h2 className="font-bold text-[#1e293b] mb-1 pdf-title">{title}</h2>
-                        <p className="text-[#64748b] font-sans italic pdf-subtitle">{subtitle}</p>
+                    <div className="print-flow-header" style={{ paddingTop: PDF_PAGE_FORMATS[pdfPageFormat].headPadding.split(' ')[0] }}>
+                        <div className="flex items-center gap-3">
+                            <img src="/LOGO_2020_VEDAMCI.png" alt="VEDAMCI Logo" className="h-12 w-auto object-contain shrink-0" />
+                            <div>
+                                <h1 className="text-2xl font-extrabold tracking-wide pdf-c-burgundy pdf-font-heading uppercase leading-none">VEDAMCI</h1>
+                                <p className="text-[10px] uppercase tracking-wider pdf-c-gold font-sans font-bold mt-1">Instituto de Medicina Ayurvédica</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <section className="print-flow-section print-flow-hero print-avoid">
+                        <p className="pdf-c-terracotta text-[10px] uppercase tracking-widest font-bold font-sans">{title}</p>
+                        <h2 className="font-bold pdf-c-burgundy pdf-font-heading mt-1.5 mb-2 pdf-hero-name">{patient.name}</h2>
+                        <div className="flex flex-wrap gap-2 mt-3">
+                            <span className="pdf-chip pdf-chip-best">{patient.age ? `${String(patient.age).replace(/\s*años?\s*$/i, '')} años` : 'N/A'}</span>
+                            <span className="pdf-chip pdf-chip-hero">Dosha: {selectedDosha}</span>
+                            <span className="pdf-chip pdf-chip-mod">{new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                            <span className="pdf-chip pdf-chip-mod">Prof. {professionalContact.name}</span>
+                        </div>
                     </section>
 
                     <section className="print-flow-section print-avoid">
                         {!isFollowUp ? (
                             <div className="space-y-5">
                                 <div className="print-flow-instruction-block">
-                                    <div className="print-flow-kicker">
-                                        <span>01 CÓMO SEGUIR LAS INDICACIONES</span>
-                                    </div>
-                                    <ol className="list-decimal pl-5 space-y-1.5 text-[#334155] font-sans pdf-base-text">
+                                    <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><CheckSquare size={16} className="pdf-c-burgundy" />Cómo seguir las indicaciones</span></h3>
+                                    <div className="print-flow-divider"><div className="pdf-diamond-line"></div><div className="pdf-diamond"></div><div className="pdf-diamond-line"></div></div>
+                                    <ol className="list-decimal pl-5 space-y-1.5 pdf-c-text-muted font-sans pdf-base-text">
                                         <li>Lee las indicaciones generales que vienen en este documento.</li>
-                                        <li>Descarga y revisa los archivos adjuntos. A lado de tratamientos se indicará si hay anexo. <span className="italic text-[#64748b]">(No siempre hay archivos adjuntos.)</span></li>
+                                        <li>Descarga y revisa los archivos adjuntos. A lado de tratamientos se indicará si hay anexo. <span className="italic pdf-c-text-muted">(No siempre hay archivos adjuntos.)</span></li>
                                         <li>Mantente en contacto conmigo; no esperes hasta la consulta para resolver dudas o reportar cualquier cambio en tu salud.</li>
                                         <li>
                                             Visita los siguientes videos para el mejor entendimiento del Ayurveda:
-                                            <div className="mt-1 pl-1 space-y-1 text-[#113f26]">
+                                            <div className="mt-1 pl-1 space-y-1 pdf-c-text-muted">
                                                 <div className="flex items-start gap-1">
-                                                    <span className="text-[#d4a853]">→</span>
+                                                    <span className="pdf-c-gold-dark">→</span>
                                                     <span>
-                                                        <strong className="text-[#113f26]">Doshas:</strong>{' '}
-                                                        <a href="https://youtu.be/iHlND1C8WoE" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:text-[#22c55e] underline font-semibold break-all">
+                                                        <strong className="pdf-c-burgundy">Doshas:</strong>{' '}
+                                                        <a href="https://youtu.be/iHlND1C8WoE" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
                                                             https://youtu.be/iHlND1C8WoE
                                                         </a>
                                                     </span>
                                                 </div>
                                                 <div className="flex items-start gap-1">
-                                                    <span className="text-[#d4a853]">→</span>
+                                                    <span className="pdf-c-gold-dark">→</span>
                                                     <span>
-                                                        <strong className="text-[#113f26]">Los tres pilares de la salud:</strong>{' '}
-                                                        <a href="https://youtu.be/v8aPGf8LNSk" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:text-[#22c55e] underline font-semibold break-all">
+                                                        <strong className="pdf-c-burgundy">Los tres pilares de la salud:</strong>{' '}
+                                                        <a href="https://youtu.be/v8aPGf8LNSk" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
                                                             https://youtu.be/v8aPGf8LNSk
                                                         </a>
                                                     </span>
                                                 </div>
                                                 <div className="flex items-start gap-1">
-                                                    <span className="text-[#d4a853]">→</span>
+                                                    <span className="pdf-c-gold-dark">→</span>
                                                     <span>
-                                                        <strong className="text-[#113f26]">La verdadera salud con Ayurveda:</strong>{' '}
-                                                        <a href="https://youtu.be/g2FqJDZGS_A" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:text-[#22c55e] underline font-semibold break-all">
+                                                        <strong className="pdf-c-burgundy">La verdadera salud con Ayurveda:</strong>{' '}
+                                                        <a href="https://youtu.be/g2FqJDZGS_A" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
                                                             https://youtu.be/g2FqJDZGS_A
                                                         </a>
                                                     </span>
@@ -5118,31 +5244,47 @@ const getHerbParts = (h: HerbalFormula) => {
                                     </ol>
                                 </div>
                                 <div className="print-flow-food-intro">
-                                    <h3 className="print-flow-title">Cómo seguir la alimentación</h3>
-                                    <p className="font-sans text-[#475569] pdf-base-text">
+                                    <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><Droplet size={16} className="pdf-c-burgundy" />Cómo seguir la alimentación</span></h3>
+                                    <div className="flex items-center gap-2 my-1.5">
+                                        <div className="pdf-diamond-line"></div>
+                                        <div className="pdf-diamond"></div>
+                                        <div className="pdf-diamond-line"></div>
+                                    </div>
+                                    <p className="font-sans pdf-c-text-muted pdf-base-text">
                                         En la alimentación la clave es hacer cambios graduales para permitir al cuerpo adaptarse. En Ayurveda la alimentación se basa en los seis sabores; para elegir los alimentos adecuados estos tienen que tener los sabores correctos para tu constitución.
                                         Empezaremos haciendo cambios en dos categorías a la vez, esto quiere decir que todas las demás categorías seguirán sin ningún cambio.
                                     </p>
-                                    <div className="print-flow-legend grid grid-cols-3 gap-2.5 bg-[#f8fafc] p-2 rounded-lg border border-[#f1f5f9] text-[10px] font-sans mt-3 pdf-meta print-avoid">
-                                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded bg-[#22c55e] inline-block shrink-0"></span><div><span className="font-bold text-[#15803d]">■ Mejor:</span> Sin reservas.</div></div>
-                                        <div className="flex items-center gap-1.5 border-x border-[#e2e8f0] px-2.5"><span className="w-2 h-2 rounded bg-[#f59e0b] inline-block shrink-0"></span><div><span className="font-bold text-[#b45309]">■■ Moderación:</span> Porción pequeña.</div></div>
-                                        <div className="flex items-center gap-1.5 pl-1.5"><span className="w-2 h-2 rounded bg-[#ef4444] inline-block shrink-0"></span><div><span className="font-bold text-[#b91c1c]">■ Evitar:</span> Raras ocasiones.</div></div>
+                                    <div className="print-flow-legend grid grid-cols-3 gap-2.5 pdf-bg-cream p-2 rounded-lg text-[10px] font-sans mt-3 pdf-meta print-avoid">
+                                        <div className="flex items-center gap-1.5"><span className="pdf-legend-square" style={{ background: PDF_THEME.chipBestText }}></span><div><span className="font-bold pdf-c-burgundy">Mejor:</span> Sin reservas.</div></div>
+                                        <div className="flex items-center gap-1.5 px-2.5"><span className="pdf-legend-square" style={{ background: PDF_THEME.goldDarkText }}></span><div><span className="font-bold pdf-c-gold-dark">Moderación:</span> Porción pequeña.</div></div>
+                                        <div className="flex items-center gap-1.5 pl-1.5"><span className="pdf-legend-square" style={{ background: PDF_THEME.chipAvoidText }}></span><div><span className="font-bold" style={{ color: PDF_THEME.chipAvoidText }}>Evitar:</span> Raras ocasiones.</div></div>
+                                    </div>
+                                    <div className="pdf-bg-cream rounded-r-xl p-3.5 mt-4 flex gap-3 print-avoid" style={{ borderLeft: `4px solid ${PDF_THEME.gold}` }}>
+                                        <Heart size={16} className="pdf-c-terracotta shrink-0 mt-0.5" strokeWidth={2} />
+                                        <div>
+                                            <p className="pdf-c-burgundy pdf-font-heading font-bold text-[12px]">Antes de comer</p>
+                                            <p className="text-[11px] pdf-c-text-muted font-sans mt-0.5">{PDF_GRATITUDE_NOTE_TEXT}</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         ) : (
-                            <div className="rounded-xl border border-[#d4a853] bg-[#fffbeb]/60 p-5 text-center font-sans print-avoid">
-                                <h3 className="print-flow-title">Indicación de seguimiento importante</h3>
-                                <p className="text-[#334155] font-medium pdf-base-text">
-                                    Es importante continuar con las pautas y tratamientos indicados en las visitas anteriores, sumando de manera gradual el nuevo tratamiento y las modificaciones detalladas en este documento.
-                                </p>
+                            <div className="rounded-xl pdf-bg-cream p-4 flex gap-3 items-start font-sans print-avoid" style={{ border: `1px solid ${PDF_THEME.gold}` }}>
+                                <AlertCircle size={20} className="pdf-c-burgundy shrink-0 mt-0.5" strokeWidth={1.75} />
+                                <div>
+                                    <h4 className="font-bold pdf-c-burgundy pdf-font-heading text-[13px] mb-1">Indicación de seguimiento importante</h4>
+                                    <p className="text-[12px] leading-relaxed pdf-c-text-muted font-medium pdf-base-text">
+                                        Es importante continuar con las pautas y tratamientos indicados en las visitas anteriores, sumando de manera gradual el nuevo tratamiento y las modificaciones detalladas en este documento.
+                                    </p>
+                                </div>
                             </div>
                         )}
                     </section>
 
                     {showDiagnosis && (!isFollowUp || recordDiagnosisPreview.trim() || patientDiagnosisText.trim()) && diagnosisPreview && (
-                        <section className="print-flow-section print-page-break-before">
-                            <h3 className="print-flow-title">Diagnóstico base</h3>
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><Stethoscope size={16} className="pdf-c-burgundy" />Diagnóstico base</span></h3>
+                            <div className="print-flow-divider"><div className="pdf-diamond-line"></div><div className="pdf-diamond"></div><div className="pdf-diamond-line"></div></div>
                             <div className="print-flow-card diagnosis-markdown prose prose-sm max-w-none font-sans pdf-base-text">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{diagnosisPreview}</ReactMarkdown>
                             </div>
@@ -5150,8 +5292,9 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {printableTreatmentText.trim() && (
-                        <section className="print-flow-section print-page-break-before">
-                            <h3 className="print-flow-title">Tratamiento e indicaciones</h3>
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><ClipboardList size={16} className="pdf-c-burgundy" />Tratamiento e indicaciones</span></h3>
+                            <div className="print-flow-divider"><div className="pdf-diamond-line"></div><div className="pdf-diamond"></div><div className="pdf-diamond-line"></div></div>
                             <div className="print-flow-card prose prose-sm prose-emerald max-w-none font-sans pdf-base-text">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{printableTreatmentText}</ReactMarkdown>
                             </div>
@@ -5159,17 +5302,19 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {showLifestylePage && lifestyleIndication.trim() && (
-                        <section className="print-flow-section print-page-break-before">
-                            <h3 className="print-flow-title">Estilo de vida</h3>
-                            <div className="print-flow-card bg-[#ecfdf5] border-[#bbf7d0] whitespace-pre-line font-sans pdf-base-text">
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><HeartHandshake size={16} className="pdf-c-burgundy" />Estilo de vida</span></h3>
+                            <div className="print-flow-divider"><div className="pdf-diamond-line"></div><div className="pdf-diamond"></div><div className="pdf-diamond-line"></div></div>
+                            <div className="print-flow-card pdf-bg-cream pdf-border-gold whitespace-pre-line font-sans pdf-base-text">
                                 {lifestyleIndication}
                             </div>
                         </section>
                     )}
 
                     {showDigestiveRecoveryPage && (
-                        <section className="print-flow-section print-page-break-before">
-                            <h3 className="print-flow-title">Recuperación digestiva</h3>
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><Utensils size={16} className="pdf-c-burgundy" />Recuperación digestiva</span></h3>
+                            <div className="print-flow-divider"><div className="pdf-diamond-line"></div><div className="pdf-diamond"></div><div className="pdf-diamond-line"></div></div>
                             <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{DIGESTIVE_RECOVERY_TEXT}</ReactMarkdown>
                             </div>
@@ -5177,8 +5322,9 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {showHealthyEatingGuide && healthyEatingContent.trim() && (
-                        <section className="print-flow-section print-page-break-before">
-                            <h3 className="print-flow-title">Guía de alimentación saludable</h3>
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><Salad size={16} className="pdf-c-burgundy" />Guía de alimentación saludable</span></h3>
+                            <div className="print-flow-divider"><div className="pdf-diamond-line"></div><div className="pdf-diamond"></div><div className="pdf-diamond-line"></div></div>
                             <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{healthyEatingContent}</ReactMarkdown>
                             </div>
@@ -5186,8 +5332,9 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {showTherapiesSection && therapiesContent.trim() && (
-                        <section className="print-flow-section print-page-break-before">
-                            <h3 className="print-flow-title">Terapias recomendadas</h3>
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><HeartHandshake size={16} className="pdf-c-burgundy" />Terapias recomendadas</span></h3>
+                            <div className="print-flow-divider"><div className="pdf-diamond-line"></div><div className="pdf-diamond"></div><div className="pdf-diamond-line"></div></div>
                             <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{therapiesContent}</ReactMarkdown>
                             </div>
@@ -5195,31 +5342,36 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {activeCategories.length > 0 && (
-                        <section className="print-flow-section print-page-break-before">
-                            <h3 className="print-flow-title">Pautas dietéticas {selectedDosha}</h3>
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><Utensils size={16} className="pdf-c-burgundy" />Pautas dietéticas {selectedDosha}</span></h3>
+                            <div className="print-flow-divider"><div className="pdf-diamond-line"></div><div className="pdf-diamond"></div><div className="pdf-diamond-line"></div></div>
                             <div className="space-y-5">
                                 {activeCategories.map((cat: any, catIdx: number) => (
                                     <div key={catIdx} className="print-flow-table-card print-avoid">
-                                        <div className="bg-[#f8fafc]/85 border-b border-[#e2e8f0] px-4 py-2.5">
-                                            <span className="font-bold font-sans text-[#334155] pdf-base-text">Categoría — {cat.nombre}</span>
-                                            {cat.consejo && <div className="text-[#475569] font-sans italic pdf-meta mt-1">{cat.consejo}</div>}
+                                        <div className="px-4 py-2.5" style={{ background: PDF_THEME.gold }}>
+                                            <span className="font-bold font-sans pdf-c-burgundy pdf-font-heading pdf-base-text">{cat.nombre}</span>
+                                            {cat.consejo && <div className="pdf-c-burgundy font-sans italic pdf-meta mt-1 opacity-80">{cat.consejo}</div>}
                                         </div>
-                                        <table className="w-full font-sans">
-                                            <thead>
-                                                <tr>
-                                                    <th className="w-1/3 diet-th-best">■ MEJOR</th>
-                                                    <th className="w-1/3 diet-th-mod">■■ MODERACIÓN</th>
-                                                    <th className="w-1/3 diet-th-avoid">■ EVITAR</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td>{cat.mejor && cat.mejor.length > 0 ? cat.mejor.join(', ') : '-'}</td>
-                                                    <td>{((cat.pequenas_cantidades || cat.moderacion) && (cat.pequenas_cantidades || cat.moderacion).length > 0) ? (cat.pequenas_cantidades || cat.moderacion).join(', ') : '-'}</td>
-                                                    <td>{cat.evitar && cat.evitar.length > 0 ? cat.evitar.join(', ') : '-'}</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
+                                        <div className="grid grid-cols-3 gap-3 p-3.5 font-sans">
+                                            <div className="pr-3" style={{ borderRight: `1px solid ${PDF_THEME.cardBorder}` }}>
+                                                <p className="pdf-c-burgundy text-[9px] uppercase font-bold tracking-wide mb-1.5">Mejor</p>
+                                                {cat.mejor && cat.mejor.length > 0
+                                                    ? cat.mejor.map((item: string, i: number) => <span key={i} className="pdf-chip pdf-chip-best">{item}</span>)
+                                                    : <span className="pdf-c-text-muted text-[11px]">-</span>}
+                                            </div>
+                                            <div className="pr-3" style={{ borderRight: `1px solid ${PDF_THEME.cardBorder}` }}>
+                                                <p className="pdf-c-gold-dark text-[9px] uppercase font-bold tracking-wide mb-1.5">Moderación</p>
+                                                {(cat.pequenas_cantidades || cat.moderacion) && (cat.pequenas_cantidades || cat.moderacion).length > 0
+                                                    ? (cat.pequenas_cantidades || cat.moderacion).map((item: string, i: number) => <span key={i} className="pdf-chip pdf-chip-mod">{item}</span>)
+                                                    : <span className="pdf-c-text-muted text-[11px]">-</span>}
+                                            </div>
+                                            <div>
+                                                <p className="text-[9px] uppercase font-bold tracking-wide mb-1.5" style={{ color: PDF_THEME.chipAvoidText }}>Evitar</p>
+                                                {cat.evitar && cat.evitar.length > 0
+                                                    ? cat.evitar.map((item: string, i: number) => <span key={i} className="pdf-chip pdf-chip-avoid">{item}</span>)
+                                                    : <span className="pdf-c-text-muted text-[11px]">-</span>}
+                                            </div>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -5227,8 +5379,9 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {cerealGuidance.trim() && (
-                        <section className="print-flow-section print-page-break-before">
-                            <h3 className="print-flow-title">Guía práctica de alimentos</h3>
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><Utensils size={16} className="pdf-c-burgundy" />Guía práctica de alimentos</span></h3>
+                            <div className="print-flow-divider"><div className="pdf-diamond-line"></div><div className="pdf-diamond"></div><div className="pdf-diamond-line"></div></div>
                             <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{cerealGuidance}</ReactMarkdown>
                             </div>
@@ -5236,24 +5389,50 @@ const getHerbParts = (h: HerbalFormula) => {
                     )}
 
                     {(showRecipesSection && selectedRecipes.length > 0) || cerealRecipe.trim() ? (
-                        <section className={`print-flow-section${cerealGuidance.trim() ? '' : ' print-page-break-before'}`}>
-                            <h3 className="print-flow-title">Recetas recomendadas</h3>
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><Utensils size={16} className="pdf-c-burgundy" />Recetas recomendadas</span></h3>
+                            <div className="print-flow-divider"><div className="pdf-diamond-line"></div><div className="pdf-diamond"></div><div className="pdf-diamond-line"></div></div>
                             {showRecipesSection && selectedRecipes.length > 0 ? (
                                 <div className="space-y-5">
                                     {selectedRecipes.map((recipe: any, index: number) => {
                                         const printableRecipe = getPrintableRecipe(recipe);
+                                        const structuredParts = getStructuredRecipeParts(recipe);
                                         return (
-                                            <article key={'print-recipe-' + (recipe.id || index)} className="print-flow-card print-avoid">
-                                                <h4 className="font-bold text-[#1e293b] font-sans pdf-heading">{recipe.title}</h4>
-                                                <p className="uppercase tracking-wider text-[#b45309] font-bold mt-1 font-sans pdf-meta">
-                                                    Categoría: {recipe.category} · Doshas: {printableRecipe.doshaLabel}
-                                                </p>
-                                                <div className="grid grid-cols-3 gap-2 bg-white/60 p-2.5 rounded-lg border border-[#fde68a]/50 text-[#475569] mt-3 font-sans pdf-meta print-avoid">
-                                                    <div><span className="font-bold text-[#334155]">Vata:</span> {printableRecipe.vataEffect}</div>
-                                                    <div><span className="font-bold text-[#334155]">Pitta:</span> {printableRecipe.pittaEffect}</div>
-                                                    <div><span className="font-bold text-[#334155]">Kapha:</span> {printableRecipe.kaphaEffect}</div>
+                                            <article key={'print-recipe-' + (recipe.id || index)} className="print-flow-card print-avoid !p-0 overflow-hidden">
+                                                <div className="pdf-recipe-header">
+                                                    <h4 className="font-bold pdf-c-burgundy pdf-font-heading pdf-heading">{recipe.title}</h4>
+                                                    <p className="uppercase tracking-wider pdf-c-burgundy font-bold mt-0.5 font-sans pdf-meta opacity-80">
+                                                        Categoría: {recipe.category} · Doshas: {printableRecipe.doshaLabel}
+                                                    </p>
                                                 </div>
-                                                <div className="mt-4 whitespace-pre-line font-sans pdf-base-text">{printableRecipe.printableText}</div>
+                                                <div className="p-3.5">
+                                                    <div className="flex flex-wrap gap-1.5 mb-3">
+                                                        {structuredParts?.prepTime && <span className="pdf-chip pdf-chip-mod">⏱ {structuredParts.prepTime}</span>}
+                                                        {structuredParts?.yieldText && <span className="pdf-chip pdf-chip-mod">🍽 {structuredParts.yieldText}</span>}
+                                                        <span className="pdf-chip pdf-chip-best">Vata: {printableRecipe.vataEffect}</span>
+                                                        <span className="pdf-chip pdf-chip-best">Pitta: {printableRecipe.pittaEffect}</span>
+                                                        <span className="pdf-chip pdf-chip-best">Kapha: {printableRecipe.kaphaEffect}</span>
+                                                    </div>
+                                                    {structuredParts ? (
+                                                        <div className="grid grid-cols-2 gap-4 font-sans">
+                                                            <div>
+                                                                <p className="pdf-c-burgundy text-[10px] uppercase font-bold tracking-wide mb-1.5">Ingredientes</p>
+                                                                <ul className="list-disc pl-4 pdf-base-text space-y-1">
+                                                                    {structuredParts.ingredients.map((ing: string, i: number) => <li key={i}>{ing}</li>)}
+                                                                </ul>
+                                                            </div>
+                                                            <div>
+                                                                <p className="pdf-c-burgundy text-[10px] uppercase font-bold tracking-wide mb-1.5">Preparación</p>
+                                                                <p className="pdf-base-text leading-relaxed whitespace-pre-line">{structuredParts.preparation}</p>
+                                                                {structuredParts.comments && (
+                                                                    <div className="pdf-bg-cream rounded-lg p-2.5 mt-2 pdf-meta italic">{structuredParts.comments}</div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="whitespace-pre-line font-sans pdf-base-text">{printableRecipe.printableText}</div>
+                                                    )}
+                                                </div>
                                             </article>
                                         );
                                     })}
@@ -5265,15 +5444,16 @@ const getHerbParts = (h: HerbalFormula) => {
                     ) : null}
 
                     {herbs.length > 0 && (
-                        <section className="print-flow-section print-page-break-before">
-                            <h3 className="print-flow-title">Fórmulas herbales recomendadas</h3>
+                        <section className="print-flow-section">
+                            <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><Leaf size={16} className="pdf-c-burgundy" />Fórmulas herbales recomendadas</span></h3>
+                            <div className="print-flow-divider"><div className="pdf-diamond-line"></div><div className="pdf-diamond"></div><div className="pdf-diamond-line"></div></div>
                             <div className="print-flow-table-card">
-                                <table className="w-full font-sans">
+                                <table className="w-full font-sans herbal-table">
                                     <thead>
                                         <tr>
-                                            <th className="w-3/12">Fórmula / Hierba</th>
-                                            <th className="w-4/12">Dosis e indicaciones</th>
-                                            <th className="w-5/12">¿Para qué sirve?</th>
+                                            <th className="w-3/12 herbal-th">Fórmula / Hierba</th>
+                                            <th className="w-4/12 herbal-th">Dosis e indicaciones</th>
+                                            <th className="w-5/12 herbal-th">¿Para qué sirve?</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -5281,7 +5461,7 @@ const getHerbParts = (h: HerbalFormula) => {
                                             const { dosage, purpose } = getHerbParts(h);
                                             return (
                                                 <tr key={idx} className="align-top print-avoid">
-                                                    <td className="font-bold text-[#1e293b]">{h.formula}</td>
+                                                    <td className="font-bold pdf-c-burgundy pdf-font-heading">{h.formula}</td>
                                                     <td className="whitespace-pre-line">{dosage}</td>
                                                     <td className="whitespace-pre-line">{purpose}</td>
                                                 </tr>
@@ -5293,17 +5473,23 @@ const getHerbParts = (h: HerbalFormula) => {
                         </section>
                     )}
 
+                    <section className="print-flow-section print-avoid">
+                        <div className="pdf-cta-banner text-center rounded-xl p-4">
+                            <p className="pdf-c-burgundy font-bold pdf-font-heading pdf-base-text">¿Tienes dudas? Escríbeme antes de tu próxima consulta — estoy aquí para acompañarte.</p>
+                        </div>
+                    </section>
+
                     </td></tr>
                     </tbody>
                     <tfoot className="print-layout-foot">
                     <tr><td className="plt-foot">
                     <div className="print-flow-footer">
                         <div>
-                            <p className="font-semibold text-[#334155]">VEDAMCI · Instituto de Medicina Ayurvédica</p>
+                            <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                             <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>
                         </div>
                         <div className="text-right">
-                            <p className="font-semibold text-[#16a34a]">Contacto: {professionalContact.name}</p>
+                            <p className="font-semibold pdf-c-gold-dark">Contacto: {professionalContact.name}</p>
                             {professionalContactLine}
                         </div>
                     </div>
@@ -5507,6 +5693,84 @@ const getHerbParts = (h: HerbalFormula) => {
 
             {/* Print specific CSS styled layout injection */}
             <style>{`
+                @import url('${PDF_GOOGLE_FONTS_URL}');
+
+                /* ─── Tokens del nuevo diseño (burdeos/dorado) ─── */
+                #pdf-content, #pdf-print-content {
+                    --pdf-c-burgundy: ${PDF_THEME.burgundy};
+                    --pdf-c-gold: ${PDF_THEME.gold};
+                    --pdf-c-gold-dark-text: ${PDF_THEME.goldDarkText};
+                    --pdf-c-cream: ${PDF_THEME.creamBg};
+                    --pdf-c-chip-best-bg: ${PDF_THEME.chipBestBg};
+                    --pdf-c-chip-best-text: ${PDF_THEME.chipBestText};
+                    --pdf-c-chip-mod-bg: ${PDF_THEME.chipModBg};
+                    --pdf-c-chip-mod-text: ${PDF_THEME.chipModText};
+                    --pdf-c-chip-avoid-bg: ${PDF_THEME.chipAvoidBg};
+                    --pdf-c-chip-avoid-text: ${PDF_THEME.chipAvoidText};
+                    --pdf-c-card-border: ${PDF_THEME.cardBorder};
+                    --pdf-c-text-body: ${PDF_THEME.textBody};
+                    --pdf-c-text-muted: ${PDF_THEME.textMuted};
+                    --pdf-c-terracotta: ${PDF_THEME.terracotta};
+                    --pdf-c-link-green: ${PDF_THEME.linkGreen};
+                    --pdf-family-heading: ${PDF_THEME.fontHeading};
+                    --pdf-family-body: ${PDF_THEME.fontBody};
+                }
+                /* Fuerza Mukta en TODO el árbol del PDF (incluidas las clases
+                   font-sans/font-serif de Tailwind, que si no quedarían con
+                   Inter/serif genérica del tema global de la app por encima
+                   de la fuente heredada de la raíz). Los headings recuperan
+                   Eczar con selectores más específicos justo debajo. */
+                #pdf-content, #pdf-content * ,
+                #pdf-print-content, #pdf-print-content * {
+                    font-family: var(--pdf-family-body) !important;
+                }
+                #pdf-content h1, #pdf-content h2, #pdf-content h3, #pdf-content h4, #pdf-content h5, #pdf-content h6,
+                #pdf-print-content h1, #pdf-print-content h2, #pdf-print-content h3, #pdf-print-content h4, #pdf-print-content h5, #pdf-print-content h6,
+                #pdf-content .pdf-font-heading, #pdf-print-content .pdf-font-heading {
+                    font-family: var(--pdf-family-heading) !important;
+                }
+                .pdf-c-burgundy { color: var(--pdf-c-burgundy) !important; }
+                .pdf-c-terracotta { color: var(--pdf-c-terracotta) !important; }
+                .pdf-c-link-green { color: var(--pdf-c-link-green) !important; }
+                .pdf-c-gold { color: var(--pdf-c-gold) !important; }
+                .pdf-c-gold-dark { color: var(--pdf-c-gold-dark-text) !important; }
+                .pdf-c-text-muted { color: var(--pdf-c-text-muted) !important; }
+                .pdf-bg-cream { background-color: var(--pdf-c-cream) !important; }
+                .pdf-border-gold { border-color: var(--pdf-c-gold) !important; }
+                .pdf-border-card { border-color: var(--pdf-c-card-border) !important; }
+                .pdf-font-heading { font-family: var(--pdf-family-heading) !important; }
+                .pdf-chip {
+                    display: inline-block;
+                    font-family: var(--pdf-family-body);
+                    font-size: 12.5px;
+                    padding: 5px 12px;
+                    border-radius: 999px;
+                    margin: 2px 4px 2px 0;
+                    line-height: 1.3;
+                }
+                .pdf-chip-best  { background: var(--pdf-c-chip-best-bg);  color: var(--pdf-c-chip-best-text);  }
+                .pdf-chip-mod   { background: var(--pdf-c-chip-mod-bg);   color: var(--pdf-c-chip-mod-text);   }
+                .pdf-chip-avoid { background: var(--pdf-c-chip-avoid-bg); color: var(--pdf-c-chip-avoid-text); }
+                .pdf-chip-hero { background: var(--pdf-c-gold); color: var(--pdf-c-burgundy); font-weight: 700; }
+                .pdf-header-border { border-bottom: 3px solid var(--pdf-c-gold) !important; }
+                .pdf-footer-border { border-top: 2px solid var(--pdf-c-gold) !important; }
+                #pdf-content th.herbal-th, #pdf-print-content th.herbal-th { background: var(--pdf-c-gold) !important; color: var(--pdf-c-burgundy) !important; text-transform: uppercase !important; font-family: var(--pdf-family-heading) !important; }
+                #pdf-content .herbal-table tbody tr:nth-child(odd) td, #pdf-print-content .herbal-table tbody tr:nth-child(odd) td { background-color: var(--pdf-c-chip-best-bg) !important; }
+                #pdf-content .herbal-table tbody tr:nth-child(even) td, #pdf-print-content .herbal-table tbody tr:nth-child(even) td { background-color: var(--pdf-c-cream) !important; }
+                .pdf-recipe-header { background: var(--pdf-c-gold) !important; padding: 10px 16px !important; border-radius: 10px 10px 0 0 !important; }
+                .pdf-cta-banner { background: var(--pdf-c-gold) !important; }
+                .pdf-legend-square { display: inline-block; width: 11px; height: 11px; border-radius: 2px; flex-shrink: 0; }
+                .pdf-diamond { width: 6px; height: 6px; transform: rotate(45deg); background: var(--pdf-c-gold); flex-shrink: 0; }
+                .pdf-diamond-line { height: 1.5px; width: 26px; background: var(--pdf-c-gold); }
+                #pdf-content .herbal-table td, #pdf-content .herbal-table th,
+                #pdf-print-content .herbal-table td, #pdf-print-content .herbal-table th {
+                    border-left: 1px solid #ffffff !important;
+                }
+                #pdf-content .herbal-table td:first-child, #pdf-content .herbal-table th:first-child,
+                #pdf-print-content .herbal-table td:first-child, #pdf-print-content .herbal-table th:first-child {
+                    border-left: none !important;
+                }
+
                 /* Neutralize Tailwind v4 oklab/oklch defaults for html2canvas */
                 :where(#pdf-content *) {
                     border-color: #e2e8f0;
@@ -5521,6 +5785,8 @@ const getHerbParts = (h: HerbalFormula) => {
                 
                 #pdf-content {
                     font-size: var(--pdf-font-base) !important;
+                    font-family: var(--pdf-family-body) !important;
+                    color: var(--pdf-c-text-body) !important;
                 }
                 #pdf-content .pdf-base-text {
                     font-size: var(--pdf-font-base) !important;
@@ -5550,7 +5816,7 @@ const getHerbParts = (h: HerbalFormula) => {
                 #pdf-content .diagnosis-markdown p > strong:first-child {
                     display: block !important;
                     margin: 0 0 4px !important;
-                    color: #0f172a !important;
+                    color: var(--pdf-c-burgundy) !important;
                     font-size: var(--pdf-font-heading) !important;
                     line-height: 1.25 !important;
                 }
@@ -5565,18 +5831,18 @@ const getHerbParts = (h: HerbalFormula) => {
                     line-height: 1.35 !important;
                 }
                 #pdf-content th {
-                    background-color: #f1f5f9 !important;
-                    color: #1e293b !important;
+                    background-color: var(--pdf-c-cream) !important;
+                    color: var(--pdf-c-burgundy) !important;
                     font-weight: 700 !important;
                     text-align: left !important;
                     padding: 6px 8px !important;
-                    border: 1px solid #cbd5e1 !important;
+                    border: 1px solid var(--pdf-c-card-border) !important;
                     font-size: var(--pdf-font-table-header) !important;
                 }
                 #pdf-content td {
                     padding: 6px 8px !important;
-                    border: 1px solid #e2e8f0 !important;
-                    color: #334155 !important;
+                    border: 1px solid var(--pdf-c-card-border) !important;
+                    color: var(--pdf-c-text-body) !important;
                     vertical-align: top !important;
                     white-space: normal !important;
                     font-size: var(--pdf-font-table-body) !important;
@@ -5585,13 +5851,9 @@ const getHerbParts = (h: HerbalFormula) => {
                     background-color: rgba(248, 250, 252, 0.5) !important;
                 }
 
-                /* Fondo "acuarela" (río verde/dorado sobre beige) en cada página */
+                /* Fondo de página: blanco liso */
                 #pdf-content .pdf-page {
                     background-color: ${PDF_WATERCOLOR_BG_COLOR} !important;
-                    background-image: url("data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_BG_SVG)}") !important;
-                    background-size: cover !important;
-                    background-position: center !important;
-                    background-repeat: no-repeat !important;
                     print-color-adjust: exact !important;
                     -webkit-print-color-adjust: exact !important;
                 }
@@ -5600,17 +5862,18 @@ const getHerbParts = (h: HerbalFormula) => {
                 #pdf-print-content {
                     font-size: var(--pdf-font-base) !important;
                     line-height: 1.5 !important;
-                    color: #1e293b !important;
+                    font-family: var(--pdf-family-body) !important;
+                    color: var(--pdf-c-text-body) !important;
                     background-color: ${PDF_WATERCOLOR_BG_COLOR} !important;
-                    background-image: url("data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_BG_SVG)}") !important;
-                    background-size: cover !important;
-                    background-position: center !important;
-                    background-repeat: repeat-y !important;
                     print-color-adjust: exact !important;
                     -webkit-print-color-adjust: exact !important;
                 }
                 #pdf-print-content .pdf-base-text { font-size: var(--pdf-font-base) !important; }
                 #pdf-print-content .pdf-title { font-size: var(--pdf-font-title) !important; }
+                #pdf-content .pdf-hero-name, #pdf-print-content .pdf-hero-name {
+                    font-size: calc(var(--pdf-font-title) * 1.6) !important;
+                    line-height: 1.15 !important;
+                }
                 #pdf-print-content .pdf-subtitle { font-size: var(--pdf-font-subtitle) !important; }
                 #pdf-print-content .pdf-heading { font-size: var(--pdf-font-heading) !important; }
                 #pdf-print-content .pdf-meta { font-size: var(--pdf-font-meta) !important; }
@@ -5619,7 +5882,7 @@ const getHerbParts = (h: HerbalFormula) => {
                     justify-content: space-between;
                     align-items: center;
                     gap: 16px;
-                    border-bottom: 1px solid rgba(34, 197, 94, 0.22);
+                    border-bottom: 3px solid var(--pdf-c-gold);
                     padding-bottom: 12px;
                     margin-bottom: 18px;
                 }
@@ -5628,59 +5891,51 @@ const getHerbParts = (h: HerbalFormula) => {
                     justify-content: space-between;
                     align-items: center;
                     gap: 16px;
-                    border-top: 1px solid rgba(34, 197, 94, 0.25);
+                    border-top: 2px solid var(--pdf-c-gold);
                     padding-top: 10px;
                     margin-top: 16px;
-                    color: #64748b;
-                    font-family: ui-sans-serif, system-ui, sans-serif;
+                    color: var(--pdf-c-gold-dark-text);
+                    font-family: var(--pdf-family-body);
                     font-size: var(--pdf-font-meta) !important;
                 }
                 #pdf-print-content .print-flow-section { margin: 0 0 9mm 0; }
                 #pdf-print-content .print-flow-hero {
-                    padding-top: 10px !important;
-                    padding-bottom: 11px !important;
-                    background-color: rgba(34, 197, 94, 0.05) !important;
-                    border-color: rgba(34, 197, 94, 0.12) !important;
-                }
-                #pdf-print-content .print-flow-kicker {
-                    display: flex;
-                    align-items: center;
-                    background: #113f26 !important;
-                    color: #ffffff !important;
-                    border-left: 5px solid #d4a853 !important;
-                    padding: 6px 12px !important;
-                    margin: 0 0 8px 0 !important;
-                    font-family: ui-sans-serif, system-ui, sans-serif;
-                    font-size: 11px !important;
-                    font-weight: 800 !important;
-                    letter-spacing: 0.02em !important;
-                    text-transform: uppercase !important;
-                }
-                #pdf-print-content .print-flow-kicker span {
-                    color: #ffffff !important;
+                    background: transparent !important;
+                    border: none !important;
+                    border-bottom: 1px dashed var(--pdf-c-card-border) !important;
+                    border-radius: 0 !important;
+                    padding: 0 0 16px 0 !important;
+                    margin-bottom: 7mm !important;
                 }
                 #pdf-print-content .print-flow-food-intro p {
                     margin-top: 0 !important;
                 }
                 #pdf-print-content .print-flow-legend {
-                    background-color: #f8fafc !important;
-                    border-color: #f1f5f9 !important;
+                    background-color: var(--pdf-c-cream) !important;
+                    border-color: var(--pdf-c-gold) !important;
                 }
                 #pdf-print-content .print-flow-title {
                     display: block;
-                    margin: 0 0 8px 0;
-                    color: #16a34a;
-                    font-family: ui-sans-serif, system-ui, sans-serif;
+                    margin: 0 0 4px 0;
+                    color: var(--pdf-c-burgundy);
+                    font-family: var(--pdf-family-heading);
                     font-size: var(--pdf-font-heading) !important;
-                    font-weight: 800;
-                    text-transform: uppercase;
+                    font-weight: 700;
+                    text-transform: none;
                     letter-spacing: 0;
+                }
+                #pdf-print-content .print-flow-title { margin-bottom: 0 !important; }
+                #pdf-print-content .print-flow-divider {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    margin: 6px 0 10px;
                 }
                 #pdf-print-content .print-flow-card,
                 #pdf-print-content .print-flow-table-card {
-                    border: 1px solid #e2e8f0;
-                    border-radius: 10px;
-                    background: rgba(255, 255, 255, 0.72);
+                    border: 1px solid var(--pdf-c-card-border);
+                    border-radius: 14px;
+                    background: #ffffff;
                     padding: 14px;
                     box-shadow: none !important;
                 }
@@ -5689,14 +5944,15 @@ const getHerbParts = (h: HerbalFormula) => {
                 #pdf-print-content .prose li {
                     font-size: var(--pdf-font-base) !important;
                     line-height: 1.5 !important;
-                    color: #334155 !important;
+                    color: var(--pdf-c-text-body) !important;
                 }
                 #pdf-print-content .prose h1,
                 #pdf-print-content .prose h2,
                 #pdf-print-content .prose h3,
                 #pdf-print-content .prose h4 {
                     font-size: var(--pdf-font-heading) !important;
-                    color: #0f172a !important;
+                    color: var(--pdf-c-burgundy) !important;
+                    font-family: var(--pdf-family-heading) !important;
                     line-height: 1.25 !important;
                 }
                 #pdf-print-content table {
@@ -5706,18 +5962,14 @@ const getHerbParts = (h: HerbalFormula) => {
                     line-height: 1.35 !important;
                 }
                 #pdf-print-content th {
-                    background-color: #f1f5f9 !important;
-                    color: #1e293b !important;
+                    background-color: var(--pdf-c-cream) !important;
+                    color: var(--pdf-c-burgundy) !important;
                     font-weight: 700 !important;
                     text-align: left !important;
                     padding: 7px 9px !important;
-                    border: 1px solid #cbd5e1 !important;
+                    border: 1px solid var(--pdf-c-card-border) !important;
                     font-size: var(--pdf-font-table-header) !important;
                 }
-                /* Colores de marca en las cabeceras de las tablas dietéticas */
-                #pdf-print-content th.diet-th-best { color: #15803d !important; background-color: #ffffff !important; }
-                #pdf-print-content th.diet-th-mod { color: #b45309 !important; background-color: #ffffff !important; }
-                #pdf-print-content th.diet-th-avoid { color: #b91c1c !important; background-color: #ffffff !important; }
 
                 /* ── Tabla de LAYOUT de impresión ─────────────────────────────
                    No es una tabla de datos: sus celdas no llevan bordes ni
@@ -5791,12 +6043,8 @@ ${pdfPageFormat === 'mobile' ? `
                     body * {
                         visibility: hidden;
                     }
-                    /* Fondo crema a PÁGINA COMPLETA: el color del body pinta toda
-                       la hoja (incluidos los márgenes), eliminando el marco blanco.
-                       OJO: la ACUARELA no va aquí — un background del body se
-                       estira sobre TODO el documento (N páginas) y cada hoja
-                       mostraría solo un trozo borroso. La acuarela por hoja la
-                       pinta .print-page-bg (position:fixed se repite por página). */
+                    /* Fondo blanco a PÁGINA COMPLETA: el color del body pinta toda
+                       la hoja (incluidos los márgenes), eliminando el marco gris. */
                     html, body {
                         background: ${PDF_WATERCOLOR_BG_COLOR} !important;
                         print-color-adjust: exact !important;
@@ -5812,10 +6060,6 @@ ${pdfPageFormat === 'mobile' ? `
                         bottom: 0 !important;
                         z-index: -1 !important;
                         background-color: ${PDF_WATERCOLOR_BG_COLOR} !important;
-                        background-image: url("data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_BG_SVG)}") !important;
-                        background-size: cover !important;
-                        background-position: center !important;
-                        background-repeat: no-repeat !important;
                         print-color-adjust: exact !important;
                         -webkit-print-color-adjust: exact !important;
                     }
@@ -5904,10 +6148,7 @@ ${pdfPageFormat === 'mobile' ? `
                     #pdf-print-content thead {
                         display: table-header-group;
                     }
-                    /* Encabezado y pie de marca REPETIDOS en cada hoja impresa */
-                    #pdf-print-content .print-layout-head {
-                        display: table-header-group;
-                    }
+                    /* Pie de marca REPETIDO en cada hoja impresa */
                     #pdf-print-content .print-layout-foot {
                         display: table-footer-group;
                     }
@@ -5916,10 +6157,6 @@ ${pdfPageFormat === 'mobile' ? `
                     #pdf-print-content table.print-layout-table > tbody > tr,
                     #pdf-print-content td.plt-body {
                         break-inside: auto !important;
-                    }
-                    #pdf-print-content .print-page-break-before {
-                        break-before: page;
-                        page-break-before: always;
                     }
                     /* Enlaces visibles y clicables (PDF de texto, no imagen) */
                     #pdf-print-content a {
