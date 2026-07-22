@@ -22,7 +22,7 @@ export interface Visit {
     cerealRecipe?: string;
     dosha?: string;
     symptoms: Record<string, { frequency: string; intensity: number; note?: string }>;
-    herbs?: Array<{ formula: string; dosage: string; purpose?: string; instruction?: string }>;
+    herbs?: Array<{ formula: string; dosage: string; purpose?: string; instruction?: string; suspended?: boolean }>;
     categories?: string[];
     recipes?: any[];
     adherence?: TreatmentAdherence;
@@ -66,7 +66,7 @@ export interface TreatmentPlan {
     cerealGuidance?: string;
     cerealRecipe?: string;
     dosha: string;
-    herbs: Array<{ formula: string; dosage: string; purpose?: string; instruction?: string }>;
+    herbs: Array<{ formula: string; dosage: string; purpose?: string; instruction?: string; suspended?: boolean }>;
     categories: string[];
     recipes?: any[];
     adherence?: TreatmentAdherence;

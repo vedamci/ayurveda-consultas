@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { X, Printer, Plus, Trash2, ChevronDown, Loader2, Sparkles, CheckCircle, AlertCircle, Send, FileText, Salad, Leaf, ClipboardList, Stethoscope, Settings2, Phone, Type, Utensils, HeartHandshake, Search, Monitor, Smartphone } from 'lucide-react';
+import { X, Printer, Plus, Trash2, ChevronDown, Loader2, Sparkles, CheckCircle, AlertCircle, Send, FileText, Salad, Leaf, ClipboardList, Stethoscope, Settings2, Phone, Type, Utensils, HeartHandshake, Search, Monitor, Smartphone, PauseCircle, PlayCircle } from 'lucide-react';
 
 type EditorTabId = 'documento' | 'ia' | 'alimentacion' | 'hierbas' | 'terapias' | 'indicaciones';
 
@@ -74,6 +74,10 @@ interface HerbalFormula {
     formula: string;
     dosage: string;
     purpose?: string;
+    // Fórmulas suspendidas se conservan en el registro pero se excluyen de la
+    // impresión del PDF (no se borran para no perder el historial de qué se
+    // indicó y cuándo se suspendió).
+    suspended?: boolean;
 }
 
 const DIET_DATABASES: Record<string, any> = {
@@ -1693,6 +1697,17 @@ const getHerbParts = (h: HerbalFormula) => {
         setHerbs(herbs.filter((_, i) => i !== idx));
     };
 
+    const handleUpdateHerbField = (idx: number, field: 'dosage' | 'purpose', value: string) => {
+        setHerbs(herbs.map((h, i) => i === idx ? { ...h, [field]: value } : h));
+    };
+
+    // Suspender no borra la fórmula: la deja en el registro (para no perder el
+    // historial) pero se excluye de las páginas impresas del PDF hasta que se
+    // reactive.
+    const handleToggleHerbSuspended = (idx: number) => {
+        setHerbs(herbs.map((h, i) => i === idx ? { ...h, suspended: !h.suspended } : h));
+    };
+
     const handleLifestyleSearchChange = (val: string) => {
         setLifestyleSearchQuery(val);
         if (!val.trim()) {
@@ -2599,9 +2614,10 @@ const getHerbParts = (h: HerbalFormula) => {
     // saltos de página reales los decide Chromium al imprimir. Los arrays de
     // "páginas" quedan con un solo elemento para la vista previa en pantalla.
     const categoryChunks = activeCategories.length > 0 ? [activeCategories] : [];
-    const herbalFormulaPages: HerbalFormula[][] = herbs.filter(h =>
-        h.formula?.trim() || h.dosage?.trim() || h.purpose?.trim()
-    ).length > 0 ? [herbs.filter(h => h.formula?.trim() || h.dosage?.trim() || h.purpose?.trim())] : [];
+    // Las fórmulas suspendidas quedan en el registro (historial, adherencia) pero
+    // se excluyen de todas las páginas impresas del PDF.
+    const printableHerbs = herbs.filter(h => !h.suspended && (h.formula?.trim() || h.dosage?.trim() || h.purpose?.trim()));
+    const herbalFormulaPages: HerbalFormula[][] = printableHerbs.length > 0 ? [printableHerbs] : [];
 
     const printableTreatmentText = removeHerbalFormulaItems(mainIndication || '');
     // Contenido de la guía = texto introductorio + plantillas de hábitos seleccionadas.
@@ -3738,29 +3754,58 @@ const getHerbParts = (h: HerbalFormula) => {
                             )}
                             
                             {/* Herb List */}
-                            <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
+                            <p className="text-[10px] leading-snug text-slate-400">
+                                Toda fórmula agregada se imprime en el PDF por defecto. Usa "Suspender" para dejarla de imprimir sin borrar su historial.
+                            </p>
+                            <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
                                 {herbs.map((h, idx) => {
                                     const isRepeatedHerb = repeatedHerbs.some(item => normalizeReuseName(item.name) === normalizeReuseName(h.formula));
+                                    const isSuspended = !!h.suspended;
                                     return (
-                                    <div key={idx} className="flex items-center justify-between bg-white border border-slate-200 p-2 rounded-lg gap-2 text-xs">
-                                        <div className="flex-1 truncate">
-                                            <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
-                                                <span className="truncate">{h.formula}</span>
-                                                {isRepeatedHerb ? (
+                                    <div key={idx} className={`bg-white border rounded-lg p-2 space-y-1.5 text-xs transition-colors ${isSuspended ? 'border-slate-200 bg-slate-50/80 opacity-70' : 'border-slate-200'}`}>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                                                <span className={`font-bold truncate ${isSuspended ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{h.formula}</span>
+                                                {isSuspended ? (
+                                                    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-slate-200 text-slate-500 border border-slate-300 shrink-0">Suspendida</span>
+                                                ) : isRepeatedHerb ? (
                                                     <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-200 shrink-0">Repetida</span>
                                                 ) : (
                                                     <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-200 shrink-0">Nueva</span>
                                                 )}
                                             </div>
-                                            <div className="text-slate-500 truncate">{h.dosage}</div>
-                                            {h.purpose && <div className="text-[10px] text-slate-400 truncate italic">{h.purpose}</div>}
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleToggleHerbSuspended(idx)}
+                                                    className={`p-1 rounded transition-colors ${isSuspended ? 'text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50' : 'text-slate-400 hover:text-amber-500 hover:bg-amber-50'}`}
+                                                    title={isSuspended ? 'Reactivar fórmula (volverá a imprimirse)' : 'Suspender fórmula (no se imprimirá)'}
+                                                >
+                                                    {isSuspended ? <PlayCircle size={14} /> : <PauseCircle size={14} />}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleRemoveHerb(idx)}
+                                                    className="text-slate-400 hover:text-red-400 p-1 hover:bg-slate-200 rounded transition-colors"
+                                                    title="Eliminar fórmula"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
                                         </div>
-                                        <button
-                                            onClick={() => handleRemoveHerb(idx)}
-                                            className="text-slate-400 hover:text-red-400 p-1 hover:bg-slate-200 rounded transition-colors shrink-0"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
+                                        <input
+                                            type="text"
+                                            value={h.dosage || ''}
+                                            onChange={(e) => handleUpdateHerbField(idx, 'dosage', e.target.value)}
+                                            placeholder="Dosis e indicaciones..."
+                                            className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] focus:ring-1 focus:ring-emerald-300 focus:border-emerald-300 outline-none"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={h.purpose || ''}
+                                            onChange={(e) => handleUpdateHerbField(idx, 'purpose', e.target.value)}
+                                            placeholder="¿Para qué sirve?"
+                                            className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] italic focus:ring-1 focus:ring-emerald-300 focus:border-emerald-300 outline-none"
+                                        />
                                     </div>
                                     );
                                 })}
@@ -5264,7 +5309,7 @@ const getHerbParts = (h: HerbalFormula) => {
                         </section>
                     ) : null}
 
-                    {herbs.length > 0 && (
+                    {printableHerbs.length > 0 && (
                         <section className="print-flow-section print-page-break-before">
                             <h3 className="print-flow-title">Fórmulas herbales recomendadas</h3>
                             <div className="print-flow-table-card">
@@ -5277,7 +5322,7 @@ const getHerbParts = (h: HerbalFormula) => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {herbs.map((h, idx) => {
+                                        {printableHerbs.map((h, idx) => {
                                             const { dosage, purpose } = getHerbParts(h);
                                             return (
                                                 <tr key={idx} className="align-top print-avoid">
@@ -5455,11 +5500,11 @@ const getHerbParts = (h: HerbalFormula) => {
                                             <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-line">{lifestyleIndication}</p>
                                         </section>
                                     )}
-                                    {herbs.length > 0 && (
+                                    {printableHerbs.length > 0 && (
                                         <section>
                                             <h4 className="text-xs font-bold uppercase tracking-wider text-amber-600 mb-2">Fórmulas herbales</h4>
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                {herbs.map((herb, index) => (
+                                                {printableHerbs.map((herb, index) => (
                                                     <div key={`${herb.formula}-${index}`} className="rounded-xl border border-amber-100 bg-amber-50/60 p-3">
                                                         <p className="text-sm font-bold text-slate-800">{herb.formula}</p>
                                                         <p className="text-xs text-slate-500 mt-1">{herb.dosage}</p>

@@ -141,6 +141,15 @@ const PULSE_STATUS_OPTIONS = [
     { value: 'absent', label: 'No perceptible' }
 ];
 
+// Color por dosha (V=Vata, P=Pitta, K=Kapha) para marcar de un vistazo, junto a
+// cada órgano del pulso, a qué energía corresponde ese punto.
+const DOSHA_POINT_CLASS: Record<string, string> = {
+    V: 'bg-sky-100 text-sky-700 border-sky-300',
+    P: 'bg-amber-100 text-amber-700 border-amber-300',
+    K: 'bg-emerald-100 text-emerald-700 border-emerald-300'
+};
+const getDoshaPointClass = (point: string) => DOSHA_POINT_CLASS[point] || 'bg-slate-100 text-slate-600 border-slate-300';
+
 const normalizeTrackingName = (value = '') => value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 const getRecordDateValue = (record: TreatmentPlan | Visit) => (
@@ -178,7 +187,9 @@ const getFrequencyScore = (frequency = '') => {
 
 const getSymptomScore = (value?: { frequency: string; intensity: number } | null) => {
     if (!value) return null;
-    return getFrequencyScore(value.frequency) * Math.max(1, Number(value.intensity) || 1);
+    const rawIntensity = Number(value.intensity);
+    const intensity = Number.isFinite(rawIntensity) ? Math.max(0, rawIntensity) : 1;
+    return getFrequencyScore(value.frequency) * intensity;
 };
 
 const getTrendMeta = (delta: number) => {
@@ -218,13 +229,16 @@ const TonguePhotoNoteEditor = ({
 const convertIntensityScaleValue = (value: number, fromScale: number, toScale: number): number => {
     const from = Number(fromScale) || 3;
     const to = Number(toScale) || 3;
-    const v = Math.max(1, Math.min(from, Number(value) || 1));
+    const raw = Number(value) || 0;
+    if (raw <= 0) return 0; // 0 = síntoma resuelto/ausente, se mantiene igual en cualquier escala
+    const v = Math.max(1, Math.min(from, raw));
     if (from === to) return v;
     const ratio = (v - 1) / (from - 1 || 1);
     return Math.max(1, Math.min(to, Math.round(1 + ratio * (to - 1))));
 };
 
 const getIntensityLabelText = (val: number, scale: number): string => {
+    if (val <= 0) return 'Resuelto';
     if (scale <= 3) {
         return { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' }[val] || 'Moderado';
     }
@@ -561,6 +575,15 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         return allGroups;
     }, [patient, doctorNotes]);
 
+    // Grupo (consulta inicial o visita) que corresponde al registro que se está
+    // editando ahora mismo en "Nueva Visita/Editar Caso". Permite mostrar y
+    // agregar lecturas de pulso sin salir del formulario (fix #15).
+    const currentEditGroup = useMemo(() => {
+        if (editCaseMode) return visitGroups.find(g => g.id === 'initial');
+        if (editingVisitId) return visitGroups.find(g => g.id === editingVisitId);
+        return undefined;
+    }, [visitGroups, editCaseMode, editingVisitId]);
+
     const therapeuticSummary = useMemo(() => {
         const records = [
             ...((patient?.treatmentPlans || []).map(record => ({ type: 'plan' as const, record }))),
@@ -706,6 +729,85 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         return { labels, symptoms, averageDelta };
     }, [patient, isAddingVisit, visitSymptoms]);
 
+    // Visitas ordenadas de más antigua a más reciente, usadas para reconstruir
+    // el historial de calibración de cada síntoma.
+    const sortedVisitsAsc = useMemo(() => {
+        return [...(patient?.visits || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }, [patient?.visits]);
+
+    // Último valor conocido de un síntoma ANTES de la visita que se está
+    // calibrando ahora mismo (la visita anterior más cercana, o si no hay
+    // ninguna, la calibración de la consulta inicial). Se usa solo como
+    // referencia de solo lectura: la visita actual siempre se recalibra desde
+    // cero, nunca se hereda automáticamente.
+    const getPreviousSymptomReference = (symptomName: string): { frequency: string; intensity: number } | null => {
+        let cutoffIndex = sortedVisitsAsc.length;
+        if (editingVisitId) {
+            const idx = sortedVisitsAsc.findIndex(v => v.id === editingVisitId);
+            if (idx >= 0) cutoffIndex = idx;
+        }
+        for (let i = cutoffIndex - 1; i >= 0; i--) {
+            const value = sortedVisitsAsc[i].symptoms?.[symptomName];
+            if (value) return { frequency: value.frequency, intensity: value.intensity };
+        }
+        const initial = patient?.symptomCalibrations.find(item => item.symptom === symptomName);
+        if (initial) return { frequency: initial.frequency, intensity: initial.intensity };
+        return null;
+    };
+
+    // Todos los nombres de síntomas que se han registrado alguna vez para este
+    // paciente (consulta inicial + cualquier visita), para ofrecerlos como
+    // acceso rápido al armar una visita nueva sin tener que retipearlos.
+    const allKnownSymptomNames = useMemo(() => {
+        const set = new Set<string>();
+        patient?.symptomCalibrations.forEach(item => set.add(item.symptom));
+        patient?.plainSymptoms?.forEach(name => { if (name) set.add(name); });
+        (patient?.visits || []).forEach(visit => {
+            Object.keys(visit.symptoms || {}).forEach(name => set.add(name));
+        });
+        return Array.from(set);
+    }, [patient]);
+
+    // Tabla de historial: una columna por cada punto anterior a la visita que
+    // se está armando (consulta inicial + visitas previas, en orden
+    // cronológico) y una fila por cada síntoma que todavía no está en la
+    // visita actual, para poder recalibrarlo con el historial completo a la
+    // vista en vez de solo el último valor.
+    const symptomHistoryTable = (() => {
+        let cutoffIndex = sortedVisitsAsc.length;
+        if (editingVisitId) {
+            const idx = sortedVisitsAsc.findIndex(v => v.id === editingVisitId);
+            if (idx >= 0) cutoffIndex = idx;
+        }
+        const priorVisits = sortedVisitsAsc.slice(0, cutoffIndex);
+        const columns: Array<{ key: string; label: string; date?: string }> = [
+            { key: 'initial', label: 'Inicial' },
+            ...priorVisits.map((v, i) => ({ key: v.id || `v${i}`, label: `V${i + 2}`, date: v.date }))
+        ];
+        const rows = allKnownSymptomNames
+            .filter(name => !(name in visitSymptoms))
+            .map(name => {
+                const initial = patient?.symptomCalibrations.find(item => item.symptom === name);
+                const values = [
+                    initial ? { frequency: initial.frequency, intensity: initial.intensity } : null,
+                    ...priorVisits.map(v => {
+                        const value = v.symptoms?.[name];
+                        return value ? { frequency: value.frequency, intensity: value.intensity } : null;
+                    })
+                ];
+                return { name, values };
+            })
+            .filter(row => row.values.some(value => value !== null));
+        return { columns, rows };
+    })();
+
+    const handleAddHistoricalSymptom = (name: string) => {
+        setVisitSymptoms(prev => ({
+            ...prev,
+            [name]: prev[name] || { frequency: 'Diaria', intensity: 1 }
+        }));
+    };
+
     const getLatestTreatmentForVisit = (excludeId?: string) => {
         if (!patient) return null;
 
@@ -756,24 +858,17 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         setVisitLifestyle('');
         setVisitTongue('');
         setVisitTonguePhotos([]);
+        setPulsePositions(PULSE_SCHEMA);
+        setPulseNotes('');
+        setPulseError('');
         setNewVisitHerbName('');
         setNewVisitHerbDosage('');
 
-        const latestSymptoms: Record<string, { frequency: string; intensity: number; note?: string }> = {};
-        patient?.symptomCalibrations.forEach(s => {
-            latestSymptoms[s.symptom] = { frequency: s.frequency, intensity: s.intensity };
-        });
-        patient?.plainSymptoms?.forEach(s => {
-            if (s && !latestSymptoms[s]) {
-                latestSymptoms[s] = { frequency: 'Semanal', intensity: 2 };
-            }
-        });
-        [...(patient?.visits || [])].reverse().forEach(v => {
-            if (v.symptoms) {
-                Object.assign(latestSymptoms, v.symptoms);
-            }
-        });
-        setVisitSymptoms(latestSymptoms);
+        // La visita nueva arranca sin síntomas precargados: se recalibra desde
+        // cero en cada visita en vez de heredar los valores de la anterior. El
+        // historial de calibraciones previas se muestra aparte, de solo lectura,
+        // como referencia (ver "Historial" en la columna de síntomas).
+        setVisitSymptoms({});
 
         const latestTreatment = getLatestTreatmentForVisit();
         // La selección de categorías/fórmulas para ESTA visita empieza vacía: solo lo
@@ -799,6 +894,9 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         setVisitTonguePhotos(
             (patient?.tonguePhotos || []).filter(p => (p.createdAt || '').slice(0, 10) === (visit.date || '').slice(0, 10))
         );
+        setPulsePositions(PULSE_SCHEMA);
+        setPulseNotes('');
+        setPulseError('');
         setVisitSymptoms({ ...(visit.symptoms || {}) });
         setVisitTrackedCategories([...(visit.categories || [])]);
         setVisitTrackedHerbs(mapHerbsWithPurpose(visit.herbs || []));
@@ -1091,7 +1189,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         ));
     };
 
-    const handleSavePulseReading = async () => {
+    const handleSavePulseReading = async (dateOverride?: string) => {
         if (!patientId) return;
         setPulseError('');
         setSavingPulseReading(true);
@@ -1100,7 +1198,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    date: pulseDate,
+                    date: dateOverride || pulseDate,
                     positions: pulsePositions,
                     notes: pulseNotes
                 })
@@ -1870,11 +1968,13 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
     const mapIntensityValue = (raw: string): number | undefined => {
         const v = raw.trim().toLowerCase();
         if (!v) return undefined;
+        if (/^0$/.test(v) || /resuelt|curad|ausente|super|ningun/.test(v)) return 0;
         if (/^1$/.test(v) || /leve|ligera|baja|mild|low/.test(v)) return 1;
         if (/^2$/.test(v) || /moderad|media|medium/.test(v)) return 2;
         if (/^3$/.test(v) || /severa|fuerte|alta|intensa|severe|high/.test(v)) return 3;
         const num = parseFloat(v.replace(',', '.'));
         if (!Number.isNaN(num)) {
+            if (num <= 0) return 0;
             if (num <= 3) return Math.max(1, Math.round(num));
             if (num <= 10) return num <= 4 ? 1 : (num <= 7 ? 2 : 3); // escala 1-10 aproximada
         }
@@ -1947,9 +2047,9 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                     const f = mapFrequencyWord(cell);
                     if (f) { frequency = f; continue; }
                 }
-                if (!intensity) {
+                if (intensity === undefined) {
                     const n = mapIntensityValue(cell);
-                    if (n) intensity = n;
+                    if (n !== undefined) intensity = n;
                 }
             }
             result.push({ name, frequency, intensity });
@@ -1977,14 +2077,14 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 if (!existing) {
                     next[row.name] = {
                         frequency: row.frequency || 'Semanal',
-                        intensity: row.intensity || 2
+                        intensity: row.intensity !== undefined ? row.intensity : 2
                     };
                     added += 1;
-                } else if (row.frequency || row.intensity) {
+                } else if (row.frequency || row.intensity !== undefined) {
                     next[row.name] = {
                         ...existing,
                         frequency: row.frequency || existing.frequency,
-                        intensity: row.intensity || existing.intensity
+                        intensity: row.intensity !== undefined ? row.intensity : existing.intensity
                     };
                     updated += 1;
                 }
@@ -2430,6 +2530,9 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         setVisitLifestyle(initial?.lifestyle || '');
         setVisitTongue(initial?.tongue || '');
         setVisitTonguePhotos([...(patient.tonguePhotos || [])]);
+        setPulsePositions(PULSE_SCHEMA);
+        setPulseNotes('');
+        setPulseError('');
         setVisitTrackedCategories([...(initial?.categories || [])]);
         setVisitTrackedHerbs(mapHerbsWithPurpose(initial?.herbs || []));
         setVisitAdherence({ categories: [], herbs: [], generalNote: '' });
@@ -2611,6 +2714,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
     const isSuperado = (frequency: string) => /^superad|^ningun/i.test(frequency || '');
 
     const getIntensityBadge = (intensity: number) => {
+        if (Number(intensity) <= 0) return 'bg-slate-100 text-slate-500 border-slate-200';
         const styles: Record<number, string> = {
             1: 'bg-emerald-50 text-emerald-600 border-emerald-100',
             2: 'bg-amber-50 text-amber-600 border-amber-100',
@@ -3252,7 +3356,12 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                                                                 {reading.positions.map((position) => (
                                                                                                     <div key={`${reading.id}-${position.side}-${position.point}`} className="rounded-lg bg-white border border-slate-100 p-3 text-xs">
                                                                                                         <div className="flex items-center justify-between mb-2">
-                                                                                                            <span className="font-black text-slate-700">{position.sideLabel} · {position.point}{position.number}</span>
+                                                                                                            <span className="font-black text-slate-700 flex items-center gap-1.5">
+                                                                                                                <span className={`inline-flex items-center justify-center w-5 h-5 rounded border text-[10px] font-black shrink-0 ${getDoshaPointClass(position.point)}`} title={`Energía ${position.point === 'V' ? 'Vata' : position.point === 'P' ? 'Pitta' : 'Kapha'}`}>
+                                                                                                                    {position.point}
+                                                                                                                </span>
+                                                                                                                {position.sideLabel} · {position.point}{position.number}
+                                                                                                            </span>
                                                                                                             <span className="text-[10px] text-slate-400">{position.number}</span>
                                                                                                         </div>
                                                                                                         <div className="space-y-1">
@@ -3324,7 +3433,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                                                                     {pulsePositions.map((position, index) => position.side === side && (
                                                                                                         <div key={`${position.side}-${position.point}`} className="p-3 grid grid-cols-1 md:grid-cols-[4rem_1fr_1fr] gap-3 items-start text-xs">
                                                                                                             <div className="flex md:flex-col items-center md:items-start gap-1">
-                                                                                                                <span className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-xs font-black text-slate-700">
+                                                                                                                <span className={`w-8 h-8 rounded-lg border flex items-center justify-center text-xs font-black ${getDoshaPointClass(position.point)}`} title={`Energía ${position.point === 'V' ? 'Vata' : position.point === 'P' ? 'Pitta' : 'Kapha'}`}>
                                                                                                                     {position.point}{position.number}
                                                                                                                 </span>
                                                                                                             </div>
@@ -4592,10 +4701,77 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                     Agregar
                                                 </button>
                                             </div>
-                                            {Object.entries(visitSymptoms).map(([symptom, data]) => (
+                                            {symptomHistoryTable.rows.length > 0 && (
+                                                <div className="bg-slate-50 border border-dashed border-slate-200 rounded-lg p-3 space-y-2">
+                                                    <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                                        <History size={12} />
+                                                        Historial · toca una fila para recalibrar hoy
+                                                    </div>
+                                                    <div className="overflow-x-auto">
+                                                        <table className="w-full text-[11px] border-collapse">
+                                                            <thead>
+                                                                <tr>
+                                                                    <th className="text-left font-bold text-slate-400 uppercase text-[9px] py-1 pr-3">Síntoma</th>
+                                                                    {symptomHistoryTable.columns.map(col => (
+                                                                        <th
+                                                                            key={col.key}
+                                                                            className="text-center font-bold text-slate-400 uppercase text-[9px] py-1 px-1.5 whitespace-nowrap"
+                                                                            title={col.date ? formatNoteDate(col.date) : 'Consulta inicial'}
+                                                                        >
+                                                                            {col.label}
+                                                                        </th>
+                                                                    ))}
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {symptomHistoryTable.rows.map(row => (
+                                                                    <tr
+                                                                        key={row.name}
+                                                                        onClick={() => handleAddHistoricalSymptom(row.name)}
+                                                                        className="cursor-pointer hover:bg-white border-t border-slate-200 transition-colors"
+                                                                        title="Toca para agregar este síntoma a la visita de hoy"
+                                                                    >
+                                                                        <td className="py-1.5 pr-3 font-medium text-slate-600 whitespace-nowrap">
+                                                                            <span className="inline-flex items-center gap-1">
+                                                                                <Plus size={11} className="text-emerald-600 shrink-0" />
+                                                                                {row.name}
+                                                                            </span>
+                                                                        </td>
+                                                                        {row.values.map((value, idx) => (
+                                                                            <td key={idx} className="text-center py-1.5 px-1.5">
+                                                                                {value ? (
+                                                                                    isSuperado(value.frequency) ? (
+                                                                                        <span className="text-emerald-600 font-bold">✓</span>
+                                                                                    ) : (
+                                                                                        <span className={`inline-block px-1.5 py-0.5 rounded border font-bold ${getIntensityBadge(value.intensity)}`}>
+                                                                                            {getFrequencyShort(value.frequency)}·{value.intensity}
+                                                                                        </span>
+                                                                                    )
+                                                                                ) : (
+                                                                                    <span className="text-slate-300">—</span>
+                                                                                )}
+                                                                            </td>
+                                                                        ))}
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {Object.entries(visitSymptoms).map(([symptom, data]) => {
+                                                const previousValue = getPreviousSymptomReference(symptom);
+                                                return (
                                                 <div key={symptom} className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm space-y-2">
                                                     <div className="flex items-start justify-between gap-2">
-                                                        <span className="font-medium text-slate-700 text-sm flex-1 leading-snug">{symptom}</span>
+                                                        <div className="flex-1 min-w-0">
+                                                            <span className="font-medium text-slate-700 text-sm leading-snug">{symptom}</span>
+                                                            {previousValue && (
+                                                                <p className="text-[10px] text-slate-400 mt-0.5">
+                                                                    Antes: {previousValue.frequency} · {getIntensityLabelText(previousValue.intensity, visitIntensityScale)} ({previousValue.intensity})
+                                                                </p>
+                                                            )}
+                                                        </div>
                                                         <button
                                                             type="button"
                                                             onClick={() => setVisitSymptoms(prev => {
@@ -4633,11 +4809,12 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                             })}
                                                         </div>
                                                         <div className={`flex bg-slate-100 rounded-lg p-1 gap-1 flex-wrap max-w-full ${isSuperado(data.frequency) ? 'opacity-40 pointer-events-none' : ''}`}>
-                                                            {(visitIntensityScale === 10 ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : [1, 2, 3]).map((num) => {
+                                                            {(visitIntensityScale === 10 ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : [0, 1, 2, 3]).map((num) => {
                                                                 const isSelected = data.intensity === num;
                                                                 let bgClass = 'text-slate-400 hover:text-slate-600';
                                                                 if (isSelected) {
-                                                                    if (visitIntensityScale === 10) {
+                                                                    if (num === 0) bgClass = 'bg-slate-300 text-slate-700 ring-1 ring-slate-400';
+                                                                    else if (visitIntensityScale === 10) {
                                                                         if (num <= 3) bgClass = 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300';
                                                                         else if (num <= 7) bgClass = 'bg-amber-100 text-amber-700 ring-1 ring-amber-300';
                                                                         else bgClass = 'bg-red-100 text-red-700 ring-1 ring-red-300';
@@ -4692,9 +4869,10 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                         className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs resize-none focus:ring-2 focus:ring-primary/15 focus:border-primary/30 outline-none"
                                                     />
                                                 </div>
-                                            ))}
+                                                );
+                                            })}
                                             {Object.keys(visitSymptoms).length === 0 && (
-                                                <p className="text-xs text-slate-400 text-center py-6">Aún no hay síntomas. Agrega uno arriba.</p>
+                                                <p className="text-xs text-slate-400 text-center py-6">Aún no hay síntomas. Agrega uno arriba{symptomHistoryTable.rows.length > 0 ? ' o recalibra uno del historial' : ''}.</p>
                                             )}
                                         </div>
                                     </div>
@@ -4788,6 +4966,124 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                         ))}
                                                     </div>
                                                 )}
+                                            </div>
+
+                                            {/* Pulso ayurvédico: alta directamente desde Editar Caso/Nueva Visita, sin
+                                                salir del formulario, tanto en consulta inicial como en seguimiento. */}
+                                            <div className="space-y-2">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <label className="text-xs font-bold text-slate-500 uppercase">Pulso ayurvédico</label>
+                                                    {(currentEditGroup?.pulseReadings?.length ?? 0) > 0 && (
+                                                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                                                            {currentEditGroup!.pulseReadings.length} guardada{currentEditGroup!.pulseReadings.length > 1 ? 's' : ''}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {currentEditGroup && currentEditGroup.pulseReadings.length > 0 && (
+                                                    <div className="space-y-2">
+                                                        {currentEditGroup.pulseReadings.map(reading => (
+                                                            <div key={reading.id} className="rounded-lg border border-slate-100 bg-white p-3 text-xs space-y-2">
+                                                                <div className="flex items-center justify-between">
+                                                                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                                                                        <Activity size={12} className="text-red-500" />
+                                                                        Lectura de {new Date(reading.date || reading.createdAt).toLocaleDateString('es-MX')}
+                                                                    </span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleDeletePulseReading(reading)}
+                                                                        className="text-slate-300 hover:text-red-500 p-1 hover:bg-red-50 rounded transition-colors"
+                                                                        title="Borrar lectura"
+                                                                    >
+                                                                        <Trash2 size={13} />
+                                                                    </button>
+                                                                </div>
+                                                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                                                                    {reading.positions.map(position => (
+                                                                        <div key={`${reading.id}-${position.side}-${position.point}`} className="rounded border border-slate-100 bg-slate-50/60 px-1.5 py-1">
+                                                                            <p className="font-black text-slate-600 text-[10px] flex items-center gap-1">
+                                                                                <span className={`inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm border text-[8px] font-black shrink-0 ${getDoshaPointClass(position.point)}`}>{position.point}</span>
+                                                                                {position.sideLabel.slice(0, 3)} · {position.point}{position.number}
+                                                                            </p>
+                                                                            <p className={`text-[9px] mt-0.5 rounded px-1 inline-block border ${getPulseStatusClass(position.superficialStatus)}`}>{getPulseStatusLabel(position.superficialStatus)}</p>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                                {reading.notes && (
+                                                                    <p className="text-slate-500 whitespace-pre-line">{reading.notes}</p>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                <div className="rounded-xl border border-red-100 bg-red-50/10 p-3 space-y-3">
+                                                    <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider">Nueva lectura</p>
+                                                    <div className="space-y-2">
+                                                        {(['right', 'left'] as const).map(side => (
+                                                            <div key={side} className="rounded-lg border border-slate-100 bg-white overflow-hidden">
+                                                                <div className="px-2.5 py-1.5 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                                                    {side === 'right' ? 'Derecha' : 'Izquierda'}
+                                                                </div>
+                                                                <div className="divide-y divide-slate-100">
+                                                                    {pulsePositions.map((position, index) => position.side === side && (
+                                                                        <div key={`${position.side}-${position.point}`} className="p-2 space-y-1.5 text-[11px]">
+                                                                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-black ${getDoshaPointClass(position.point)}`} title={`Energía ${position.point === 'V' ? 'Vata' : position.point === 'P' ? 'Pitta' : 'Kapha'}`}>
+                                                                                {position.point}{position.number}
+                                                                            </span>
+                                                                            <div className="grid grid-cols-2 gap-1.5">
+                                                                                <label className="space-y-0.5 block">
+                                                                                    <span className="text-[9px] text-slate-400 truncate block">{position.superficialOrgan}</span>
+                                                                                    <select
+                                                                                        value={position.superficialStatus}
+                                                                                        onChange={(event) => updatePulsePosition(index, 'superficialStatus', event.target.value)}
+                                                                                        className="w-full h-7 rounded border border-slate-200 bg-slate-50 px-1 text-[10px] text-slate-700 focus:outline-none"
+                                                                                    >
+                                                                                        {PULSE_STATUS_OPTIONS.map(option => (
+                                                                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                                                                        ))}
+                                                                                    </select>
+                                                                                </label>
+                                                                                <label className="space-y-0.5 block">
+                                                                                    <span className="text-[9px] text-slate-400 truncate block">{position.deepOrgan}</span>
+                                                                                    <select
+                                                                                        value={position.deepStatus}
+                                                                                        onChange={(event) => updatePulsePosition(index, 'deepStatus', event.target.value)}
+                                                                                        className="w-full h-7 rounded border border-slate-200 bg-slate-50 px-1 text-[10px] text-slate-700 focus:outline-none"
+                                                                                    >
+                                                                                        {PULSE_STATUS_OPTIONS.map(option => (
+                                                                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                                                                        ))}
+                                                                                    </select>
+                                                                                </label>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    <SpeechTextarea
+                                                        value={pulseNotes}
+                                                        onValueChange={setPulseNotes}
+                                                        rows={2}
+                                                        placeholder="Observaciones generales del pulso..."
+                                                        className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs resize-none focus:ring-2 focus:ring-red-100 outline-none"
+                                                    />
+                                                    {pulseError && <p className="text-[11px] text-red-500 font-bold">{pulseError}</p>}
+                                                    <button
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            await handleSavePulseReading(visitDate);
+                                                            await fetchPatientDetails();
+                                                        }}
+                                                        disabled={savingPulseReading}
+                                                        className="w-full px-3 py-2 bg-red-500 text-white rounded-lg text-xs font-bold hover:bg-red-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+                                                    >
+                                                        {savingPulseReading ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                                                        Guardar pulso
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -5671,7 +5967,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                                 }}
                                                                 className="bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
                                                             >
-                                                                {Array.from({ length: editIntensityScale }, (_, i) => i + 1).map((num) => (
+                                                                {Array.from({ length: editIntensityScale + 1 }, (_, i) => i).map((num) => (
                                                                     <option key={num} value={num}>
                                                                         {num} ({getIntensityLabelText(num, editIntensityScale)})
                                                                     </option>
@@ -6076,11 +6372,12 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                             <div className="w-px h-8 bg-slate-100 mx-1" />
 
                                                             <div className={`flex bg-slate-100 rounded-lg p-1 gap-1 flex-wrap max-w-full ${isSuperado(data.frequency) ? 'opacity-40 pointer-events-none' : ''}`}>
-                                                                {(visitIntensityScale === 10 ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : [1, 2, 3]).map((num) => {
+                                                                {(visitIntensityScale === 10 ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : [0, 1, 2, 3]).map((num) => {
                                                                     const isSelected = data.intensity === num;
                                                                     let bgClass = 'text-slate-400 hover:text-slate-600';
                                                                     if (isSelected) {
-                                                                        if (visitIntensityScale === 10) {
+                                                                        if (num === 0) bgClass = 'bg-slate-300 text-slate-700 ring-1 ring-slate-400';
+                                                                        else if (visitIntensityScale === 10) {
                                                                             if (num <= 3) bgClass = 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300';
                                                                             else if (num <= 7) bgClass = 'bg-amber-100 text-amber-700 ring-1 ring-amber-300';
                                                                             else bgClass = 'bg-red-100 text-red-700 ring-1 ring-red-300';
@@ -6101,7 +6398,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                                                 }
                                                                             })}
                                                                             className={`${btnSize} rounded-md font-bold transition-all ${bgClass}`}
-                                                                            title={`${num}`}
+                                                                            title={`${num} (${getIntensityLabelText(num, visitIntensityScale)})`}
                                                                         >
                                                                             {num}
                                                                         </button>
