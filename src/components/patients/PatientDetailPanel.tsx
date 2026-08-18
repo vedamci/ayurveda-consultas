@@ -9,6 +9,7 @@ import { TreatmentPDFModal } from './TreatmentPDFModal';
 import { SpeechTextarea } from '../ui/SpeechTextarea';
 import { buildWhatsAppUrl } from '../../utils/whatsapp';
 import herbsList from '../../data/herb.json';
+import tridoshicaDiet from '../../data/diets/tridoshica.json';
 import { useAutosave } from '../../hooks/useAutosave';
 import { AutosaveIndicator } from '../ui/AutosaveIndicator';
 import { useDraftPersist, readDraft, clearDraft } from '../../hooks/useDraftPersist';
@@ -112,6 +113,13 @@ const getStoredTherapyNames = (record: TreatmentPlan | Visit) => {
         .filter(Boolean);
 };
 
+// Las 12 categorías de alimentos son idénticas en las siete dietas por dosha, así
+// que tomamos la lista canónica de una sola (tridóshica) en vez de repetirla aquí:
+// si mañana se renombra una categoría en los JSON de dieta, el Seguimiento sigue.
+const FOOD_CATEGORY_NAMES: string[] = (tridoshicaDiet.categorias || [])
+    .map(cat => String(cat?.nombre || '').trim())
+    .filter(Boolean);
+
 const getStoredHealthyHabitNames = (record: TreatmentPlan | Visit) => {
     const details = new Map((record.healthyEatingHabitDetails || []).map(detail => [normalizeTrackingName(detail.name), detail.name] as const));
     return (record.healthyEatingHabits || [])
@@ -167,6 +175,23 @@ const mergeAdherenceItems = (current: TreatmentAdherenceItem[] = [], names: stri
     return names
         .filter(Boolean)
         .map(name => byName.get(normalizeTrackingName(name)) || createAdherenceItem(name));
+};
+
+const hasReviewedAdherence = (item?: TreatmentAdherenceItem) =>
+    !!item && ((!!item.status && item.status !== 'unknown') || !!item.note?.trim());
+
+// Igual que mergeAdherenceItems, pero conserva al final los ítems ya revisados que
+// no están en `names`. Desde el Seguimiento se pueden marcar las 12 categorías de
+// alimentos aunque el tratamiento solo incluyera tres; sin esto, la fusión contra
+// record.categories descartaría esas marcas en la siguiente escritura.
+const mergeAdherenceItemsKeepingReviewed = (current: TreatmentAdherenceItem[] = [], names: string[] = []) => {
+    const merged = mergeAdherenceItems(current, names);
+    const kept = new Set(merged.map(item => normalizeTrackingName(item.name)));
+    const extras = current.filter(item => {
+        const key = normalizeTrackingName(item.name);
+        return key && !kept.has(key) && hasReviewedAdherence(item);
+    });
+    return [...merged, ...extras];
 };
 
 const getAdherenceClass = (status?: TreatmentAdherenceItem['status']) => {
@@ -459,6 +484,17 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         }
     };
 
+    // Abre el resumen de Seguimiento y, en paralelo, vuelve a bajar la ficha del
+    // paciente. El panel se puede abrir encima del editor de PDF, donde acabas de
+    // guardar tratamientos: sin este refresco el resumen se calcula sobre una copia
+    // vieja y marcar "Hecho" puede apuntar a un registro que ya no existe.
+    const openTherapeuticSummary = () => {
+        setShowTrackingView(true);
+        // fetchPatientDetails arma la URL con la prop `patientId`; si ya no está
+        // (ficha cerrada con el editor encima) nos quedamos con lo que hay cargado.
+        if (patientId) void fetchPatientDetails();
+    };
+
     const fetchDoctorNotes = async () => {
         try {
             const res = await fetch(`/api/patients/${patientId}/notes`);
@@ -675,10 +711,56 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             }
         });
 
+        // Segunda pasada sobre las categorías: recoge los estados marcados desde el
+        // Seguimiento para categorías que ese tratamiento no incluía. Se pueden
+        // marcar las 12 aunque solo se hayan recetado tres, y esas marcas viven en
+        // el adherence del registro sin estar en record.categories.
+        records.forEach(({ type, record }) => {
+            const date = getRecordDateValue(record);
+            const recency = recencyOf(record);
+            const recordRef: RecordRef | undefined = record.id ? { type, id: record.id } : undefined;
+            const recordTitle = record.title?.trim() || (type === 'plan' ? 'Tratamiento' : 'Visita');
+            const indicated = new Set((record.categories || []).map(name => normalizeTrackingName(name)));
+
+            (record.adherence?.categories || []).forEach(entry => {
+                const key = normalizeTrackingName(entry.name);
+                // Las indicadas ya se contaron arriba, con su ocurrencia y su conteo.
+                if (!key || indicated.has(key) || !hasReviewedAdherence(entry)) return;
+
+                const existing = categories.get(key)
+                    || { name: entry.name, count: 0, lastDate: '', lastRecency: -Infinity, notes: [] as string[], occurrences: [] as Occurrence[] };
+                if (existing.lastRecency === -Infinity || recency > existing.lastRecency) {
+                    existing.lastRecency = recency;
+                    existing.lastDate = date;
+                    existing.lastStatus = entry.status;
+                    existing.lastRecordRef = recordRef;
+                    existing.lastRecordTitle = recordTitle;
+                }
+                if (entry.note?.trim()) existing.notes.push(entry.note.trim());
+                categories.set(key, existing);
+            });
+        });
+
+        // Las 12 categorías de alimentos se muestran siempre y en su orden canónico,
+        // se hayan indicado o no en algún tratamiento. Las que nunca se indicaron
+        // quedan con count 0, pero igual se pueden marcar: su seguimiento se guarda
+        // en el registro más reciente del paciente.
+        const orderedCategories = [
+            ...FOOD_CATEGORY_NAMES.map(name =>
+                categories.get(normalizeTrackingName(name))
+                || { name, count: 0, lastDate: '', lastRecency: -Infinity, notes: [] as string[], occurrences: [] as Occurrence[] }
+            ),
+            // Categorías registradas que no están en la lista canónica (renombradas
+            // o escritas a mano en tratamientos antiguos): se conservan al final.
+            ...Array.from(categories.entries())
+                .filter(([key]) => !FOOD_CATEGORY_NAMES.some(name => normalizeTrackingName(name) === key))
+                .map(([, value]) => value)
+        ];
+
         return {
             records,
             reviewedCount,
-            categories: Array.from(categories.values()),
+            categories: orderedCategories,
             herbs: Array.from(herbs.values()),
             therapies: Array.from(therapies.values()),
             healthyHabits: Array.from(healthyHabits.values())
@@ -1774,11 +1856,14 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         }
     };
 
+    // Reconstruye la adherencia de un registro contra lo que ese registro indicó,
+    // conservando además lo que ya se marcó desde el Seguimiento para ítems que el
+    // tratamiento no incluía (p. ej. una de las 12 categorías que nunca se recetó).
     const buildRecordAdherence = (record: TreatmentPlan | Visit): TreatmentAdherence => ({
         ...(record.adherence || {}),
-        categories: mergeAdherenceItems(record.adherence?.categories, record.categories || []),
-        herbs: mergeAdherenceItems(record.adherence?.herbs, (record.herbs || []).map(herb => herb.formula)),
-        healthyHabits: mergeAdherenceItems(record.adherence?.healthyHabits, getStoredHealthyHabitNames(record)),
+        categories: mergeAdherenceItemsKeepingReviewed(record.adherence?.categories, record.categories || []),
+        herbs: mergeAdherenceItemsKeepingReviewed(record.adherence?.herbs, (record.herbs || []).map(herb => herb.formula)),
+        healthyHabits: mergeAdherenceItemsKeepingReviewed(record.adherence?.healthyHabits, getStoredHealthyHabitNames(record)),
         updatedAt: record.adherence?.updatedAt
     });
 
@@ -1835,18 +1920,72 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         item: { name: string; lastRecordRef?: { type: 'plan' | 'visit'; id: string } },
         updates: Partial<TreatmentAdherenceItem>
     ) => {
-        const ref = item.lastRecordRef;
-        if (!ref || !patientId) {
-            window.alert(`No se pudo ubicar el registro de origen de "${item.name}" para guardar el cambio.`);
+        // El panel de Seguimiento se puede quedar abierto sobre el editor de PDF o
+        // después de que la ficha se cerró, y en esos casos la prop `patientId` ya
+        // no está. Caemos al id del paciente cargado, igual que el resto del panel.
+        const targetPatientId = patientId || patient?.id;
+        if (!targetPatientId) {
+            window.alert(`No hay un paciente activo para guardar el cambio de "${item.name}".`);
             return;
         }
-        const sourceRecord = ref.type === 'plan'
-            ? (patient?.treatmentPlans || []).find(p => p.id === ref.id)
-            : (patient?.visits || []).find(v => v.id === ref.id);
-        if (!sourceRecord) {
-            window.alert(`No se pudo ubicar el registro de origen de "${item.name}" para guardar el cambio.`);
+
+        const findRecordByRef = (ref?: { type: 'plan' | 'visit'; id: string }) => {
+            if (!ref) return null;
+            const record = ref.type === 'plan'
+                ? (patient?.treatmentPlans || []).find(p => p.id === ref.id)
+                : (patient?.visits || []).find(v => v.id === ref.id);
+            return record ? { type: ref.type, record } : null;
+        };
+
+        // Nombres que un registro aporta a cada sección del resumen.
+        const namesOf = (record: TreatmentPlan | Visit) =>
+            section === 'categories'
+                ? (record.categories || [])
+                : section === 'herbs'
+                ? (record.herbs || []).map(herb => herb.formula)
+                : getStoredHealthyHabitNames(record);
+
+        // Si el registro de origen se perdió (un tratamiento borrado, un resumen
+        // calculado antes de recargar), buscamos el registro más reciente que sí
+        // contenga ese ítem en lugar de fallar con una alerta.
+        const source = findRecordByRef(item.lastRecordRef) || (() => {
+            const candidates = [
+                ...(patient?.treatmentPlans || []).map(record => ({ type: 'plan' as const, record })),
+                ...(patient?.visits || []).map(record => ({ type: 'visit' as const, record }))
+            ]
+                .filter(({ record }) => record.id && namesOf(record)
+                    .some(name => normalizeTrackingName(name) === normalizeTrackingName(item.name)))
+                .sort((a, b) =>
+                    new Date(b.record.updatedAt || getRecordDateValue(b.record) || 0).getTime() -
+                    new Date(a.record.updatedAt || getRecordDateValue(a.record) || 0).getTime()
+                );
+            return candidates[0] || null;
+        })();
+
+        // Las 12 categorías de alimentos se pueden marcar aunque nunca se hayan
+        // recetado, así que si el ítem no vive en ningún tratamiento guardamos su
+        // seguimiento en el registro más reciente del paciente.
+        const latestRecord = (() => {
+            const all = [
+                ...(patient?.treatmentPlans || []).map(record => ({ type: 'plan' as const, record })),
+                ...(patient?.visits || []).map(record => ({ type: 'visit' as const, record }))
+            ]
+                .filter(({ record }) => record.id)
+                .sort((a, b) =>
+                    new Date(b.record.updatedAt || getRecordDateValue(b.record) || 0).getTime() -
+                    new Date(a.record.updatedAt || getRecordDateValue(a.record) || 0).getTime()
+                );
+            return all[0] || null;
+        })();
+
+        const target = source || latestRecord;
+        if (!target) {
+            window.alert(`Este paciente todavía no tiene ningún tratamiento o visita guardada donde registrar el seguimiento de "${item.name}".`);
             return;
         }
+
+        const ref = { type: target.type, id: target.record.id || '' };
+        const sourceRecord = target.record;
 
         const adherence = buildRecordAdherence(sourceRecord);
         const names = section === 'categories'
@@ -1854,7 +1993,13 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             : section === 'herbs'
             ? (sourceRecord.herbs || []).map(herb => herb.formula)
             : getStoredHealthyHabitNames(sourceRecord);
-        const items = mergeAdherenceItems(adherence[section], names).map(entry =>
+        const merged = mergeAdherenceItemsKeepingReviewed(adherence[section], names);
+        const alreadyListed = merged.some(entry =>
+            normalizeTrackingName(entry.name) === normalizeTrackingName(item.name));
+        const items = (alreadyListed
+            ? merged
+            : [...merged, createAdherenceItem(item.name)]
+        ).map(entry =>
             normalizeTrackingName(entry.name) === normalizeTrackingName(item.name)
                 ? { ...entry, ...updates }
                 : entry
@@ -1879,8 +2024,8 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         }
 
         const endpoint = ref.type === 'plan'
-            ? `/api/patients/${patientId}/treatment-plans/${ref.id}`
-            : `/api/patients/${patientId}/visits/${ref.id}`;
+            ? `/api/patients/${targetPatientId}/treatment-plans/${ref.id}`
+            : `/api/patients/${targetPatientId}/visits/${ref.id}`;
         fetch(endpoint, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -2892,7 +3037,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                     <motion.button
                                         whileHover={{ scale: 1.06 }}
                                         whileTap={{ scale: 0.94 }}
-                                        onClick={() => setShowTrackingView(true)}
+                                        onClick={openTherapeuticSummary}
                                         className="p-2 bg-teal-800 hover:bg-teal-700 rounded-xl transition-colors text-white text-xs font-bold flex items-center gap-1.5 border border-white/10"
                                         title="Ver el seguimiento terapéutico acumulado de todas las visitas"
                                     >
@@ -5369,14 +5514,14 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80]"
+                            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] print:hidden"
                             onClick={() => setShowTrackingView(false)}
                         />
                         <motion.div
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.95 }}
-                            className="fixed inset-0 m-auto w-full max-w-4xl h-[92vh] bg-white rounded-2xl shadow-2xl z-[90] flex flex-col overflow-hidden"
+                            className="fixed inset-0 m-auto w-full max-w-4xl h-[92vh] bg-white rounded-2xl shadow-2xl z-[90] flex flex-col overflow-hidden print:hidden"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className="p-6 border-b border-slate-100 flex items-center justify-between gap-3">
@@ -5413,10 +5558,16 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                         const renderTrackableItem = (
                                             section: 'categories' | 'herbs' | 'healthyHabits',
                                             item: typeof therapeuticSummary.categories[number]
-                                        ) => (
-                                            <div key={item.name} className="rounded-lg border border-slate-100 bg-white px-2.5 py-2">
+                                        ) => {
+                                            // count 0 = la categoría está en el catálogo pero ningún
+                                            // tratamiento la indicó. Se muestra igual y se puede marcar;
+                                            // solo la atenuamos mientras no tenga ni marca ni indicación.
+                                            const neverPrescribed = item.count === 0;
+                                            const untouched = neverPrescribed && !hasReviewedAdherence({ name: item.name, status: item.lastStatus ?? 'unknown', note: item.notes[0] });
+                                            return (
+                                            <div key={item.name} className={`rounded-lg border px-2.5 py-2 ${untouched ? 'border-slate-100 bg-slate-50/50' : 'border-slate-100 bg-white'}`}>
                                                 <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
-                                                    <span className="flex-1 text-[11px] font-bold text-slate-700 truncate">
+                                                    <span className={`flex-1 text-[11px] font-bold truncate ${untouched ? 'text-slate-400' : 'text-slate-700'}`}>
                                                         {item.name} <span className="text-slate-400 font-normal">· {item.count}</span>
                                                     </span>
                                                     <div className="flex flex-wrap gap-1 shrink-0">
@@ -5436,6 +5587,9 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                         ))}
                                                     </div>
                                                 </div>
+                                                {neverPrescribed && (
+                                                    <p className="mt-1 text-[10px] text-slate-300 italic">Sin indicar en ningún tratamiento</p>
+                                                )}
                                                 {item.occurrences.length > 0 && (
                                                     <p
                                                         className="mt-1 text-[10px] text-slate-400 truncate"
@@ -5450,11 +5604,12 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                                     </p>
                                                 )}
                                             </div>
-                                        );
+                                            );
+                                        };
                                         return (
                                             <>
                                                 <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Categorías usadas</p>
+                                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">Categorías de alimentos</p>
                                                     {therapeuticSummary.categories.length > 0 ? (
                                                         <div className="space-y-1.5">
                                                             {therapeuticSummary.categories.map(item => renderTrackableItem('categories', item))}
@@ -6670,6 +6825,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 }}
                 initialDiagnosis={diagnosis}
                 editingRecord={editingRecord}
+                onOpenTherapeuticSummary={openTherapeuticSummary}
                 patientId={activeTreatmentPatientId || patientId || patient?.id || null}
                 patient={patient ? { ...patient, id: activeTreatmentPatientId || patientId || patient.id } : { name: 'Paciente', age: '', email: '', dosha: 'Vata-Pitta', fullNotes: '[]', symptomCalibrations: [], plainSymptoms: [], visits: [], treatmentPlans: [] }}
             />

@@ -5417,6 +5417,19 @@ app.get('/api/health', async (req, res) => {
 
 // Serve static React files in production/packaged mode
 if (isPackaged) {
+    // The public booking experience is a separate frontend bundle. It shares
+    // this server's Google Calendar API but is published at its own subpath.
+    const calendarDistPath = join(__dirname, '../dist-calendar');
+    if (fs.existsSync(calendarDistPath)) {
+        app.use('/calendario-consultas', express.static(calendarDistPath));
+        app.get(/^\/calendario-consultas(?:\/.*)?$/, (_req, res) => {
+            res.sendFile(join(calendarDistPath, 'index.html'));
+        });
+        console.log(`Serving calendar app from ${calendarDistPath}`);
+    } else {
+        console.warn(`Calendar app path not found: ${calendarDistPath}`);
+    }
+
     const distPath = join(__dirname, '../dist');
     if (fs.existsSync(distPath)) {
         app.use(express.static(distPath));
