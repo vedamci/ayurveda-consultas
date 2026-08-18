@@ -15,6 +15,10 @@ interface Slot {
 
 type AppointmentType = 'initial' | 'followup';
 
+// The standalone calendar can be hosted under vedamci.com.mx while its API
+// remains on the cPanel Node app at consultas.vedamci.com.mx.
+const CALENDAR_API_BASE = (import.meta.env.VITE_CALENDAR_API_BASE_URL || '').replace(/\/$/, '');
+
 const getTomorrowDateString = () => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -79,7 +83,7 @@ export default function PatientBooking() {
         try {
             setLoading(true);
             setError(null);
-            const response = await fetch('/api/calendar/free-slots');
+            const response = await fetch(`${CALENDAR_API_BASE}/api/calendar/free-slots`);
             const data = await response.json();
             
             if (data.success) {
@@ -220,7 +224,7 @@ export default function PatientBooking() {
 
         try {
             setBookingLoading(true);
-            const response = await fetch('/api/calendar/book', {
+            const response = await fetch(`${CALENDAR_API_BASE}/api/calendar/book`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
