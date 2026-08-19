@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 
 export default defineConfig({
   root: resolve(__dirname, 'calendar-app'),
+  envDir: __dirname,
   base: '/calendario-consultas/',
   plugins: [react(), tailwindcss()],
   publicDir: resolve(__dirname, 'public'),

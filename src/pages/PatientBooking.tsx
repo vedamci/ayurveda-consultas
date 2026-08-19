@@ -282,7 +282,7 @@ export default function PatientBooking() {
                     />
                     <h2 className="text-2xl font-bold text-slate-850 tracking-tight">Agenda tu Consulta</h2>
                     <p className="text-slate-500 text-sm mt-1 max-w-md mx-auto">
-                        Selecciona el horario de tu preferencia para la sesión de valoración. Todas las citas son virtuales en hora de Ciudad de México (GMT-6).
+                        Selecciona el horario de tu preferencia para la sesión de valoración. Puedes elegir una cita virtual o presencial, en hora de Ciudad de México (GMT-6).
                     </p>
                 </div>
 
