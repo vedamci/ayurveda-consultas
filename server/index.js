@@ -2035,25 +2035,25 @@ const getZoomRedirectUri = (req) => {
 };
 
 async function getZoomAccessToken() {
-    if (!process.env.ZOOM_CLIENT_ID || !process.env.ZOOM_CLIENT_SECRET || !process.env.ZOOM_REFRESH_TOKEN) {
-        throw new Error('Zoom no está conectado. Conecta Zoom desde la configuración de la agenda.');
+    if (!process.env.ZOOM_CLIENT_ID || !process.env.ZOOM_CLIENT_SECRET) {
+        throw new Error('Zoom no está conectado. Configura las credenciales de la agenda.');
     }
 
     const credentials = Buffer.from(`${process.env.ZOOM_CLIENT_ID}:${process.env.ZOOM_CLIENT_SECRET}`).toString('base64');
+    const isServerToServer = !!process.env.ZOOM_ACCOUNT_ID;
     const response = await fetch('https://zoom.us/oauth/token', {
         method: 'POST',
         headers: {
             Authorization: `Basic ${credentials}`,
             'Content-Type': 'application/x-www-form-urlencoded'
         },
-        body: new URLSearchParams({
-            grant_type: 'refresh_token',
-            refresh_token: process.env.ZOOM_REFRESH_TOKEN
-        })
+        body: isServerToServer
+            ? new URLSearchParams({ grant_type: 'account_credentials', account_id: process.env.ZOOM_ACCOUNT_ID })
+            : new URLSearchParams({ grant_type: 'refresh_token', refresh_token: process.env.ZOOM_REFRESH_TOKEN })
     });
     const data = await response.json();
     if (!response.ok || !data.access_token) throw new Error(data.reason || data.message || 'No se pudo renovar la conexión con Zoom.');
-    if (data.refresh_token) {
+    if (!isServerToServer && data.refresh_token) {
         updateEnvFile({ ZOOM_REFRESH_TOKEN: data.refresh_token });
         process.env.ZOOM_REFRESH_TOKEN = data.refresh_token;
     }
@@ -4609,7 +4609,7 @@ const DOCTOR_NOTE_PREFIX = '[Nota del Profesional]';
 app.get('/api/zoom/config', authenticateToken, (req, res) => {
     res.json({
         success: true,
-        isConnected: !!process.env.ZOOM_REFRESH_TOKEN,
+        isConnected: !!(process.env.ZOOM_REFRESH_TOKEN || process.env.ZOOM_ACCOUNT_ID),
         hasCredentials: !!(process.env.ZOOM_CLIENT_ID && process.env.ZOOM_CLIENT_SECRET),
         redirectUri: getZoomRedirectUri(req)
     });
