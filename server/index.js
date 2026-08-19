@@ -380,6 +380,9 @@ if (isPackaged && !fs.existsSync(ENV_PATH)) {
 }
 
 dotenv.config({ path: ENV_PATH });
+// Keep Zoom server-to-server credentials in a separate private file so the
+// hosting environment can update them without touching the main app config.
+dotenv.config({ path: join(__dirname, '../.env.zoom'), override: true });
 
 // Helper to update/save values in .env file and update process.env in memory
 function updateEnvFile(updates) {
