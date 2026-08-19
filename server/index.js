@@ -4971,6 +4971,9 @@ app.post('/api/calendar/book', async (req, res) => {
         const response = await calendar.events.insert({
             calendarId,
             resource: event,
+            // Send Google Calendar's invitation/confirmation email to the
+            // patient listed as an attendee.
+            sendUpdates: 'all',
         });
         
         res.json({ success: true, eventId: response.data.id });
