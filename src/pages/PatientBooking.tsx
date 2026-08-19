@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar, Clock, User, Mail, Phone, MessageSquare, CheckCircle2, AlertCircle, ArrowRight, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { Calendar, Clock, User, Mail, Phone, MessageSquare, CheckCircle2, AlertCircle, ArrowRight, ArrowLeft, ShieldCheck, Video, MapPin } from 'lucide-react';
 import { PublicLayout } from '../layouts/PublicLayout';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -14,6 +14,7 @@ interface Slot {
 }
 
 type AppointmentType = 'initial' | 'followup';
+type MeetingMode = 'online' | 'in_person';
 
 // The standalone calendar can be hosted under vedamci.com.mx while its API
 // remains on the cPanel Node app at consultas.vedamci.com.mx.
@@ -53,6 +54,7 @@ export default function PatientBooking() {
     const [customEndTime, setCustomEndTime] = useState('11:00');
     const isUsingCustomTime = canUseAdminMode && useCustomTime;
     const [appointmentType, setAppointmentType] = useState<AppointmentType>('initial');
+    const [meetingMode, setMeetingMode] = useState<MeetingMode>('online');
     const appointmentTypeLabel = appointmentType === 'followup' ? 'Visita de seguimiento' : 'Consulta inicial';
     const shouldRequestClinicalForm = appointmentType === 'initial' && !canUseAdminMode;
 
@@ -234,6 +236,7 @@ export default function PatientBooking() {
                     start: selectedSlot.start,
                     end: selectedSlot.end,
                     appointmentType,
+                    meetingMode,
                     bookingMode: canUseAdminMode ? 'admin' : 'patient',
                     notes: formData.notes
                 })
@@ -383,6 +386,30 @@ export default function PatientBooking() {
                                         <span className="block text-xs mt-0.5 text-slate-500">
                                             Agenda sin pedir formulario clínico
                                         </span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                                    Modalidad de la cita
+                                </label>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => setMeetingMode('online')}
+                                        className={`p-3 rounded-xl border text-left transition-all ${meetingMode === 'online' ? 'bg-primary-100 border-primary text-primary-700 shadow-sm' : 'bg-white border-slate-100 text-slate-700 hover:border-slate-300'}`}
+                                    >
+                                        <span className="flex items-center gap-2 text-sm font-bold"><Video size={16} /> Virtual por Zoom</span>
+                                        <span className="block text-xs mt-1 text-slate-500">Recibirás el enlace de acceso en el correo.</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setMeetingMode('in_person')}
+                                        className={`p-3 rounded-xl border text-left transition-all ${meetingMode === 'in_person' ? 'bg-primary-100 border-primary text-primary-700 shadow-sm' : 'bg-white border-slate-100 text-slate-700 hover:border-slate-300'}`}
+                                    >
+                                        <span className="flex items-center gap-2 text-sm font-bold"><MapPin size={16} /> Presencial</span>
+                                        <span className="block text-xs mt-1 text-slate-500">Calzada del Federalismo Norte 839-A, Guadalajara.</span>
                                     </button>
                                 </div>
                             </div>
@@ -717,6 +744,16 @@ export default function PatientBooking() {
                                             <div>
                                                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Paciente</p>
                                                 <p className="text-sm font-bold text-slate-800">{formData.name}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-start gap-2.5">
+                                            {meetingMode === 'online' ? <Video className="text-primary-600 shrink-0 mt-0.5" size={16} /> : <MapPin className="text-primary-600 shrink-0 mt-0.5" size={16} />}
+                                            <div>
+                                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Modalidad</p>
+                                                <p className="text-sm font-bold text-slate-800">{meetingMode === 'online' ? 'Virtual por Zoom' : 'Presencial en Guadalajara'}</p>
+                                                {meetingMode === 'in_person' && <p className="text-xs text-slate-500 mt-1">Calzada del Federalismo Norte 839-A, Zona Centro.</p>}
+                                                {meetingMode === 'online' && <p className="text-xs text-slate-500 mt-1">El enlace de Zoom viene incluido en el correo de confirmación.</p>}
                                             </div>
                                         </div>
                                         

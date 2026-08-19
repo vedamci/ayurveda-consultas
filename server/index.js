@@ -522,6 +522,8 @@ const app = express();
 const configuredPort = Number.parseInt(process.env.PORT || '3000', 10);
 const port = Number.isFinite(configuredPort) ? configuredPort : 3000;
 const CALENDAR_CALLBACK_PATH = '/api/calendar/auth/callback';
+const ZOOM_CALLBACK_PATH = '/api/zoom/auth/callback';
+const DEFAULT_PHYSICAL_ADDRESS = 'Calzada del Federalismo Norte 839-A, Zona Centro, Guadalajara, Jalisco, México';
 const isLoopbackUrl = (value = '') => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(?:\/|$)/i.test(value);
 const getRequestOrigin = (req) => {
     if (!req) return '';
@@ -2024,6 +2026,63 @@ function initGoogleCalendar(redirectUri = getCalendarRedirectUri()) {
     }
 
     calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+}
+
+const getZoomRedirectUri = (req) => {
+    const configured = (process.env.ZOOM_REDIRECT_URI || '').trim();
+    if (configured) return configured;
+    return `${getRequestOrigin(req)}${ZOOM_CALLBACK_PATH}`;
+};
+
+async function getZoomAccessToken() {
+    if (!process.env.ZOOM_CLIENT_ID || !process.env.ZOOM_CLIENT_SECRET || !process.env.ZOOM_REFRESH_TOKEN) {
+        throw new Error('Zoom no está conectado. Conecta Zoom desde la configuración de la agenda.');
+    }
+
+    const credentials = Buffer.from(`${process.env.ZOOM_CLIENT_ID}:${process.env.ZOOM_CLIENT_SECRET}`).toString('base64');
+    const response = await fetch('https://zoom.us/oauth/token', {
+        method: 'POST',
+        headers: {
+            Authorization: `Basic ${credentials}`,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({
+            grant_type: 'refresh_token',
+            refresh_token: process.env.ZOOM_REFRESH_TOKEN
+        })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.access_token) throw new Error(data.reason || data.message || 'No se pudo renovar la conexión con Zoom.');
+    if (data.refresh_token) {
+        updateEnvFile({ ZOOM_REFRESH_TOKEN: data.refresh_token });
+        process.env.ZOOM_REFRESH_TOKEN = data.refresh_token;
+    }
+    return data.access_token;
+}
+
+async function createZoomMeeting({ name, start, end, appointmentTypeLabel }) {
+    const accessToken = await getZoomAccessToken();
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    const duration = Math.max(15, Math.round((endDate.getTime() - startDate.getTime()) / 60000));
+    const response = await fetch('https://api.zoom.us/v2/users/me/meetings', {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            topic: `${appointmentTypeLabel} Ayurveda: ${name}`,
+            type: 2,
+            start_time: startDate.toISOString(),
+            duration,
+            timezone: 'America/Mexico_City',
+            settings: { waiting_room: true, join_before_host: false }
+        })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.join_url) throw new Error(data.message || 'Zoom no pudo crear la reunión.');
+    return data;
 }
 
 initGoogleCalendar();
@@ -4546,6 +4605,55 @@ const DOCTOR_NOTE_PREFIX = '[Nota del Profesional]';
 
 // ─── Google Calendar Endpoints ──────────────────────────────────────────────
 
+// ─── Zoom Endpoints ─────────────────────────────────────────────────────────
+app.get('/api/zoom/config', authenticateToken, (req, res) => {
+    res.json({
+        success: true,
+        isConnected: !!process.env.ZOOM_REFRESH_TOKEN,
+        hasCredentials: !!(process.env.ZOOM_CLIENT_ID && process.env.ZOOM_CLIENT_SECRET),
+        redirectUri: getZoomRedirectUri(req)
+    });
+});
+
+app.get('/api/zoom/auth', authenticateToken, (req, res) => {
+    if (!process.env.ZOOM_CLIENT_ID || !process.env.ZOOM_CLIENT_SECRET) {
+        return res.status(400).json({ error: 'Primero configura el Client ID y Client Secret de Zoom.' });
+    }
+    const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: process.env.ZOOM_CLIENT_ID,
+        redirect_uri: getZoomRedirectUri(req)
+    });
+    res.json({ url: `https://zoom.us/oauth/authorize?${params.toString()}` });
+});
+
+app.get('/api/zoom/auth/callback', async (req, res) => {
+    try {
+        if (!req.query.code) throw new Error('Zoom no devolvió un código de autorización.');
+        const credentials = Buffer.from(`${process.env.ZOOM_CLIENT_ID}:${process.env.ZOOM_CLIENT_SECRET}`).toString('base64');
+        const tokenResponse = await fetch('https://zoom.us/oauth/token', {
+            method: 'POST',
+            headers: {
+                Authorization: `Basic ${credentials}`,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: new URLSearchParams({
+                grant_type: 'authorization_code',
+                code: String(req.query.code),
+                redirect_uri: getZoomRedirectUri(req)
+            })
+        });
+        const tokens = await tokenResponse.json();
+        if (!tokenResponse.ok || !tokens.refresh_token) throw new Error(tokens.reason || tokens.message || 'Zoom rechazó la conexión.');
+        updateEnvFile({ ZOOM_REFRESH_TOKEN: tokens.refresh_token });
+        process.env.ZOOM_REFRESH_TOKEN = tokens.refresh_token;
+        res.send('<!doctype html><html lang="es"><meta charset="utf-8"><title>Zoom conectado</title><body style="font-family:system-ui;padding:48px;text-align:center"><h1>Zoom conectado correctamente</h1><p>Ya puedes cerrar esta ventana y volver a la agenda de VEDAMCI.</p></body></html>');
+    } catch (error) {
+        console.error('Error connecting Zoom:', error.message);
+        res.status(500).send(`<h1>No se pudo conectar Zoom</h1><p>${error.message}</p>`);
+    }
+});
+
 // Get current Google Calendar configuration state
 app.get('/api/calendar/config', authenticateToken, (req, res) => {
     res.json({
@@ -4935,7 +5043,7 @@ app.get('/api/calendar/free-slots', async (req, res) => {
 // Book Event
 app.post('/api/calendar/book', async (req, res) => {
     try {
-        const { name, email, phone, start, end, notes, appointmentType, bookingMode } = req.body;
+        const { name, email, phone, start, end, notes, appointmentType, bookingMode, meetingMode } = req.body;
         
         if (!name || !email || !phone || !start || !end) {
             return res.status(400).json({ success: false, error: 'Todos los campos obligatorios (nombre, correo, celular, fecha y hora) deben ser proporcionados.' });
@@ -4947,10 +5055,23 @@ app.post('/api/calendar/book', async (req, res) => {
         
         const appointmentTypeLabel = appointmentType === 'followup' ? 'Visita de seguimiento' : 'Consulta inicial';
         const bookingModeLabel = bookingMode === 'admin' ? 'Modo administrador' : 'Portal de pacientes';
+        const normalizedMeetingMode = meetingMode === 'in_person' ? 'in_person' : 'online';
+        let location = '';
+        let meetingDetails = '';
+
+        if (normalizedMeetingMode === 'in_person') {
+            location = process.env.VEDAMCI_PHYSICAL_ADDRESS || DEFAULT_PHYSICAL_ADDRESS;
+            meetingDetails = `Modalidad: Presencial\nDirección: ${location}`;
+        } else {
+            const zoomMeeting = await createZoomMeeting({ name, start, end, appointmentTypeLabel });
+            location = zoomMeeting.join_url;
+            meetingDetails = `Modalidad: Virtual por Zoom\nEnlace para entrar: ${zoomMeeting.join_url}\nID de reunión: ${zoomMeeting.id}\nContraseña: ${zoomMeeting.password || 'La indicada por Zoom'}`;
+        }
         
         const event = {
             summary: `${appointmentTypeLabel} Ayurveda: ${name}`,
-            description: `Tipo de cita: ${appointmentTypeLabel}\nNombre del Paciente: ${name}\nCorreo: ${email}\nTeléfono: ${phone}\nMotivo/notas: ${notes || 'Sin especificar'}\nOrigen: ${bookingModeLabel}\nCreado automáticamente desde el portal de reservas de VEDAMCI.`,
+            location,
+            description: `Tipo de cita: ${appointmentTypeLabel}\n${meetingDetails}\nNombre del Paciente: ${name}\nCorreo: ${email}\nTeléfono: ${phone}\nMotivo/notas: ${notes || 'Sin especificar'}\nOrigen: ${bookingModeLabel}\nCreado automáticamente desde el portal de reservas de VEDAMCI.`,
             start: {
                 dateTime: start,
                 timeZone: 'America/Mexico_City',
@@ -4976,7 +5097,7 @@ app.post('/api/calendar/book', async (req, res) => {
             sendUpdates: 'all',
         });
         
-        res.json({ success: true, eventId: response.data.id });
+        res.json({ success: true, eventId: response.data.id, meetingMode: normalizedMeetingMode, location, meetingDetails });
     } catch (error) {
         console.error('Error booking calendar event:', error.message);
         res.status(500).json({ success: false, error: error.message });
