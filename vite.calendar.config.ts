@@ -1,17 +1,20 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const projectDir = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  root: resolve(__dirname, 'calendar-app'),
-  envDir: __dirname,
+  root: resolve(projectDir, 'calendar-app'),
+  envDir: projectDir,
   base: '/calendario-consultas/',
   plugins: [react(), tailwindcss()],
-  publicDir: resolve(__dirname, 'public'),
+  publicDir: resolve(projectDir, 'public'),
   server: {
     fs: {
-      allow: [resolve(__dirname)],
+      allow: [resolve(projectDir)],
     },
     proxy: {
       '/api': {
@@ -22,7 +25,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: resolve(__dirname, 'dist-calendar'),
+    outDir: resolve(projectDir, 'dist-calendar'),
     emptyOutDir: true,
   },
 });
