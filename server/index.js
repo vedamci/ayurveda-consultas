@@ -4953,6 +4953,64 @@ app.delete('/api/calendar/events/:id', authenticateToken, async (req, res) => {
 });
 
 // Helper to check event overlaps for a slot
+const BOOKING_TIME_ZONE = 'America/Mexico_City';
+
+function getTimeZoneParts(date, timeZone = BOOKING_TIME_ZONE) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+    }).formatToParts(date);
+
+    return Object.fromEntries(parts
+        .filter(part => part.type !== 'literal')
+        .map(part => [part.type, Number(part.value)]));
+}
+
+function getTimeZoneOffsetMs(date, timeZone = BOOKING_TIME_ZONE) {
+    const parts = getTimeZoneParts(date, timeZone);
+    const asUtc = Date.UTC(
+        parts.year,
+        parts.month - 1,
+        parts.day,
+        parts.hour,
+        parts.minute,
+        parts.second,
+    );
+    return asUtc - date.getTime();
+}
+
+function createDateInTimeZone(dateString, hour, minute = 0, second = 0, millisecond = 0, timeZone = BOOKING_TIME_ZONE) {
+    const [year, month, day] = dateString.split('-').map(Number);
+    const wallClockUtc = Date.UTC(year, month - 1, day, hour, minute, second, millisecond);
+    const offset = getTimeZoneOffsetMs(new Date(wallClockUtc), timeZone);
+    return new Date(wallClockUtc - offset);
+}
+
+function getCalendarDateInTimeZone(date = new Date(), timeZone = BOOKING_TIME_ZONE) {
+    const parts = getTimeZoneParts(date, timeZone);
+    return { year: parts.year, month: parts.month, day: parts.day };
+}
+
+function addCalendarDays({ year, month, day }, days) {
+    const date = new Date(Date.UTC(year, month - 1, day));
+    date.setUTCDate(date.getUTCDate() + days);
+    return {
+        year: date.getUTCFullYear(),
+        month: date.getUTCMonth() + 1,
+        day: date.getUTCDate(),
+    };
+}
+
+function toDateString({ year, month, day }) {
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 function isOverlapping(slotStart, slotEnd, events) {
     for (const event of events) {
         const eventStart = new Date(event.start.dateTime || event.start.date);
@@ -4980,11 +5038,11 @@ app.get('/api/calendar/free-slots', async (req, res) => {
 
         const bookingWindowDays = 21;
         
-        const startSearch = new Date();
-        startSearch.setHours(0, 0, 0, 0);
-        const endSearch = new Date();
-        endSearch.setDate(endSearch.getDate() + bookingWindowDays);
-        endSearch.setHours(23, 59, 59, 999);
+        const today = getCalendarDateInTimeZone();
+        const firstSearchDate = toDateString(addCalendarDays(today, 1));
+        const lastSearchDate = toDateString(addCalendarDays(today, bookingWindowDays));
+        const startSearch = createDateInTimeZone(firstSearchDate, 0, 0, 0, 0);
+        const endSearch = createDateInTimeZone(lastSearchDate, 23, 59, 59, 999);
         
         const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary';
         const response = await calendar.events.list({
@@ -5005,25 +5063,20 @@ app.get('/api/calendar/free-slots', async (req, res) => {
         
         // Generate slots for the next 3 weeks, starting from tomorrow
         for (let i = 1; i <= bookingWindowDays; i++) {
-            const date = new Date();
-            date.setDate(date.getDate() + i);
+            const dateParts = addCalendarDays(today, i);
+            const dateString = toDateString(dateParts);
             
             // Check if day of week is allowed
-            const dayOfWeek = date.getDay();
+            const dayOfWeek = new Date(Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day)).getUTCDay();
             if (!allowedDays.includes(dayOfWeek)) continue;
-            
-            const yyyy = date.getFullYear();
-            const mm = String(date.getMonth() + 1).padStart(2, '0');
-            const dd = String(date.getDate()).padStart(2, '0');
-            const dateString = `${yyyy}-${mm}-${dd}`;
             
             // Check if date is blocked
             if (blockedDates.includes(dateString)) continue;
             
             for (const hour of allowedHours) {
-                // Construct slot dates in local server timezone (Mexico City)
-                const slotStart = new Date(`${dateString}T${String(hour).padStart(2, '0')}:00:00`);
-                const slotEnd = new Date(`${dateString}T${String(hour + 1).padStart(2, '0')}:00:00`);
+                // Construct slots in the booking timezone, independent of the host server timezone.
+                const slotStart = createDateInTimeZone(dateString, hour);
+                const slotEnd = createDateInTimeZone(dateString, hour + 1);
                 
                 if (!isOverlapping(slotStart, slotEnd, events)) {
                     slots.push({
