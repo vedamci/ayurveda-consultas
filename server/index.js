@@ -414,6 +414,11 @@ function updateEnvFile(updates) {
     }
     
     fs.writeFileSync(envPath, lines.join('\n'), 'utf8');
+    try {
+        fs.chmodSync(envPath, 0o600);
+    } catch (error) {
+        console.warn('Could not restrict permissions on the persistent env file:', error.message);
+    }
 }
 
 // Generate JWT_SECRET if not exists
@@ -2021,6 +2026,14 @@ function initGoogleCalendar(redirectUri = getCalendarRedirectUri()) {
         process.env.GOOGLE_CLIENT_SECRET,
         redirectUri
     );
+
+    // Google can rotate refresh tokens. Persist a replacement immediately so
+    // a restart or redeploy does not silently revert to an older token.
+    oauth2Client.on('tokens', (tokens) => {
+        if (!tokens.refresh_token) return;
+        updateEnvFile({ GOOGLE_REFRESH_TOKEN: tokens.refresh_token });
+        console.log('Google refresh token persisted in the server data directory.');
+    });
 
     if (process.env.GOOGLE_REFRESH_TOKEN) {
         oauth2Client.setCredentials({
@@ -5100,6 +5113,15 @@ app.get('/api/calendar/free-slots', async (req, res) => {
 app.post('/api/calendar/book', async (req, res) => {
     try {
         const { name, email, phone, start, end, notes, appointmentType, bookingMode, meetingMode } = req.body;
+
+        if (bookingMode === 'admin') {
+            const authHeader = req.headers.authorization || '';
+            const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+            const bookingUser = verifyToken(token);
+            if (bookingUser?.role !== 'admin') {
+                return res.status(403).json({ success: false, error: 'El modo administrador requiere una sesión administrativa.' });
+            }
+        }
         
         if (!name || !email || !phone || !start || !end) {
             return res.status(400).json({ success: false, error: 'Todos los campos obligatorios (nombre, correo, celular, fecha y hora) deben ser proporcionados.' });

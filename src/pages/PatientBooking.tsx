@@ -43,13 +43,13 @@ export default function PatientBooking() {
     const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
 
     // Admin Mode States
-    const queryParams = new URLSearchParams(window.location.search);
-    const isAdminLink = queryParams.get('admin') === 'true';
-    const canUseAdminMode = isAdminLink || user?.role === 'admin';
+    // Admin mode is granted by the authenticated server-backed role only.
+    // A public query parameter must never be enough to bypass patient rules.
+    const canUseAdminMode = user?.role === 'admin';
     
-    const [useCustomTime, setUseCustomTime] = useState(isAdminLink);
-    const [adminModeInitialized, setAdminModeInitialized] = useState(isAdminLink);
-    const [customDate, setCustomDate] = useState(() => isAdminLink ? getTomorrowDateString() : '');
+    const [useCustomTime, setUseCustomTime] = useState(false);
+    const [adminModeInitialized, setAdminModeInitialized] = useState(false);
+    const [customDate, setCustomDate] = useState('');
     const [customStartTime, setCustomStartTime] = useState('10:00');
     const [customEndTime, setCustomEndTime] = useState('11:00');
     const isUsingCustomTime = canUseAdminMode && useCustomTime;
