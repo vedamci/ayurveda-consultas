@@ -11,7 +11,6 @@ import crypto from 'crypto';
 import convertHEIC from 'heic-convert';
 import { exec, execFile } from 'child_process';
 import os from 'os';
-import { importNotionSymptomHistory } from './import-notion-symptom-history.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -5650,16 +5649,4 @@ if (isPackaged) {
 const listenHost = process.env.HOST || (isPackaged ? '0.0.0.0' : 'localhost');
 app.listen(port, listenHost, () => {
     console.log(`Server running on http://${listenHost}:${port}`);
-    importNotionSymptomHistory({
-        notionApiKey,
-        sourceDatabaseId: '2a1edfc8-3c23-8125-b035-ea5a7915f147',
-        targetPatientId: '321edfc8-3c23-8164-8719-c98ef7191c51',
-        readPatientRecord,
-        writePatientRecord,
-        writeVisitMarkdown
-    }).then(({ importedVisits, importedPoints }) => {
-        if (importedVisits > 0) {
-            console.log(`[Notion symptoms] Imported ${importedPoints} points in ${importedVisits} visits.`);
-        }
-    }).catch(error => console.error('[Notion symptoms] Import failed:', error.message));
 });

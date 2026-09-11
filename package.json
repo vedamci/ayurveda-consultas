@@ -5,6 +5,7 @@
   "type": "module",
   "main": "electron-main.mjs",
   "scripts": {
+    "postinstall": "node scripts/import_sonia_symptoms.js",
     "dev": "concurrently \"nodemon --ignore local-data --ignore dist --ignore dist-electron server/index.js\" \"vite\"",
     "build": "tsc -b && vite build && vite build --config vite.calendar.config.ts",
     "build:calendar": "vite build --config vite.calendar.config.ts",
