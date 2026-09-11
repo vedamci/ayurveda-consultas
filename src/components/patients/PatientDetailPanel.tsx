@@ -204,8 +204,6 @@ const getAdherenceClass = (status?: TreatmentAdherenceItem['status']) => {
 const getFrequencyScore = (frequency = '') => {
     const normalized = frequency.toLowerCase();
     if (normalized.startsWith('superad') || normalized.startsWith('ningun')) return 0;
-    const numericFrequency = Number(normalized.replace(',', '.'));
-    if (Number.isFinite(numericFrequency)) return Math.max(0, numericFrequency);
     if (normalized.startsWith('diaria') || normalized === 'd') return 3;
     if (normalized.startsWith('semanal') || normalized === 's') return 2;
     if (normalized.startsWith('mensual') || normalized === 'm') return 1;
@@ -2847,7 +2845,6 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
 
     const getFrequencyBadge = (frequency: string) => {
         if (/^superad|^ningun/i.test(frequency || '')) return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-        if (/^\d+(?:[.,]\d+)?$/.test(frequency || '')) return 'bg-violet-50 text-violet-700 border-violet-100';
         const styles: Record<string, string> = {
             'Diaria': 'bg-blue-50 text-blue-600 border-blue-100',
             'Semanal': 'bg-emerald-50 text-emerald-600 border-emerald-100',
@@ -6828,6 +6825,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 }}
                 initialDiagnosis={diagnosis}
                 editingRecord={editingRecord}
+                onOpenTherapeuticSummary={openTherapeuticSummary}
                 patientId={activeTreatmentPatientId || patientId || patient?.id || null}
                 patient={patient ? { ...patient, id: activeTreatmentPatientId || patientId || patient.id } : { name: 'Paciente', age: '', email: '', dosha: 'Vata-Pitta', fullNotes: '[]', symptomCalibrations: [], plainSymptoms: [], visits: [], treatmentPlans: [] }}
             />
