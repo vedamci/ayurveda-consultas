@@ -1204,6 +1204,176 @@ function writePatientRecord(patientId, record) {
     writeTherapeuticTracking(patientId, normalizedRecord, patientDir);
 }
 
+// Importa una tabla histórica de síntomas de Notion al expediente local que usa
+// la app. La migración es idempotente: cada punto conserva el id de su fila de
+// Notion y nunca se vuelve a insertar aunque Passenger reinicie el servidor.
+const LEGACY_SYMPTOM_IMPORT = {
+    sourceDatabaseId: '2a1edfc8-3c23-8125-b035-ea5a7915f147',
+    targetPatientId: '321edfc8-3c23-8164-8719-c98ef7191c51'
+};
+
+function notionPlainText(property) {
+    const items = property?.title || property?.rich_text || [];
+    return items.map(item => item?.plain_text || item?.text?.content || '').join('').trim();
+}
+
+function parseLegacyFrequencyIntensity(value = '') {
+    const numbers = String(value).match(/\d+/g)?.map(Number) || [];
+    const frequency = numbers[0] ?? 0;
+    const intensity = numbers[1] ?? 0;
+    return {
+        frequency: frequency === 0 ? 'Superado' : String(frequency),
+        intensity: Math.max(0, Math.min(10, intensity))
+    };
+}
+
+async function notionApi(path, options = {}) {
+    const response = await fetch(`https://api.notion.com/v1${path}`, {
+        ...options,
+        headers: {
+            'Authorization': `Bearer ${notionApiKey}`,
+            'Notion-Version': '2022-06-28',
+            'Content-Type': 'application/json',
+            ...(options.headers || {})
+        }
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || `Notion respondió ${response.status}`);
+    }
+    return response.json();
+}
+
+async function listAllNotionRows(databaseId) {
+    const rows = [];
+    let startCursor;
+    do {
+        const data = await notionApi(`/databases/${databaseId}/query`, {
+            method: 'POST',
+            body: JSON.stringify({ page_size: 100, ...(startCursor ? { start_cursor: startCursor } : {}) })
+        });
+        rows.push(...(data.results || []));
+        startCursor = data.has_more ? data.next_cursor : undefined;
+    } while (startCursor);
+    return rows;
+}
+
+async function listAllNotionBlocks(blockId) {
+    const blocks = [];
+    let startCursor;
+    do {
+        const query = new URLSearchParams({ page_size: '100' });
+        if (startCursor) query.set('start_cursor', startCursor);
+        const data = await notionApi(`/blocks/${blockId}/children?${query}`);
+        blocks.push(...(data.results || []));
+        startCursor = data.has_more ? data.next_cursor : undefined;
+    } while (startCursor);
+    return blocks;
+}
+
+function legacySymptomPoint(row, symptomName, fallbackNote = '') {
+    const properties = row.properties || {};
+    const fi = notionPlainText(properties['F/I']);
+    return {
+        sourceId: row.id,
+        dateTime: row.created_time,
+        visitLabel: notionPlainText(properties.VS),
+        symptomName,
+        note: notionPlainText(properties.Anotaciones) || fallbackNote,
+        ...parseLegacyFrequencyIntensity(fi)
+    };
+}
+
+async function importLegacySymptomHistory({ sourceDatabaseId, targetPatientId }) {
+    if (!notionApiKey) return;
+
+    const symptomPages = await listAllNotionRows(sourceDatabaseId);
+    const points = [];
+
+    for (const symptomPage of symptomPages) {
+        const properties = symptomPage.properties || {};
+        const symptomName = notionPlainText(properties['Síntoma']);
+        if (!symptomName || symptomName.toLowerCase().includes('seguimiento de síntomas')) continue;
+
+        const fallbackNote = notionPlainText(properties.Anotaciones);
+        const blocks = await listAllNotionBlocks(symptomPage.id);
+        const childDatabases = blocks.filter(block => block.type === 'child_database');
+        const childPoints = [];
+
+        for (const childDatabase of childDatabases) {
+            const rows = await listAllNotionRows(childDatabase.id);
+            childPoints.push(...rows.map(row => legacySymptomPoint(row, symptomName, fallbackNote)));
+        }
+
+        points.push(...childPoints);
+
+        // Algunos síntomas nacieron entre seguimientos y su primer valor vive en
+        // la fila principal. Se conserva solo si ese día no existe ya una fila hija.
+        const parentPoint = legacySymptomPoint(symptomPage, symptomName, fallbackNote);
+        const parentDay = String(parentPoint.dateTime || '').slice(0, 10);
+        const duplicatedDay = childPoints.some(point => String(point.dateTime || '').slice(0, 10) === parentDay);
+        if (!duplicatedDay) points.push(parentPoint);
+    }
+
+    const byDate = new Map();
+    for (const point of points.filter(point => point.dateTime)) {
+        const date = point.dateTime.slice(0, 10);
+        if (!byDate.has(date)) byDate.set(date, []);
+        byDate.get(date).push(point);
+    }
+
+    const record = readPatientRecord(targetPatientId);
+    const importedIds = new Set(
+        (record.visits || []).flatMap(visit => visit.notionSourceIds || [])
+    );
+    let importedVisits = 0;
+    let importedPoints = 0;
+
+    for (const [date, dayPoints] of [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+        const pending = dayPoints.filter(point => !importedIds.has(point.sourceId));
+        if (pending.length === 0) continue;
+
+        const symptoms = {};
+        for (const point of pending) {
+            symptoms[point.symptomName] = {
+                frequency: point.frequency,
+                intensity: point.intensity,
+                ...(point.note ? { note: point.note } : {})
+            };
+        }
+
+        const labels = [...new Set(pending.map(point => point.visitLabel).filter(Boolean))];
+        const createdAt = pending.map(point => point.dateTime).sort()[0];
+        const visit = {
+            id: crypto.randomUUID(),
+            title: labels.length ? labels.join(' / ') : `Seguimiento ${date}`,
+            date,
+            note: '',
+            diagnosis: '',
+            treatment: '',
+            lifestyle: '',
+            symptoms,
+            herbs: [],
+            categories: [],
+            recipes: [],
+            adherence: {},
+            notionSourceIds: pending.map(point => point.sourceId),
+            createdAt,
+            updatedAt: createdAt
+        };
+        visit.mdFile = writeVisitMarkdown(targetPatientId, visit);
+        record.visits.push(visit);
+        importedVisits += 1;
+        importedPoints += pending.length;
+    }
+
+    if (importedVisits > 0) {
+        record.intensityScale = 10;
+        writePatientRecord(targetPatientId, record);
+        console.log(`[Notion symptoms] Imported ${importedPoints} points in ${importedVisits} visits.`);
+    }
+}
+
 function buildVisitMarkdown(visit = {}, patientName = '', intensityScale = 3) {
     const L = [];
     const safe = (v) => (v === undefined || v === null) ? '' : String(v);
@@ -5649,4 +5819,6 @@ if (isPackaged) {
 const listenHost = process.env.HOST || (isPackaged ? '0.0.0.0' : 'localhost');
 app.listen(port, listenHost, () => {
     console.log(`Server running on http://${listenHost}:${port}`);
+    importLegacySymptomHistory(LEGACY_SYMPTOM_IMPORT)
+        .catch(error => console.error('[Notion symptoms] Import failed:', error.message));
 });
