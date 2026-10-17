@@ -46,6 +46,8 @@ import { type DoshaType, inferDoshaFromText } from '../../utils/dosha';
 import { buildWhatsAppUrl, professionalContact } from '../../utils/whatsapp';
 import { toJpeg } from 'html-to-image';
 import { jsPDF } from 'jspdf';
+import { flushSync } from 'react-dom';
+import { exportPreviewPdf } from '../../utils/pdfPreviewExport';
 
 // Import JSON Databases
 import kaphaDiet from '../../data/diets/kapha.json';
@@ -66,6 +68,7 @@ interface TreatmentPDFModalProps {
     onClose: () => void;
     patient: PatientDetail & { id?: string };
     patientId?: string | null;
+    onOpenTherapeuticSummary?: () => void;
     initialDiagnosis: string | null;
     editingRecord?: { type: 'plan' | 'visit'; record: any } | null;
 }
@@ -1338,6 +1341,16 @@ const getStructuredRecipeParts = (recipe: any) => {
     const [autosavedRecordType, setAutosavedRecordType] = useState<'plan' | 'visit'>(editingRecord?.type || 'plan');
     const [isDrafting, setIsDrafting] = useState(false);
     const [showTreatmentPage, setShowTreatmentPage] = useState(false);
+    const [generatedPdfUrl, setGeneratedPdfUrl] = useState<string | null>(null);
+    useEffect(() => () => {
+        if (generatedPdfUrl) URL.revokeObjectURL(generatedPdfUrl);
+    }, [generatedPdfUrl]);
+    useEffect(() => {
+        if (!isOpen) {
+            setShowTreatmentPage(false);
+            setGeneratedPdfUrl(null);
+        }
+    }, [isOpen]);
     const [aiProvider] = useState<'gemini' | 'deepseek'>('deepseek');
 
     // States for Treatment AI Chat
@@ -2012,7 +2025,8 @@ const getStructuredRecipeParts = (recipe: any) => {
     };
 
     const generateVectorClientPdfBytes = async (
-        onProgress?: (progress: number, status?: string) => void
+        onProgress?: (progress: number, status?: string) => void,
+        format: PdfPageFormat = pdfPageFormat
     ): Promise<Uint8Array> => {
         const printContent = document.getElementById('pdf-print-content');
         const bodyCell = printContent?.querySelector<HTMLElement>('td.plt-body');
@@ -2020,7 +2034,7 @@ const getStructuredRecipeParts = (recipe: any) => {
 
         onProgress?.(64, 'Componiendo texto vectorial...');
         const runtime = await getPdfMakeRuntime();
-        const mobile = pdfPageFormat === 'mobile';
+        const mobile = format === 'mobile';
         const pageWidth = mobile ? 120 * 72 / 25.4 : 595.28;
         const pageHeight = mobile ? 213 * 72 / 25.4 : 841.89;
         const baseFontSize = mobile ? 10.5 : 10;
@@ -2273,14 +2287,20 @@ const getStructuredRecipeParts = (recipe: any) => {
     void generateClientPdfBytes;
 
     // ── Motor unificado de PDF (raíz del arreglo) ─────────────────────────────
-    // La plantilla continua (#pdf-print-content) es la ÚNICA fuente del PDF:
-    // Chromium pagina de verdad (texto vectorial, sin cortes, página llena).
+    // A4 conserva el diseño visible y compacta secciones para aprovechar la hoja.
+    // La plantilla continua se reserva para el formato móvil.
     //  1) App de escritorio → Chromium nativo (webContents.printToPDF).
     //  2) Web → Puppeteer en el servidor (Chromium headless), misma plantilla.
     //  3) Web sin Chromium → jsPDF en el navegador, descarga automática.
     const generatePdfBytes = async (
-        onProgress?: (progress: number, status?: string) => void
+        onProgress?: (progress: number, status?: string) => void,
+        format: PdfPageFormat = 'desktop'
     ): Promise<Uint8Array | null> => {
+        if (format === 'desktop') {
+            const preview = document.getElementById('pdf-content');
+            if (!preview) throw new Error('No se encontró la vista previa del documento.');
+            return exportPreviewPdf(preview, onProgress);
+        }
         const electronPrint = (typeof window !== 'undefined') ? (window as any).vedamciPrint : undefined;
 
         // 1) Escritorio (Electron)
@@ -2339,7 +2359,7 @@ const getStructuredRecipeParts = (recipe: any) => {
         // 3) cPanel no ofrece Chromium: compone el documento con texto vectorial
         // dentro del navegador. Mantiene nitidez, selección, enlaces y paginación
         // real sin abrir window.print ni depender de una captura de pantalla.
-        return generateVectorClientPdfBytes(onProgress);
+        return generateVectorClientPdfBytes(onProgress, format);
     };
 
     const handleSavePlan = async (options: { saveFlatPdf?: boolean; isAutoSave?: boolean; existingBytes?: Uint8Array } = {}) => {
@@ -2562,7 +2582,7 @@ const getStructuredRecipeParts = (recipe: any) => {
     const handlePrint = async (format: PdfPageFormat = 'desktop') => {
         // Aplicar el formato ANTES de esperar el repintado: la plantilla y su
         // CSS (@page, paddings) se regeneran con el tamaño de hoja elegido.
-        setPdfPageFormat(format);
+        flushSync(() => setPdfPageFormat(format));
         setDownloadProgress(0);
         setDownloadStatus(format === 'mobile' ? 'Preparando el PDF para móvil...' : 'Preparando el PDF...');
         setIsDownloading(true);
@@ -2573,7 +2593,7 @@ const getStructuredRecipeParts = (recipe: any) => {
             const bytes = await generatePdfBytes((progress, status) => {
                 setDownloadProgress(progress);
                 if (status) setDownloadStatus(status);
-            });
+            }, format);
             if (!bytes) {
                 // Motores Chromium no disponibles: se abrió el diálogo de impresión.
                 setSaveMessage('Se abrió el diálogo de impresión del navegador; guarda el PDF desde ahí.');
@@ -2585,6 +2605,7 @@ const getStructuredRecipeParts = (recipe: any) => {
             setDownloadProgress(94);
             setDownloadStatus('Preparando descarga...');
             await waitForBrowserPaint();
+            setGeneratedPdfUrl(URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'application/pdf' })));
             downloadPdfBytes(bytes, filename);
             setDownloadProgress(98);
             setDownloadStatus('Guardando copia local...');
@@ -5633,7 +5654,9 @@ const getStructuredRecipeParts = (recipe: any) => {
                                     />
                                 </div>
                                 <p className="text-xs font-semibold text-slate-400 mt-3">
-                                    El PDF se genera con texto real (seleccionable) usando el motor de impresión de Chromium.
+                                    {pdfPageFormat === 'desktop'
+                                        ? 'Conservando el diseño y aprovechando el espacio de cada página.'
+                                        : 'Preparando el documento para leerlo en el teléfono.'}
                                 </p>
                             </motion.div>
                         </motion.div>
@@ -5641,7 +5664,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                 </AnimatePresence>
 
                 <AnimatePresence>
-                    {showTreatmentPage && !isDownloading && (
+                    {showTreatmentPage && generatedPdfUrl && !isDownloading && (
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -5652,7 +5675,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                                 initial={{ scale: 0.94, y: 18 }}
                                 animate={{ scale: 1, y: 0 }}
                                 exit={{ scale: 0.96, y: 10 }}
-                                className="w-[min(94vw,46rem)] max-h-[88vh] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col"
+                                className="w-[min(94vw,70rem)] h-[88vh] max-h-[88vh] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col"
                             >
                                 <div className="px-6 py-4 border-b border-slate-100 bg-emerald-50/70 flex items-center justify-between gap-4">
                                     <div className="flex items-center gap-3">
@@ -5673,45 +5696,8 @@ const getStructuredRecipeParts = (recipe: any) => {
                                         <X size={20} />
                                     </button>
                                 </div>
-                                <div className="flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar">
-                                    <section>
-                                        <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-600 mb-2">Tratamiento e indicaciones</h4>
-                                        <div className="prose prose-sm max-w-none text-slate-700 prose-p:my-2 prose-strong:text-slate-900">
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{printableTreatmentText}</ReactMarkdown>
-                                        </div>
-                                    </section>
-                                    {lifestyleIndication && (
-                                        <section className="rounded-xl bg-emerald-50 border border-emerald-100 p-4">
-                                            <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-700 mb-2">Estilo de vida</h4>
-                                            <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-line">{lifestyleIndication}</p>
-                                        </section>
-                                    )}
-                                    {printableHerbs.length > 0 && (
-                                        <section>
-                                            <h4 className="text-xs font-bold uppercase tracking-wider text-amber-600 mb-2">Fórmulas herbales</h4>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                {printableHerbs.map((herb, index) => (
-                                                    <div key={`${herb.formula}-${index}`} className="rounded-xl border border-amber-100 bg-amber-50/60 p-3">
-                                                        <p className="text-sm font-bold text-slate-800">{herb.formula}</p>
-                                                        <p className="text-xs text-slate-500 mt-1">{herb.dosage}</p>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </section>
-                                    )}
-                                    {showRecipesSection && selectedRecipes.length > 0 && (
-                                        <section>
-                                            <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-600 mb-2">Recetas recomendadas</h4>
-                                            <div className="grid grid-cols-1 gap-2">
-                                                {selectedRecipes.map((recipe, index) => (
-                                                    <div key={`${recipe.id}-${index}`} className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
-                                                        <p className="text-sm font-bold text-slate-800">{recipe.title}</p>
-                                                        <p className="text-xs text-slate-500 mt-1">Categoría: {recipe.category} · Doshas: {recipe.doshas.join(', ') || 'General'}</p>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </section>
-                                    )}
+                                <div className="flex-1 min-h-0 bg-slate-200 p-2">
+                                    <iframe src={generatedPdfUrl} title="PDF generado" className="w-full h-full border-0 rounded-lg" />
                                 </div>
                                 <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row gap-2 justify-end">
                                     <button
