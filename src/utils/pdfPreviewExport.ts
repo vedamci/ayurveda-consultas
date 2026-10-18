@@ -1,4 +1,5 @@
-import { getFontEmbedCSS, toJpeg } from 'html-to-image';
+import { embedPdfFonts } from './pdfFonts';
+import { capturePdfPage, assertCapturedPageHasInk } from './pdfRaster';
 import { jsPDF } from 'jspdf';
 import { collectPdfProtectedRanges, paginatePdfContent } from './pdfPagination';
 
@@ -49,9 +50,8 @@ export async function exportPreviewPdf(container: HTMLElement, onProgress?: Prog
     const sideMargin = width * 20 / 210;
     const gap = width * 4 / 210;
     const css = documentCss();
-    // Do not use preferredFontFormat: html-to-image's global regex drops
-    // alternating font sources, including Mukta Latin 400/600.
-    const fontCss = await getFontEmbedCSS(container);
+    // Embed the exact local font files used by the editor.
+    const fontCss = await embedPdfFonts();
     const viewport = document.createElement('div');
     viewport.setAttribute('aria-hidden', 'true');
     Object.assign(viewport.style, {
@@ -221,11 +221,12 @@ export async function exportPreviewPdf(container: HTMLElement, onProgress?: Prog
             // so the next section cannot leak into this page's bottom margin.
             flowWindow.style.height = `${slice.bottom - slice.top}px`;
             onProgress?.(25 + Math.round((index + 1) / slices.length * 65), `Conservando el diseño · página ${index + 1}...`);
-            const image = await toJpeg(viewport, {
+            const image = await capturePdfPage(viewport, {
                 width, height: pageHeight, pixelRatio: 2.25, quality: 0.98,
                 backgroundColor: '#ffffff', fontEmbedCSS: fontCss,
                 style: { position: 'relative', left: '0', top: '0', zIndex: '0' },
             });
+            await assertCapturedPageHasInk(image);
             pdf.addImage(image, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
             for (const link of links) {
                 const top = Math.max(link.top, slice.top);
