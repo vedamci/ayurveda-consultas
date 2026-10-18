@@ -2,6 +2,16 @@
 import { toSvg as originalToSvg } from '../node_modules/html-to-image/es/index.js';
 
 export async function toSvg(node: HTMLElement, options: Record<string, unknown> = {}) {
+    let firstPageHasInstructions: boolean | undefined;
+    if (node.hasAttribute('data-pdf-mobile-page') && node.dataset.pdfPageIndex === '0') {
+        const clip = node.querySelector<HTMLElement>('[data-pdf-clip]')?.getBoundingClientRect();
+        const firstInstruction = node.querySelector<HTMLElement>('.print-flow-instruction-block li');
+        if (clip && firstInstruction) {
+            firstPageHasInstructions = Array.from(firstInstruction.getClientRects()).some(rect =>
+                rect.left < clip.right && rect.right > clip.left && rect.top < clip.bottom && rect.bottom > clip.top);
+            if (!firstPageHasInstructions) throw new Error('La primera página móvil dejó las indicaciones para la siguiente hoja.');
+        }
+    }
     const encoded = await originalToSvg(node, options);
     const svg = new DOMParser().parseFromString(decodeURIComponent(encoded.slice(encoded.indexOf(',') + 1)), 'image/svg+xml');
     const clonedText = Array.from(svg.querySelectorAll<HTMLElement>('h1,h2,h3,h4,p,li'));
@@ -33,6 +43,6 @@ export async function toSvg(node: HTMLElement, options: Record<string, unknown> 
         document.body.appendChild(evidence);
     }
     const previous = JSON.parse(evidence.textContent || '[]');
-    evidence.textContent = JSON.stringify([...previous, { compared, fonts, embeddedFonts: true }]);
+    evidence.textContent = JSON.stringify([...previous, { compared, fonts, embeddedFonts: true, firstPageHasInstructions }]);
     return encoded;
 }
