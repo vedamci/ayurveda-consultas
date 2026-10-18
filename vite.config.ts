@@ -8,6 +8,10 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  build: {
+    // Keep current bundles separate from legacy files generated on cPanel.
+    assetsDir: 'assets/app',
+  },
   server: {
     proxy: {
       '/api': {
