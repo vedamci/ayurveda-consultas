@@ -64,7 +64,14 @@ export async function createMobilePdfLayout(source: HTMLElement) {
         viewport.style.height = `${contentHeight}px`;
         const columnHeight = contentHeight - 20; // Eczar ascenders extend beyond tight line boxes.
 
-        for (const element of Array.from(flow.querySelectorAll<HTMLElement>('.print-avoid, .print-flow-card, .print-flow-table-card, .print-flow-instruction-block, .print-flow-food-intro, tr, li, img'))) {
+        // Let content start in the space below the header instead of moving a
+        // whole section to the next page. Keep only individual items together.
+        const containers = '.print-flow-section, .print-flow-card, .print-flow-table-card, .print-flow-instruction-block, .print-flow-food-intro';
+        for (const container of Array.from(flow.querySelectorAll<HTMLElement>(containers))) {
+            container.style.setProperty('break-inside', 'auto', 'important');
+        }
+        for (const element of Array.from(flow.querySelectorAll<HTMLElement>('.print-avoid, tr, li, img'))) {
+            if (element.matches(containers)) continue;
             element.style.setProperty('break-inside', element.getBoundingClientRect().height <= columnHeight ? 'avoid-column' : 'auto', 'important');
         }
         for (const card of Array.from(flow.querySelectorAll<HTMLElement>('.print-flow-card, .print-flow-table-card'))) {
