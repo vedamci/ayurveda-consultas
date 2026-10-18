@@ -44,10 +44,11 @@ import remarkGfm from 'remark-gfm';
 import { SpeechTextarea } from '../ui/SpeechTextarea';
 import { type DoshaType, inferDoshaFromText } from '../../utils/dosha';
 import { buildWhatsAppUrl, professionalContact } from '../../utils/whatsapp';
-import { toJpeg } from 'html-to-image';
-import { jsPDF } from 'jspdf';
 import { flushSync } from 'react-dom';
 import { exportPreviewPdf } from '../../utils/pdfPreviewExport';
+import { exportMobilePdf } from '../../utils/pdfMobileExport';
+import { assertPdfBytes } from '../../utils/pdfBytes';
+import { PDF_FONT_FACE_CSS } from '../../utils/pdfFonts';
 
 // Import JSON Databases
 import kaphaDiet from '../../data/diets/kapha.json';
@@ -200,41 +201,9 @@ La sopa de carne se prepara hirviendo carne y huesos, colándolos, y dejando sol
 const DEFAULT_FOOD_CATEGORIES = ['Cereales', 'Hortalizas'];
 const MAX_FOOD_CATEGORIES = 12;
 
-// Fondo de página del PDF: blanco liso (diseño burdeos/dorado). El SVG de
-// acuarela de abajo queda definido solo para la vía de respaldo legacy
-// (generateClientPdfBytes, código muerto) — la salida real ya no lo usa.
-const PDF_WATERCOLOR_BG_COLOR = '#ffffff';
-const PDF_WATERCOLOR_BG_SVG = `
-<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 700 990' preserveAspectRatio='xMidYMid slice'>
-  <defs>
-    <filter id='wcBlur' x='-60%' y='-60%' width='220%' height='220%'>
-      <feGaussianBlur stdDeviation='24'/>
-    </filter>
-    <linearGradient id='riverGreen' x1='0' y1='0' x2='1' y2='1'>
-      <stop offset='0%' stop-color='#4A7C2F' stop-opacity='0.20'/>
-      <stop offset='100%' stop-color='#2D5016' stop-opacity='0.09'/>
-    </linearGradient>
-    <linearGradient id='riverGold' x1='1' y1='0' x2='0' y2='1'>
-      <stop offset='0%' stop-color='#C9A84C' stop-opacity='0.16'/>
-      <stop offset='100%' stop-color='#C9A84C' stop-opacity='0.06'/>
-    </linearGradient>
-  </defs>
-  <rect x='0' y='0' width='700' height='990' fill='${PDF_WATERCOLOR_BG_COLOR}'/>
-  <path d='M -80,140 C 120,70 170,270 370,230 C 550,195 590,390 780,350 L 780,540 C 590,485 555,310 390,350 C 210,390 170,225 -80,310 Z' fill='url(#riverGreen)' filter='url(#wcBlur)'/>
-  <path d='M -80,600 C 150,555 195,730 410,680 C 590,640 630,800 780,780 L 780,930 C 610,890 590,720 410,760 C 210,805 175,660 -80,725 Z' fill='url(#riverGold)' filter='url(#wcBlur)'/>
-  <circle cx='95' cy='945' r='70' fill='#4A7C2F' fill-opacity='0.10' filter='url(#wcBlur)'/>
-  <circle cx='630' cy='60' r='80' fill='#C9A84C' fill-opacity='0.13' filter='url(#wcBlur)'/>
-</svg>`;
+// Mismo fondo blanco que la vista del editor.
+const PDF_PAGE_BACKGROUND_COLOR = '#ffffff';
 
-// html-to-image no interpreta de forma fiable los filtros SVG usados arriba:
-// en algunos Chromium del servidor/navegador convierte las manchas filtradas
-// en bandas negras. Para la exportación directa conservamos las mismas formas,
-// gradientes y transparencias, pero sin el blur problemático.
-const PDF_WATERCOLOR_RASTER_SVG = PDF_WATERCOLOR_BG_SVG
-    .replace(/\sfilter='url\(#wcBlur\)'/g, '');
-const PDF_WATERCOLOR_RASTER_URL = `url("data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_RASTER_SVG)}")`;
-
-// ─── Tokens de diseño del PDF de tratamiento (mockup "VEDAMCI Tratamiento.dc.html") ───
 const PDF_THEME = {
     burgundy: '#7A1F2B',
     gold: '#C9A84C',
@@ -255,196 +224,7 @@ const PDF_THEME = {
     fontHeading: "'Eczar', Georgia, serif",
     fontBody: "'Mukta', ui-sans-serif, system-ui, sans-serif",
 } as const;
-const PDF_GOOGLE_FONTS_URL =
-    'https://fonts.googleapis.com/css2?family=Eczar:wght@500;600;700&family=Mukta:wght@400;500;600;700&display=swap';
 const PDF_GRATITUDE_NOTE_TEXT = 'No es un detalle menor, es parte del tratamiento. Antes de comer, haz una pausa y agradece el alimento que tienes frente a ti. Cuando agradeces, tu conciencia mejora; y cuando tu conciencia mejora, tu digestión también.';
-
-let pdfWatercolorPngUrlPromise: Promise<string> | null = null;
-const getPdfWatercolorPngUrl = (): Promise<string> => {
-    if (pdfWatercolorPngUrlPromise) return pdfWatercolorPngUrlPromise;
-
-    pdfWatercolorPngUrlPromise = new Promise((resolve) => {
-        const image = new Image();
-        image.onload = () => {
-            try {
-                // Chromium sí pinta correctamente el blur SVG al dibujarlo primero
-                // en canvas. html-to-image recibe después un PNG plano y ya no puede
-                // convertir las transparencias difuminadas en manchas negras.
-                const canvas = document.createElement('canvas');
-                canvas.width = 1050;
-                canvas.height = 1485;
-                const context = canvas.getContext('2d');
-                if (!context) throw new Error('Canvas no disponible');
-                context.drawImage(image, 0, 0, canvas.width, canvas.height);
-                resolve(`url("${canvas.toDataURL('image/png')}")`);
-            } catch {
-                resolve(PDF_WATERCOLOR_RASTER_URL);
-            }
-        };
-        image.onerror = () => resolve(PDF_WATERCOLOR_RASTER_URL);
-        image.src = `data:image/svg+xml,${encodeURIComponent(PDF_WATERCOLOR_BG_SVG)}`;
-    });
-
-    return pdfWatercolorPngUrlPromise;
-};
-
-type PdfLinkRect = { url: string; left: number; top: number; width: number; height: number };
-const collectPdfLinkRects = (root: HTMLElement): PdfLinkRect[] => {
-    const rootRect = root.getBoundingClientRect();
-    return Array.from(root.querySelectorAll<HTMLAnchorElement>('a[href]')).flatMap((anchor) => {
-        const url = anchor.href;
-        if (!/^(https?:|mailto:|tel:)/i.test(url)) return [];
-        return Array.from(anchor.getClientRects())
-            .filter(rect => rect.width > 0 && rect.height > 0)
-            .map(rect => ({
-                url,
-                left: rect.left - rootRect.left,
-                top: rect.top - rootRect.top,
-                width: rect.width,
-                height: rect.height,
-            }));
-    });
-};
-
-type PdfMakeRun = { text: string; bold?: boolean; italics?: boolean; link?: string; color?: string; decoration?: string };
-
-const pdfMakeInlineRuns = (
-    element: Element,
-    inherited: Omit<PdfMakeRun, 'text'> = {}
-): PdfMakeRun[] => {
-    const runs: PdfMakeRun[] = [];
-    element.childNodes.forEach((node) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-            const text = (node.textContent || '').replace(/\s+/g, ' ');
-            if (text) runs.push({ text, ...inherited });
-            return;
-        }
-        if (!(node instanceof Element)) return;
-        if (node.tagName === 'BR') {
-            runs.push({ text: '\n', ...inherited });
-            return;
-        }
-        const next = { ...inherited };
-        if (node.matches('strong, b')) next.bold = true;
-        if (node.matches('em, i')) next.italics = true;
-        if (node instanceof HTMLAnchorElement && /^(https?:|mailto:|tel:)/i.test(node.href)) {
-            next.link = node.href;
-            next.color = '#047857';
-            next.decoration = 'underline';
-        }
-        runs.push(...pdfMakeInlineRuns(node, next));
-    });
-    return runs;
-};
-
-const pdfMakeCard = (stack: any[], fillColor = '#ffffff', borderColor = PDF_THEME.cardBorder) => ({
-    table: {
-        widths: ['*'],
-        body: [[{
-            stack,
-            fillColor,
-            margin: [8, 7, 8, 7],
-        }]],
-    },
-    layout: {
-        hLineWidth: () => 0.6,
-        vLineWidth: () => 0.6,
-        hLineColor: () => borderColor,
-        vLineColor: () => borderColor,
-        paddingLeft: () => 0,
-        paddingRight: () => 0,
-        paddingTop: () => 0,
-        paddingBottom: () => 0,
-    },
-    margin: [0, 3, 0, 7],
-});
-
-const pdfMakeTableFromElement = (table: HTMLTableElement, fontSize: number) => {
-    const rows = Array.from(table.rows);
-    const columnCount = Math.max(1, ...rows.map(row => row.cells.length));
-    const body = rows.map((row, rowIndex) => Array.from(row.cells).map(cell => ({
-        text: pdfMakeInlineRuns(cell),
-        bold: rowIndex === 0 || cell.tagName === 'TH',
-        fillColor: rowIndex === 0 || cell.tagName === 'TH' ? PDF_THEME.gold : '#ffffff',
-        color: rowIndex === 0 || cell.tagName === 'TH' ? PDF_THEME.burgundy : PDF_THEME.textBody,
-        fontSize: rowIndex === 0 ? Math.max(fontSize - 0.5, 8) : fontSize,
-        margin: [3, 3, 3, 3],
-    })));
-
-    return {
-        table: {
-            headerRows: rows.length > 1 ? 1 : 0,
-            widths: Array.from({ length: columnCount }, () => '*'),
-            body,
-            dontBreakRows: true,
-        },
-        layout: {
-            hLineWidth: () => 0.45,
-            vLineWidth: () => 0.45,
-            hLineColor: () => PDF_THEME.cardBorder,
-            vLineColor: () => PDF_THEME.cardBorder,
-        },
-        margin: [0, 3, 0, 8],
-    };
-};
-
-const pdfMakeBlocksFromElement = (element: Element, fontSize: number): any[] => {
-    const tag = element.tagName.toLowerCase();
-    if (tag === 'script' || tag === 'style' || tag === 'img') return [];
-    if (tag === 'table') return [pdfMakeTableFromElement(element as HTMLTableElement, fontSize)];
-    if (/^h[1-6]$/.test(tag)) {
-        const level = Number(tag.slice(1));
-        return [{
-            text: pdfMakeInlineRuns(element),
-            bold: true,
-            color: level <= 2 ? PDF_THEME.burgundy : PDF_THEME.gold,
-            fontSize: level <= 2 ? fontSize + 4 : fontSize + 1.5,
-            margin: [0, level <= 2 ? 7 : 4, 0, 4],
-        }];
-    }
-    if (tag === 'p') {
-        return [{ text: pdfMakeInlineRuns(element), color: PDF_THEME.textBody, fontSize, lineHeight: 1.35, margin: [0, 1, 0, 4] }];
-    }
-    if (tag === 'ul' || tag === 'ol') {
-        const items = Array.from(element.children)
-            .filter(child => child.tagName === 'LI')
-            .map(item => ({ text: pdfMakeInlineRuns(item), color: PDF_THEME.textBody, fontSize, lineHeight: 1.3, margin: [0, 1, 0, 1] }));
-        return [{ [tag === 'ol' ? 'ol' : 'ul']: items, margin: [8, 2, 0, 6] }];
-    }
-
-    const children = Array.from(element.children).flatMap(child => pdfMakeBlocksFromElement(child, fontSize));
-    if (children.length === 0) {
-        const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
-        if (!text) return [];
-        return [{ text, color: PDF_THEME.textBody, fontSize, lineHeight: 1.35, margin: [0, 1, 0, 4] }];
-    }
-
-    const classes = element.classList;
-    const isCard = classes.contains('print-flow-card')
-        || classes.contains('print-flow-instruction-block')
-        || classes.contains('print-flow-food-intro');
-    const node: any = isCard
-        ? pdfMakeCard(children, '#ffffff')
-        : { stack: children };
-    if (classes.contains('print-page-break-before')) node.pageBreak = 'before';
-    if (tag === 'section' && !isCard) node.margin = [0, 0, 0, 5];
-    return [node];
-};
-
-let pdfMakeRuntimePromise: Promise<any> | null = null;
-const getPdfMakeRuntime = async () => {
-    if (!pdfMakeRuntimePromise) {
-        pdfMakeRuntimePromise = Promise.all([
-            import('pdfmake/build/pdfmake'),
-            import('pdfmake/build/vfs_fonts'),
-        ]).then(([pdfModule, fontsModule]) => {
-            const runtime = pdfModule.default;
-            runtime.addVirtualFileSystem(fontsModule.default);
-            return runtime;
-        });
-    }
-    return pdfMakeRuntimePromise;
-};
 
 const waitForBrowserPaint = () => new Promise<void>(resolve => {
     requestAnimationFrame(() => {
@@ -2009,357 +1789,17 @@ const getStructuredRecipeParts = (recipe: any) => {
         setTimeout(() => URL.revokeObjectURL(url), 4000);
     };
 
-    // Reúne el CSS de la página (Tailwind incluido) para enviarlo al servidor Puppeteer.
-    const collectDocumentCss = (): string => {
-        let css = '';
-        for (const sheet of Array.from(document.styleSheets)) {
-            try {
-                const rules = (sheet as CSSStyleSheet).cssRules;
-                if (!rules) continue;
-                for (const rule of Array.from(rules)) css += rule.cssText + '\n';
-            } catch {
-                /* hoja cross-origin: se ignora */
-            }
-        }
-        return css;
-    };
-
-    const generateVectorClientPdfBytes = async (
-        onProgress?: (progress: number, status?: string) => void,
-        format: PdfPageFormat = pdfPageFormat
-    ): Promise<Uint8Array> => {
-        const printContent = document.getElementById('pdf-print-content');
-        const bodyCell = printContent?.querySelector<HTMLElement>('td.plt-body');
-        if (!bodyCell) throw new Error('No se encontró el contenido vectorial del tratamiento.');
-
-        onProgress?.(64, 'Componiendo texto vectorial...');
-        const runtime = await getPdfMakeRuntime();
-        const mobile = format === 'mobile';
-        const pageWidth = mobile ? 120 * 72 / 25.4 : 595.28;
-        const pageHeight = mobile ? 213 * 72 / 25.4 : 841.89;
-        const baseFontSize = mobile ? 10.5 : 10;
-        const content = Array.from(bodyCell.children)
-            .flatMap(child => pdfMakeBlocksFromElement(child, baseFontSize));
-        const whatsappUrl = professionalContact.phone
-            ? buildWhatsAppUrl(professionalContact.phone, `Hola ${professionalContact.name}, tengo una duda sobre mi tratamiento de Ayurveda.`)
-            : '';
-
-        const header = (currentPage: number) => currentPage !== 1 ? undefined : (mobile ? ({
-            margin: [22, 17, 22, 0],
-            stack: [
-                { text: 'VEDAMCI', bold: true, color: PDF_THEME.burgundy, fontSize: 18, characterSpacing: 0.7 },
-                { text: 'INSTITUTO DE MEDICINA AYURVÉDICA', bold: true, color: PDF_THEME.gold, fontSize: 6.8, characterSpacing: 0.5 },
-                { text: `Paciente: ${patient.name}  ·  Dosha: ${selectedDosha}`, color: PDF_THEME.textMuted, fontSize: 7.5, margin: [0, 5, 0, 0] },
-            ],
-        }) : ({
-            margin: [50, 25, 50, 0],
-            columns: [
-                {
-                    stack: [
-                        { text: 'VEDAMCI', bold: true, color: PDF_THEME.burgundy, fontSize: 19, characterSpacing: 0.8 },
-                        { text: 'INSTITUTO DE MEDICINA AYURVÉDICA', bold: true, color: PDF_THEME.gold, fontSize: 7, characterSpacing: 0.6 },
-                    ],
-                },
-                {
-                    width: 220,
-                    alignment: 'right',
-                    stack: [
-                        { text: 'Tratamiento e Indicaciones', bold: true, color: PDF_THEME.textBody, fontSize: 8 },
-                        { text: `Paciente: ${patient.name}`, color: PDF_THEME.textMuted, fontSize: 8 },
-                        { text: `Dosha: ${selectedDosha}`, color: PDF_THEME.burgundy, fontSize: 8 },
-                    ],
-                },
-            ],
-        }));
-
-        const footer = (currentPage: number, pageCount: number) => ({
-            margin: mobile ? [22, 0, 22, 14] : [50, 0, 50, 18],
-            columns: [
-                {
-                    stack: [
-                        { text: 'VEDAMCI · Instituto de Medicina Ayurvédica', bold: true, color: PDF_THEME.textBody, fontSize: 7 },
-                        { text: `Página ${currentPage} de ${pageCount}`, color: PDF_THEME.textMuted, fontSize: 6.5 },
-                    ],
-                },
-                {
-                    alignment: 'right',
-                    width: mobile ? 130 : 260,
-                    text: whatsappUrl ? [{
-                        text: `WhatsApp: ${professionalContact.phone}`,
-                        link: whatsappUrl,
-                        color: PDF_THEME.goldDarkText,
-                        decoration: 'underline',
-                    }] : (professionalContact.email || professionalContact.name),
-                    fontSize: 7,
-                },
-            ],
-        });
-
-        const definition: any = {
-            info: {
-                title: `Tratamiento Ayurveda - ${patient.name}`,
-                author: `VEDAMCI - ${professionalContact.name}`,
-                subject: 'Tratamiento e indicaciones ayurvédicas',
-            },
-            pageSize: mobile ? { width: pageWidth, height: pageHeight } : 'A4',
-            pageMargins: mobile ? [22, 72, 22, 42] : [50, 78, 50, 52],
-            defaultStyle: { font: 'Roboto', fontSize: baseFontSize, color: PDF_THEME.textBody, lineHeight: 1.3 },
-            header,
-            footer,
-            content,
-        };
-
-        onProgress?.(78, 'Generando páginas nítidas...');
-        const buffer = await runtime.createPdf(definition).getBuffer();
-        onProgress?.(90, 'PDF vectorial listo');
-        return buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-    };
-
-    const generateClientPdfBytes = async (
-        onProgress?: (progress: number, status?: string) => void
-    ): Promise<Uint8Array> => {
-        const container = document.getElementById('pdf-content');
-        const pages = container
-            ? Array.from(container.querySelectorAll<HTMLElement>('.pdf-page'))
-            : [];
-        if (pages.length === 0) throw new Error('No se encontraron páginas para exportar.');
-
-        onProgress?.(62, 'Generando PDF directamente en el navegador...');
-        if ((document as any).fonts?.ready) {
-            try { await (document as any).fonts.ready; } catch { /* noop */ }
-        }
-        const images = Array.from(container?.querySelectorAll('img') || []);
-        await Promise.all(images.map(async (img) => {
-            try { if (!img.complete) await img.decode(); } catch { /* noop */ }
-        }));
-
-        const watercolorBackground = await getPdfWatercolorPngUrl();
-
-        // El formato móvil necesita una hoja realmente estrecha. La vista previa
-        // está pre-paginada en A4, así que aquí rasterizamos la plantilla continua
-        // ya refluida a 120 mm y la dividimos en páginas 120 × 213 mm.
-        if (pdfPageFormat === 'mobile') {
-            const printContent = document.getElementById('pdf-print-content');
-            if (!printContent) throw new Error('No se encontró la plantilla para móvil.');
-
-            const originalStyle = printContent.getAttribute('style');
-            let mobileDataUrl = '';
-            let captureWidth = 0;
-            let captureHeight = 0;
-            let mobileLinks: PdfLinkRect[] = [];
-            try {
-                Object.assign(printContent.style, {
-                    display: 'block',
-                    position: 'fixed',
-                    left: '-10000px',
-                    top: '0',
-                    width: '120mm',
-                    height: 'auto',
-                    maxHeight: 'none',
-                    overflow: 'visible',
-                    backgroundColor: PDF_WATERCOLOR_BG_COLOR,
-                    backgroundImage: watercolorBackground,
-                    backgroundSize: '120mm 213mm',
-                    backgroundPosition: 'top center',
-                    backgroundRepeat: 'repeat-y',
-                });
-                await waitForBrowserPaint();
-                captureWidth = Math.ceil(printContent.scrollWidth);
-                captureHeight = Math.ceil(printContent.scrollHeight);
-                mobileLinks = collectPdfLinkRects(printContent);
-                mobileDataUrl = await toJpeg(printContent, {
-                    quality: 0.98,
-                    pixelRatio: 2.25,
-                    width: captureWidth,
-                    height: captureHeight,
-                    backgroundColor: PDF_WATERCOLOR_BG_COLOR,
-                    cacheBust: true,
-                    style: {
-                        display: 'block',
-                        position: 'relative',
-                        left: '0',
-                        top: '0',
-                        width: `${captureWidth}px`,
-                        height: `${captureHeight}px`,
-                        maxHeight: 'none',
-                        overflow: 'visible',
-                        backgroundColor: PDF_WATERCOLOR_BG_COLOR,
-                        backgroundImage: watercolorBackground,
-                        backgroundSize: `${captureWidth}px ${Math.round(captureWidth * 213 / 120)}px`,
-                        backgroundPosition: 'top center',
-                        backgroundRepeat: 'repeat-y',
-                    },
-                });
-            } finally {
-                if (originalStyle === null) printContent.removeAttribute('style');
-                else printContent.setAttribute('style', originalStyle);
-            }
-
-            const raster = new Image();
-            raster.src = mobileDataUrl;
-            await raster.decode();
-            const pagePixelHeight = Math.round(raster.naturalWidth * 213 / 120);
-            const pageCssHeight = captureWidth * 213 / 120;
-            const pageCount = Math.max(1, Math.ceil(raster.naturalHeight / pagePixelHeight));
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [120, 213], compress: true });
-
-            for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-                if (pageIndex > 0) pdf.addPage([120, 213], 'portrait');
-                const sliceCanvas = document.createElement('canvas');
-                sliceCanvas.width = raster.naturalWidth;
-                sliceCanvas.height = pagePixelHeight;
-                const context = sliceCanvas.getContext('2d');
-                if (!context) throw new Error('No se pudo preparar la página móvil.');
-                context.fillStyle = PDF_WATERCOLOR_BG_COLOR;
-                context.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-                const sourceY = pageIndex * pagePixelHeight;
-                const sourceHeight = Math.min(pagePixelHeight, raster.naturalHeight - sourceY);
-                context.drawImage(
-                    raster,
-                    0, sourceY, raster.naturalWidth, sourceHeight,
-                    0, 0, raster.naturalWidth, sourceHeight
-                );
-                const progress = 64 + Math.round(((pageIndex + 1) / pageCount) * 24);
-                onProgress?.(progress, `Procesando página móvil ${pageIndex + 1} de ${pageCount}...`);
-                pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.98), 'JPEG', 0, 0, 120, 213, undefined, 'FAST');
-
-                // La página es una imagen de alta definición, pero los enlaces se
-                // agregan como anotaciones PDF reales para que audio, videos,
-                // WhatsApp y cualquier liga compartida sigan siendo pulsables.
-                const pageTop = pageIndex * pageCssHeight;
-                const pageBottom = pageTop + pageCssHeight;
-                mobileLinks.forEach((link) => {
-                    const overlapTop = Math.max(link.top, pageTop);
-                    const overlapBottom = Math.min(link.top + link.height, pageBottom);
-                    if (overlapBottom <= overlapTop) return;
-                    pdf.link(
-                        link.left / captureWidth * 120,
-                        (overlapTop - pageTop) / pageCssHeight * 213,
-                        link.width / captureWidth * 120,
-                        (overlapBottom - overlapTop) / pageCssHeight * 213,
-                        { url: link.url }
-                    );
-                });
-                await yieldToMainThread(0);
-            }
-
-            onProgress?.(90, 'PDF móvil listo');
-            return new Uint8Array(pdf.output('arraybuffer'));
-        }
-
-        const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
-        for (let index = 0; index < pages.length; index++) {
-            if (index > 0) pdf.addPage('a4', 'portrait');
-            const progress = 64 + Math.round(((index + 1) / pages.length) * 24);
-            onProgress?.(progress, `Procesando página ${index + 1} de ${pages.length}...`);
-            const dataUrl = await toJpeg(pages[index], {
-                quality: 0.98,
-                pixelRatio: 2.25,
-                backgroundColor: PDF_WATERCOLOR_BG_COLOR,
-                cacheBust: true,
-                style: {
-                    backgroundColor: PDF_WATERCOLOR_BG_COLOR,
-                    backgroundImage: watercolorBackground,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                    backgroundRepeat: 'no-repeat',
-                },
-            });
-            pdf.addImage(dataUrl, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
-            const pageRect = pages[index].getBoundingClientRect();
-            collectPdfLinkRects(pages[index]).forEach((link) => {
-                pdf.link(
-                    link.left / pageRect.width * 210,
-                    link.top / pageRect.height * 297,
-                    link.width / pageRect.width * 210,
-                    link.height / pageRect.height * 297,
-                    { url: link.url }
-                );
-            });
-            await yieldToMainThread(0);
-        }
-        onProgress?.(90, 'PDF listo');
-        return new Uint8Array(pdf.output('arraybuffer'));
-    };
-
-    // Se conserva únicamente como respaldo técnico para navegadores antiguos;
-    // la salida web normal usa el compositor vectorial de abajo.
-    void generateClientPdfBytes;
-
-    // ── Motor unificado de PDF (raíz del arreglo) ─────────────────────────────
-    // A4 conserva el diseño visible y compacta secciones para aprovechar la hoja.
-    // La plantilla continua se reserva para el formato móvil.
-    //  1) App de escritorio → Chromium nativo (webContents.printToPDF).
-    //  2) Web → Puppeteer en el servidor (Chromium headless), misma plantilla.
-    //  3) Web sin Chromium → jsPDF en el navegador, descarga automática.
+    // Los dos formatos conservan el DOM, las fuentes y las imágenes del editor.
+    // No recurrir a un compositor que sustituya el diseño si falla la captura.
     const generatePdfBytes = async (
         onProgress?: (progress: number, status?: string) => void,
         format: PdfPageFormat = 'desktop'
-    ): Promise<Uint8Array | null> => {
-        if (format === 'desktop') {
-            const preview = document.getElementById('pdf-content');
-            if (!preview) throw new Error('No se encontró la vista previa del documento.');
-            return exportPreviewPdf(preview, onProgress);
-        }
-        const electronPrint = (typeof window !== 'undefined') ? (window as any).vedamciPrint : undefined;
-
-        // 1) Escritorio (Electron)
-        if (electronPrint?.isElectron) {
-            try {
-                onProgress?.(15, 'Imprimiendo con Chromium...');
-                if ((document as any).fonts?.ready) {
-                    try { await (document as any).fonts.ready; } catch { /* noop */ }
-                }
-                await waitForBrowserPaint();
-                const buf: ArrayBuffer = await electronPrint.toPDF({
-                    // Margen 0: el fondo crema cubre toda la hoja. El encabezado y
-                    // el pie de marca se repiten por página vía thead/tfoot de la
-                    // plantilla de impresión.
-                    margins: { top: 0, bottom: 0, left: 0, right: 0 },
-                });
-                onProgress?.(90, 'PDF listo');
-                return new Uint8Array(buf);
-            } catch (e) {
-                console.warn('printToPDF (Electron) falló, intentando respaldo:', e);
-            }
-        }
-
-        // 2) Web (Puppeteer en el servidor)
-        try {
-            const node = document.getElementById('pdf-print-content') || document.getElementById('pdf-content');
-            if (node) {
-                onProgress?.(20, 'Generando PDF en el servidor...');
-                const html = node.outerHTML;
-                const css = collectDocumentCss();
-                const token = localStorage.getItem('token');
-                const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-                if (token) headers['Authorization'] = `Bearer ${token}`;
-                const res = await fetch('/api/print/treatment-pdf', {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify({ html, css, origin: window.location.origin }),
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data?.success && data.pdfBase64) {
-                        onProgress?.(90, 'PDF listo');
-                        const binary = atob(data.pdfBase64);
-                        const bytes = new Uint8Array(binary.length);
-                        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-                        return bytes;
-                    }
-                } else {
-                    console.warn('Endpoint Puppeteer no disponible (', res.status, '), usando el último recurso.');
-                }
-            }
-        } catch (e) {
-            console.warn('PDF por servidor falló:', e);
-        }
-
-        // 3) cPanel no ofrece Chromium: compone el documento con texto vectorial
-        // dentro del navegador. Mantiene nitidez, selección, enlaces y paginación
-        // real sin abrir window.print ni depender de una captura de pantalla.
-        return generateVectorClientPdfBytes(onProgress, format);
+    ): Promise<Uint8Array> => {
+        const source = document.getElementById(format === 'mobile' ? 'pdf-print-content' : 'pdf-content');
+        if (!source) throw new Error('No se encontró la plantilla del documento.');
+        return assertPdfBytes(await (format === 'mobile'
+            ? exportMobilePdf(source, onProgress)
+            : exportPreviewPdf(source, onProgress)));
     };
 
     const handleSavePlan = async (options: { saveFlatPdf?: boolean; isAutoSave?: boolean; existingBytes?: Uint8Array } = {}) => {
@@ -2594,13 +2034,6 @@ const getStructuredRecipeParts = (recipe: any) => {
                 setDownloadProgress(progress);
                 if (status) setDownloadStatus(status);
             }, format);
-            if (!bytes) {
-                // Motores Chromium no disponibles: se abrió el diálogo de impresión.
-                setSaveMessage('Se abrió el diálogo de impresión del navegador; guarda el PDF desde ahí.');
-                setIsDownloading(false);
-                return;
-            }
-
             const filename = `Tratamiento_${patient.name?.replace(/\s+/g, '_') || 'Ayurveda'}${format === 'mobile' ? '_Movil' : ''}.pdf`;
             setDownloadProgress(94);
             setDownloadStatus('Preparando descarga...');
@@ -5724,7 +5157,7 @@ const getStructuredRecipeParts = (recipe: any) => {
 
             {/* Print specific CSS styled layout injection */}
             <style>{`
-                @import url('${PDF_GOOGLE_FONTS_URL}');
+                ${PDF_FONT_FACE_CSS}
 
                 /* ─── Tokens del nuevo diseño (burdeos/dorado) ─── */
                 #pdf-content, #pdf-print-content {
@@ -5884,7 +5317,7 @@ const getStructuredRecipeParts = (recipe: any) => {
 
                 /* Fondo de página: blanco liso */
                 #pdf-content .pdf-page {
-                    background-color: ${PDF_WATERCOLOR_BG_COLOR} !important;
+                    background-color: ${PDF_PAGE_BACKGROUND_COLOR} !important;
                     print-color-adjust: exact !important;
                     -webkit-print-color-adjust: exact !important;
                 }
@@ -5895,7 +5328,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                     line-height: 1.5 !important;
                     font-family: var(--pdf-family-body) !important;
                     color: var(--pdf-c-text-body) !important;
-                    background-color: ${PDF_WATERCOLOR_BG_COLOR} !important;
+                    background-color: ${PDF_PAGE_BACKGROUND_COLOR} !important;
                     print-color-adjust: exact !important;
                     -webkit-print-color-adjust: exact !important;
                 }
@@ -6077,7 +5510,7 @@ ${pdfPageFormat === 'mobile' ? `
                     /* Fondo blanco a PÁGINA COMPLETA: el color del body pinta toda
                        la hoja (incluidos los márgenes), eliminando el marco gris. */
                     html, body {
-                        background: ${PDF_WATERCOLOR_BG_COLOR} !important;
+                        background: ${PDF_PAGE_BACKGROUND_COLOR} !important;
                         print-color-adjust: exact !important;
                         -webkit-print-color-adjust: exact !important;
                     }
@@ -6090,7 +5523,7 @@ ${pdfPageFormat === 'mobile' ? `
                         right: 0 !important;
                         bottom: 0 !important;
                         z-index: -1 !important;
-                        background-color: ${PDF_WATERCOLOR_BG_COLOR} !important;
+                        background-color: ${PDF_PAGE_BACKGROUND_COLOR} !important;
                         print-color-adjust: exact !important;
                         -webkit-print-color-adjust: exact !important;
                     }
