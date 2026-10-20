@@ -5309,6 +5309,10 @@ async function getPuppeteerBrowser() {
         return _puppeteerBrowser;
     }
     const launchOpts = { headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] };
+    if (process.title.startsWith('lsnode:') || process.env.PUPPETEER_LOW_RESOURCE === 'true') {
+        launchOpts.args.push('--disable-dev-shm-usage', '--disable-gpu',
+            '--no-zygote', '--renderer-process-limit=1', '--num-raster-threads=1');
+    }
     if (process.env.PUPPETEER_EXECUTABLE_PATH) {
         launchOpts.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
     }
