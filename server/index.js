@@ -1328,7 +1328,7 @@ function buildVisitMarkdown(visit = {}, patientName = '', intensityScale = 3) {
     const adhCats = Array.isArray(adh.categories) ? adh.categories : [];
     const adhHerbs = Array.isArray(adh.herbs) ? adh.herbs : [];
     const adhLife = Array.isArray(adh.lifestyle) ? adh.lifestyle : [];
-    const statusLabel = (st) => ({ done: 'Hecho', partial: 'Parcial', not_done: 'No hecho', unknown: 'Sin revisar' }[st] || 'Sin revisar');
+    const statusLabel = (st) => ({ done: 'Hecho', in_progress: 'En progreso', partial: 'Parcial', not_done: 'No hecho', unknown: 'Sin revisar' }[st] || 'Sin revisar');
     const renderAdhItems = (items, heading) => {
         const valid = items.filter((it) => it && it.name);
         if (valid.length === 0) return;
@@ -5475,6 +5475,60 @@ app.post('/api/patients/:id/pdf/:recordId', authenticateToken, async (req, res) 
         res.json({ success: true, pdfFile: `Tratamiento_${recordId}.pdf` });
     } catch (error) {
         console.error('Error saving PDF file:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Lista global de los PDFs guardados desde el editor de PDF.
+// records.json evita duplicar las copias con nombre legible.
+app.get('/api/pdfs', authenticateToken, async (_req, res) => {
+    try {
+        const folderMap = getFolderMap();
+        const patientIdByFolder = Object.entries(folderMap).reduce((result, [patientId, folder]) => {
+            result[folder] = patientId;
+            return result;
+        }, {});
+        const pdfs = [];
+
+        if (fs.existsSync(LOCAL_PATIENTS_DIR)) {
+            const folders = fs.readdirSync(LOCAL_PATIENTS_DIR, { withFileTypes: true })
+                .filter(entry => entry.isDirectory());
+            for (const folder of folders) {
+                const patientDir = join(LOCAL_PATIENTS_DIR, folder.name);
+                const recordsPath = join(patientDir, 'records.json');
+                if (!fs.existsSync(recordsPath)) continue;
+                let record;
+                try { record = normalizePatientRecord(JSON.parse(fs.readFileSync(recordsPath, 'utf8') || '{}')); }
+                catch { continue; }
+                const patientId = patientIdByFolder[folder.name];
+                if (!patientId) continue;
+                const addRecords = (items, type) => (items || []).forEach(item => {
+                    if (!item?.id || !item?.pdfFile) return;
+                    const filePath = join(patientDir, item.pdfFile);
+                    if (!fs.existsSync(filePath)) return;
+                    const stat = fs.statSync(filePath);
+                    pdfs.push({
+                        id: `${patientId}:${item.id}`,
+                        patientId,
+                        patientName: folder.name.replace(/_/g, ' '),
+                        recordId: item.id,
+                        recordType: type,
+                        title: item.title || (type === 'plan' ? 'Tratamiento' : 'Visita'),
+                        date: item.date || item.visitDate || item.createdAt || stat.mtime.toISOString(),
+                        updatedAt: item.updatedAt || stat.mtime.toISOString(),
+                        fileName: item.pdfFile,
+                        size: stat.size,
+                        url: `/api/patients/${encodeURIComponent(patientId)}/pdf/${encodeURIComponent(item.id)}`
+                    });
+                });
+                addRecords(record.treatmentPlans, 'plan');
+                addRecords(record.visits, 'visit');
+            }
+        }
+        pdfs.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        res.json({ success: true, pdfs });
+    } catch (error) {
+        console.error('Error listing saved PDFs:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
