@@ -5391,6 +5391,7 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
     try {
         const browser = await getPuppeteerBrowser();
         if (!browser) return res.status(501).json({ error: 'Puppeteer/Chromium no disponible en el servidor.' });
+        console.warn('[native-print] Navegador listo.');
         const renderUrl = new URL('/mcp-pdf', getNativePdfRenderOrigin());
         renderUrl.searchParams.set('patient_id', patientId);
         renderUrl.searchParams.set('record_id', recordId);
@@ -5398,11 +5399,14 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
 
         context = await browser.createBrowserContext();
         page = await context.newPage();
+        console.warn('[native-print] Sesión aislada lista.');
+        page.on('pageerror', (error) => console.error('[native-print] Error del editor:', error?.message || error));
         await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
         await page.evaluateOnNewDocument((token, expectedOrigin) => {
             if (window.location.origin === expectedOrigin) localStorage.setItem('token', token);
         }, accessToken, renderUrl.origin);
-        await page.goto(renderUrl.toString(), { waitUntil: 'networkidle0', timeout: 90000 });
+        const documentResponse = await page.goto(renderUrl.toString(), { waitUntil: 'networkidle0', timeout: 90000 });
+        console.warn('[native-print] Documento del editor cargado:', documentResponse?.status());
         if (new URL(page.url()).origin !== renderUrl.origin) {
             throw new Error('El editor nativo redirigió fuera del origen configurado.');
         }
