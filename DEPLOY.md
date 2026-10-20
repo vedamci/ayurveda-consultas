@@ -135,6 +135,9 @@ En LiteSpeed se carga la entrada CommonJS de Puppeteer para evitar el conflicto
 de stdin con `lsnode`. Si Chromium falta, activa el entorno Node de la app y
 ejecuta `npx puppeteer browsers install chrome`. Los procesos `lsnode` pueden
 necesitar una recarga explícita; `tmp/restart.txt` depende del alojamiento.
+Si la cuenta usa bibliotecas del sistema extraídas de los paquetes oficiales
+de su distribución, pueden guardarse en `~/.local/lib/consultas-chromium/lib64`
+o en `PUPPETEER_LIBRARY_PATH`. Ese directorio se aplica solo al proceso de Chromium.
 
 Si cambia el dominio de la app, configura `MCP_RENDER_ORIGIN` en el entorno del
 servidor con el origen completo, sin ruta, por ejemplo `https://consultas.ejemplo.com`.

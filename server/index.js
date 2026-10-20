@@ -5312,6 +5312,16 @@ async function getPuppeteerBrowser() {
     if (process.env.PUPPETEER_EXECUTABLE_PATH) {
         launchOpts.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
     }
+    // Shared hosting may provide Chromium's optional OS libraries in the
+    // account directory. Scope their loader path to the browser child only.
+    const libraryDir = process.env.PUPPETEER_LIBRARY_PATH
+        || join(os.homedir(), '.local/lib/consultas-chromium/lib64');
+    if (process.platform === 'linux' && fs.existsSync(libraryDir)) {
+        launchOpts.env = {
+            ...process.env,
+            LD_LIBRARY_PATH: [libraryDir, process.env.LD_LIBRARY_PATH].filter(Boolean).join(':'),
+        };
+    }
     _puppeteerBrowser = await _puppeteerModule.launch(launchOpts);
     return _puppeteerBrowser;
 }
