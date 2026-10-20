@@ -126,7 +126,7 @@ El secreto nunca debe incluirse en Git ni compartirse en registros o capturas.
 ### PDF nativo por MCP en cPanel
 
 `POST /api/print/native-treatment-pdf` abre el editor de la app en Chromium y
-devuelve sus bytes originales. Cada exportación usa un contexto de navegador
+devuelve sus bytes originales. Cada exportación usa un navegador y perfil temporal
 aislado para la sesión del usuario. En Passenger y LiteSpeed usa por defecto
 `https://consultas.vedamci.com.mx`, porque Passenger sustituye el puerto de Node
 por un socket Unix. En otros servidores Node usa el listener local.
@@ -135,6 +135,8 @@ En LiteSpeed se carga la entrada CommonJS de Puppeteer para evitar el conflicto
 de stdin con `lsnode`. Si Chromium falta, activa el entorno Node de la app y
 ejecuta `npx puppeteer browsers install chrome`. Los procesos `lsnode` pueden
 necesitar una recarga explícita; `tmp/restart.txt` depende del alojamiento.
+En `lsnode` se reduce el número de procesos e hilos de Chromium y se cierra el
+navegador de cada exportación al terminar.
 Si la cuenta usa bibliotecas del sistema extraídas de los paquetes oficiales
 de su distribución, pueden guardarse en `~/.local/lib/consultas-chromium/lib64`
 o en `PUPPETEER_LIBRARY_PATH`. Ese directorio se aplica solo al proceso de Chromium.

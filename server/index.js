@@ -5292,7 +5292,7 @@ app.post('/api/patients/:id/notes', authenticateToken, async (req, res) => {
 let _puppeteerBrowser = null;
 let _puppeteerModule = undefined; // undefined = sin intentar; null = no disponible
 
-async function getPuppeteerBrowser() {
+async function getPuppeteerBrowser({ reuse = true } = {}) {
     if (_puppeteerModule === undefined) {
         try {
             // LiteSpeed owns stdin (fd 0). Node's ESM process facade opens it
@@ -5305,13 +5305,13 @@ async function getPuppeteerBrowser() {
         }
     }
     if (!_puppeteerModule) return null;
-    if (_puppeteerBrowser && _puppeteerBrowser.isConnected && _puppeteerBrowser.isConnected()) {
+    if (reuse && _puppeteerBrowser && _puppeteerBrowser.isConnected && _puppeteerBrowser.isConnected()) {
         return _puppeteerBrowser;
     }
     const launchOpts = { headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] };
     if (process.title.startsWith('lsnode:') || process.env.PUPPETEER_LOW_RESOURCE === 'true') {
         launchOpts.args.push('--disable-dev-shm-usage', '--disable-gpu',
-            '--no-zygote', '--renderer-process-limit=1', '--num-raster-threads=1');
+            '--no-zygote', '--single-process', '--renderer-process-limit=1', '--num-raster-threads=1');
     }
     if (process.env.PUPPETEER_EXECUTABLE_PATH) {
         launchOpts.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
@@ -5326,8 +5326,9 @@ async function getPuppeteerBrowser() {
             LD_LIBRARY_PATH: [libraryDir, process.env.LD_LIBRARY_PATH].filter(Boolean).join(':'),
         };
     }
-    _puppeteerBrowser = await _puppeteerModule.launch(launchOpts);
-    return _puppeteerBrowser;
+    const browser = await _puppeteerModule.launch(launchOpts);
+    if (reuse) _puppeteerBrowser = browser;
+    return browser;
 }
 
 app.post('/api/print/treatment-pdf', authenticateToken, async (req, res) => {
@@ -5387,9 +5388,9 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
     if (!accessToken) return res.status(401).json({ error: 'Falta el token de sesión.' });
 
     let page = null;
-    let context = null;
+    let browser = null;
     try {
-        const browser = await getPuppeteerBrowser();
+        browser = await getPuppeteerBrowser({ reuse: false });
         if (!browser) return res.status(501).json({ error: 'Puppeteer/Chromium no disponible en el servidor.' });
         console.warn('[native-print] Navegador listo.');
         const renderUrl = new URL('/mcp-pdf', getNativePdfRenderOrigin());
@@ -5397,8 +5398,9 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
         renderUrl.searchParams.set('record_id', recordId);
         renderUrl.searchParams.set('format', format);
 
-        context = await browser.createBrowserContext();
-        page = await context.newPage();
+        // A dedicated browser gives each token its own temporary profile.
+        // It also supports LiteSpeed's single-process resource constraints.
+        page = await browser.newPage();
         console.warn('[native-print] Sesión aislada lista.');
         page.on('pageerror', (error) => console.error('[native-print] Error del editor:', error?.message || error));
         await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
@@ -5430,8 +5432,7 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
         console.error('[native-print] Error generando PDF desde el editor de Consultas:', error?.message || error);
         if (!res.headersSent) res.status(500).json({ error: 'No se pudo generar el PDF con el editor nativo de Consultas.' });
     } finally {
-        if (context) { try { await context.close(); } catch { /* noop */ } }
-        else if (page) { try { await page.close(); } catch { /* noop */ } }
+        if (browser) { try { await browser.close(); } catch { /* noop */ } }
     }
 });
 
