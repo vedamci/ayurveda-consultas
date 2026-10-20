@@ -5373,6 +5373,7 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
     if (!accessToken) return res.status(401).json({ error: 'Falta el token de sesión.' });
 
     let page = null;
+    let context = null;
     try {
         const browser = await getPuppeteerBrowser();
         if (!browser) return res.status(501).json({ error: 'Puppeteer/Chromium no disponible en el servidor.' });
@@ -5381,7 +5382,8 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
         renderUrl.searchParams.set('record_id', recordId);
         renderUrl.searchParams.set('format', format);
 
-        page = await browser.newPage();
+        context = await browser.createBrowserContext();
+        page = await context.newPage();
         await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
         await page.evaluateOnNewDocument((token, expectedOrigin) => {
             if (window.location.origin === expectedOrigin) localStorage.setItem('token', token);
@@ -5410,7 +5412,8 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
         console.error('[native-print] Error generando PDF desde el editor de Consultas:', error?.message || error);
         if (!res.headersSent) res.status(500).json({ error: 'No se pudo generar el PDF con el editor nativo de Consultas.' });
     } finally {
-        if (page) { try { await page.close(); } catch { /* noop */ } }
+        if (context) { try { await context.close(); } catch { /* noop */ } }
+        else if (page) { try { await page.close(); } catch { /* noop */ } }
     }
 });
 
