@@ -123,6 +123,18 @@ necesario para que la exportación PDF disponga de Chromium en cPanel.
 
 El secreto nunca debe incluirse en Git ni compartirse en registros o capturas.
 
+### PDF nativo por MCP en cPanel
+
+`POST /api/print/native-treatment-pdf` abre el editor de la app en Chromium y
+devuelve sus bytes originales. En Passenger usa por defecto
+`https://consultas.vedamci.com.mx`, porque Passenger sustituye el puerto de Node
+por un socket Unix. En otros servidores Node usa el listener local.
+
+Si cambia el dominio de la app, configura `MCP_RENDER_ORIGIN` en el entorno del
+servidor con el origen completo, sin ruta, por ejemplo `https://consultas.ejemplo.com`.
+Este valor pertenece a la configuración privada del despliegue; el endpoint no
+lo toma del encabezado Host de la petición.
+
 ---
 
 ## Notas de arquitectura

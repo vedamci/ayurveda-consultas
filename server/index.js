@@ -529,6 +529,23 @@ function requireAdmin(req, res, next) {
 const app = express();
 const configuredPort = Number.parseInt(process.env.PORT || '3000', 10);
 const port = Number.isFinite(configuredPort) ? configuredPort : 3000;
+function getNativePdfRenderOrigin() {
+    // Passenger replaces the requested TCP port with a Unix socket. Its
+    // Chromium render therefore uses the application's configured public
+    // origin; standalone Node keeps using its local listener.
+    const passengerRuntime = typeof PhusionPassenger !== 'undefined'
+        || Boolean(process.env.PASSENGER_APP_ENV);
+    const configuredOrigin = String(process.env.MCP_RENDER_ORIGIN || '').trim();
+    const origin = new URL(configuredOrigin || (passengerRuntime
+        ? 'https://consultas.vedamci.com.mx'
+        : `http://127.0.0.1:${port}`));
+    if (!['http:', 'https:'].includes(origin.protocol)
+        || origin.username || origin.password || origin.pathname !== '/'
+        || origin.search || origin.hash) {
+        throw new Error('MCP_RENDER_ORIGIN debe ser un origen HTTP(S) sin ruta ni credenciales.');
+    }
+    return origin.origin;
+}
 const CALENDAR_CALLBACK_PATH = '/api/calendar/auth/callback';
 const ZOOM_CALLBACK_PATH = '/api/zoom/auth/callback';
 const DEFAULT_PHYSICAL_ADDRESS = 'Calzada del Federalismo Norte 839-A, Zona Centro, Guadalajara, Jalisco, México';
@@ -5353,15 +5370,20 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
     try {
         const browser = await getPuppeteerBrowser();
         if (!browser) return res.status(501).json({ error: 'Puppeteer/Chromium no disponible en el servidor.' });
-        const renderUrl = new URL('/mcp-pdf', `http://127.0.0.1:${port}`);
+        const renderUrl = new URL('/mcp-pdf', getNativePdfRenderOrigin());
         renderUrl.searchParams.set('patient_id', patientId);
         renderUrl.searchParams.set('record_id', recordId);
         renderUrl.searchParams.set('format', format);
 
         page = await browser.newPage();
         await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
-        await page.evaluateOnNewDocument((token) => localStorage.setItem('token', token), accessToken);
+        await page.evaluateOnNewDocument((token, expectedOrigin) => {
+            if (window.location.origin === expectedOrigin) localStorage.setItem('token', token);
+        }, accessToken, renderUrl.origin);
         await page.goto(renderUrl.toString(), { waitUntil: 'networkidle0', timeout: 90000 });
+        if (new URL(page.url()).origin !== renderUrl.origin) {
+            throw new Error('El editor nativo redirigió fuera del origen configurado.');
+        }
         await page.waitForFunction(() => {
             const result = window.__VEDAMCI_NATIVE_PDF_RESULT__;
             return result?.status === 'ready' || result?.status === 'error';
