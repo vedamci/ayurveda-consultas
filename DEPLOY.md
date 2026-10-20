@@ -133,7 +133,8 @@ por un socket Unix. En otros servidores Node usa el listener local.
 
 En LiteSpeed se carga la entrada CommonJS de Puppeteer para evitar el conflicto
 de stdin con `lsnode`. Si Chromium falta, activa el entorno Node de la app y
-ejecuta `npx puppeteer browsers install chrome`. Los procesos `lsnode` pueden
+ejecuta `npx puppeteer browsers install chrome-headless-shell` para LiteSpeed
+(o `chrome` para otros servidores). Los procesos `lsnode` pueden
 necesitar una recarga explícita; `tmp/restart.txt` depende del alojamiento.
 En `lsnode` se reduce el número de procesos e hilos de Chromium y se cierra el
 navegador de cada exportación al terminar.

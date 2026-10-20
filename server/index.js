@@ -5310,6 +5310,8 @@ async function getPuppeteerBrowser({ reuse = true } = {}) {
     }
     const launchOpts = { headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] };
     if (process.title.startsWith('lsnode:') || process.env.PUPPETEER_LOW_RESOURCE === 'true') {
+        launchOpts.headless = 'shell';
+        launchOpts.dumpio = true;
         launchOpts.args.push('--disable-dev-shm-usage', '--disable-gpu',
             '--no-zygote', '--single-process', '--renderer-process-limit=1', '--num-raster-threads=1');
     }
