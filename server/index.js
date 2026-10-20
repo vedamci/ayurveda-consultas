@@ -5294,7 +5294,7 @@ async function getPuppeteerBrowser() {
         try {
             _puppeteerModule = (await import('puppeteer')).default;
         } catch (e) {
-            console.warn('[print] Puppeteer no está instalado:', e?.message || e);
+            console.warn('[print] No se pudo cargar Puppeteer:', e?.stack || e);
             _puppeteerModule = null;
         }
     }
