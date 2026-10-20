@@ -3,6 +3,7 @@ import cors from 'cors';
 import { Client } from '@notionhq/client';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'path';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { google } from 'googleapis';
@@ -15,6 +16,7 @@ import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const requireFromServer = createRequire(import.meta.url);
 
 // Detect if we are running in Electron packaged mode or regular dev mode
 const isPackaged = process.env.NODE_ENV === 'production' || !!process.versions.electron || process.env.IS_PACKAGED === 'true';
@@ -534,7 +536,8 @@ function getNativePdfRenderOrigin() {
     // Chromium render therefore uses the application's configured public
     // origin; standalone Node keeps using its local listener.
     const passengerRuntime = typeof PhusionPassenger !== 'undefined'
-        || Boolean(process.env.PASSENGER_APP_ENV);
+        || Boolean(process.env.PASSENGER_APP_ENV)
+        || process.title.startsWith('lsnode:');
     const configuredOrigin = String(process.env.MCP_RENDER_ORIGIN || '').trim();
     const origin = new URL(configuredOrigin || (passengerRuntime
         ? 'https://consultas.vedamci.com.mx'
@@ -699,7 +702,7 @@ app.post('/api/deploy/github', async (req, res) => {
         let dependenciesInstalled = false;
         let puppeteerUnavailable = false;
         try {
-            await import('puppeteer');
+            requireFromServer('puppeteer');
         } catch {
             puppeteerUnavailable = true;
         }
@@ -5292,7 +5295,10 @@ let _puppeteerModule = undefined; // undefined = sin intentar; null = no disponi
 async function getPuppeteerBrowser() {
     if (_puppeteerModule === undefined) {
         try {
-            _puppeteerModule = (await import('puppeteer')).default;
+            // LiteSpeed owns stdin (fd 0). Node's ESM process facade opens it
+            // when Puppeteer is imported, causing EEXIST. The package's public
+            // CommonJS entry avoids that facade and preserves LiteSpeed's fd.
+            _puppeteerModule = requireFromServer('puppeteer').default;
         } catch (e) {
             console.warn('[print] No se pudo cargar Puppeteer:', e?.stack || e);
             _puppeteerModule = null;
