@@ -5333,6 +5333,59 @@ app.post('/api/print/treatment-pdf', authenticateToken, async (req, res) => {
     }
 });
 
+// Run Consultas' own PDF editor/exporter in a server-side Chromium page for MCP.
+// The MCP bridge never interacts with editor controls; this route returns the
+// exact bytes produced by TreatmentPDFModal's built-in exporter.
+app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) => {
+    const { patientId, recordId, format = 'desktop' } = req.body || {};
+    const validId = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+    if (!validId(patientId) || !validId(recordId)) {
+        return res.status(400).json({ error: 'Se requieren identificadores válidos de paciente y tratamiento.' });
+    }
+    if (!['desktop', 'mobile'].includes(format)) {
+        return res.status(400).json({ error: 'El formato debe ser desktop o mobile.' });
+    }
+
+    const accessToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    if (!accessToken) return res.status(401).json({ error: 'Falta el token de sesión.' });
+
+    let page = null;
+    try {
+        const browser = await getPuppeteerBrowser();
+        if (!browser) return res.status(501).json({ error: 'Puppeteer/Chromium no disponible en el servidor.' });
+        const renderUrl = new URL('/mcp-pdf', `http://127.0.0.1:${port}`);
+        renderUrl.searchParams.set('patient_id', patientId);
+        renderUrl.searchParams.set('record_id', recordId);
+        renderUrl.searchParams.set('format', format);
+
+        page = await browser.newPage();
+        await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
+        await page.evaluateOnNewDocument((token) => localStorage.setItem('token', token), accessToken);
+        await page.goto(renderUrl.toString(), { waitUntil: 'networkidle0', timeout: 90000 });
+        await page.waitForFunction(() => {
+            const result = window.__VEDAMCI_NATIVE_PDF_RESULT__;
+            return result?.status === 'ready' || result?.status === 'error';
+        }, { timeout: 180000 });
+        const result = await page.evaluate(() => window.__VEDAMCI_NATIVE_PDF_RESULT__ || null);
+        if (result?.status === 'error') {
+            return res.status(422).json({ error: result.error || 'El editor nativo no pudo preparar el PDF.' });
+        }
+        if (result?.status !== 'ready' || typeof result.pdfBase64 !== 'string') {
+            return res.status(500).json({ error: 'El editor nativo no devolvió un PDF.' });
+        }
+        const pdfBuffer = Buffer.from(result.pdfBase64, 'base64');
+        if (!pdfBuffer.length || pdfBuffer.length > 18 * 1024 * 1024 || !pdfBuffer.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
+            return res.status(422).json({ error: 'La salida del editor no es un PDF válido o supera el tamaño permitido.' });
+        }
+        res.type('application/pdf').send(pdfBuffer);
+    } catch (error) {
+        console.error('[native-print] Error generando PDF desde el editor de Consultas:', error?.message || error);
+        if (!res.headersSent) res.status(500).json({ error: 'No se pudo generar el PDF con el editor nativo de Consultas.' });
+    } finally {
+        if (page) { try { await page.close(); } catch { /* noop */ } }
+    }
+});
+
 app.post('/api/patients/:id/pdf/:recordId', authenticateToken, async (req, res) => {
     try {
         const { id, recordId } = req.params;

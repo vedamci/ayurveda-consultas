@@ -72,6 +72,10 @@ interface TreatmentPDFModalProps {
     onOpenTherapeuticSummary?: () => void;
     initialDiagnosis: string | null;
     editingRecord?: { type: 'plan' | 'visit'; record: any } | null;
+    mcpAutoGenerate?: boolean;
+    mcpPdfFormat?: 'desktop' | 'mobile';
+    onMcpPdfReady?: (bytes: Uint8Array) => void;
+    onMcpPdfError?: (message: string) => void;
 }
 
 interface HerbalFormula {
@@ -783,7 +787,11 @@ const getStructuredRecipeParts = (recipe: any) => {
      patient,
      patientId,
      initialDiagnosis,
-     editingRecord = null
+     editingRecord = null,
+     mcpAutoGenerate = false,
+     mcpPdfFormat = 'desktop',
+     onMcpPdfReady,
+     onMcpPdfError
  }) => {
      // Guard de inicialización (fix #7): garantiza que el editor se siembre una sola
      // vez por apertura / registro editado. Antes, el useEffect de init dependía del
@@ -791,6 +799,11 @@ const getStructuredRecipeParts = (recipe: any) => {
      // re-ejecutaba la inicialización y pisaba todo lo que el profesional estaba
      // editando ("el PDF se reiniciaba").
      const initKeyRef = useRef<string | null>(null);
+     const mcpRenderStartedRef = useRef(false);
+     const mcpPdfReadyHandlerRef = useRef(onMcpPdfReady);
+     const mcpPdfErrorHandlerRef = useRef(onMcpPdfError);
+     mcpPdfReadyHandlerRef.current = onMcpPdfReady;
+     mcpPdfErrorHandlerRef.current = onMcpPdfError;
      // Autoguardado (ver efecto junto a handleSavePlan): autosaveSkipRef evita que
      // la siembra inicial de datos dispare un guardado; autosaveTimeoutRef guarda
      // el temporizador con debounce entre una edición y el guardado real.
@@ -1112,7 +1125,7 @@ const getStructuredRecipeParts = (recipe: any) => {
     // Formato de hoja usado por la plantilla de impresión. Se elige en el
     // diálogo previo a la descarga y vuelve a 'desktop' al terminar para que
     // las copias planas guardadas en segundo plano salgan siempre en A4.
-    const [pdfPageFormat, setPdfPageFormat] = useState<PdfPageFormat>('desktop');
+    const [pdfPageFormat, setPdfPageFormat] = useState<PdfPageFormat>(mcpPdfFormat);
     const [showFormatChooser, setShowFormatChooser] = useState(false);
     const [isSavingPlan, setIsSavingPlan] = useState(false);
     const [saveMessage, setSaveMessage] = useState('');
@@ -1802,6 +1815,44 @@ const getStructuredRecipeParts = (recipe: any) => {
             : exportPreviewPdf(source, onProgress)));
     };
 
+    // The MCP render page mounts this same editor and invokes its normal PDF
+    // exporter. It returns bytes without clicking the print controls or saving
+    // editable plan fields; the MCP bridge attaches the resulting PDF afterward.
+    const generatePdfBytesRef = useRef(generatePdfBytes);
+    generatePdfBytesRef.current = generatePdfBytes;
+    useEffect(() => {
+        if (!isOpen || !mcpAutoGenerate) {
+            if (!isOpen) mcpRenderStartedRef.current = false;
+            return;
+        }
+        if (mcpRenderStartedRef.current) return;
+        mcpRenderStartedRef.current = true;
+        let cancelled = false;
+        let finished = false;
+        const timer = setTimeout(async () => {
+            try {
+                await waitForBrowserPaint();
+                await document.fonts.ready;
+                const format = mcpPdfFormat;
+                const bytes = await generatePdfBytesRef.current(undefined, format);
+                if (!cancelled) {
+                    finished = true;
+                    mcpPdfReadyHandlerRef.current?.(bytes);
+                }
+            } catch (error: any) {
+                if (!cancelled) {
+                    finished = true;
+                    mcpPdfErrorHandlerRef.current?.(String(error?.message || error));
+                }
+            }
+        }, 2200);
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+            if (!finished) mcpRenderStartedRef.current = false;
+        };
+    }, [isOpen, mcpAutoGenerate, mcpPdfFormat]);
+
     const handleSavePlan = async (options: { saveFlatPdf?: boolean; isAutoSave?: boolean; existingBytes?: Uint8Array } = {}) => {
         const { saveFlatPdf = true, isAutoSave = false, existingBytes } = options;
         const targetPatientId = patient.id || patientId || null;
@@ -1985,7 +2036,7 @@ const getStructuredRecipeParts = (recipe: any) => {
     // false) para que sea rápido y silencioso. El PDF plano se sigue regenerando
     // al descargar/imprimir o al pulsar "Guardar" manualmente.
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen || mcpAutoGenerate) return;
 
         if (autosaveSkipRef.current) {
             // Este disparo del efecto vino de sembrar el editor (abrir un registro

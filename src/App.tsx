@@ -8,6 +8,7 @@ import Analytics from './pages/Analytics';
 import Schedule from './pages/Schedule';
 import PatientIntakeForm from './pages/PatientIntakeForm';
 import PatientBooking from './pages/PatientBooking';
+import McpNativePdf from './pages/McpNativePdf';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import UsersAdmin from './pages/UsersAdmin';
@@ -41,6 +42,7 @@ function App() {
             <Route path="/schedule" element={<Schedule />} />
             <Route path="/prescriptions" element={<Prescriptions />} />
             <Route path="/analytics" element={<Analytics />} />
+            <Route path="/mcp-pdf" element={<McpNativePdf />} />
           </Route>
 
           {/* Protected Admin Routes */}
