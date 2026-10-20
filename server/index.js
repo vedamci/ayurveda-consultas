@@ -5376,25 +5376,15 @@ app.post('/api/print/treatment-pdf', authenticateToken, async (req, res) => {
 // Run Consultas' own PDF editor/exporter in a server-side Chromium page for MCP.
 // The MCP bridge never interacts with editor controls; this route returns the
 // exact bytes produced by TreatmentPDFModal's built-in exporter.
-app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) => {
-    const { patientId, recordId, format = 'desktop' } = req.body || {};
-    const validId = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
-    if (!validId(patientId) || !validId(recordId)) {
-        return res.status(400).json({ error: 'Se requieren identificadores válidos de paciente y tratamiento.' });
-    }
-    if (!['desktop', 'mobile'].includes(format)) {
-        return res.status(400).json({ error: 'El formato debe ser desktop o mobile.' });
-    }
-
-    const accessToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-    if (!accessToken) return res.status(401).json({ error: 'Falta el token de sesión.' });
-
+async function generateNativeTreatmentPdf({ patientId, recordId, format, accessToken }, reportPhase = () => {}) {
     let page = null;
     let browser = null;
     try {
+        reportPhase('starting');
         browser = await getPuppeteerBrowser({ reuse: false });
-        if (!browser) return res.status(501).json({ error: 'Puppeteer/Chromium no disponible en el servidor.' });
+        if (!browser) throw new Error('Puppeteer/Chromium no disponible en el servidor.');
         console.warn('[native-print] Navegador listo.');
+        reportPhase('browser_ready');
         const renderUrl = new URL('/mcp-pdf', getNativePdfRenderOrigin());
         renderUrl.searchParams.set('patient_id', patientId);
         renderUrl.searchParams.set('record_id', recordId);
@@ -5414,28 +5404,146 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
         if (new URL(page.url()).origin !== renderUrl.origin) {
             throw new Error('El editor nativo redirigió fuera del origen configurado.');
         }
+        if (new URL(page.url()).pathname !== '/mcp-pdf') {
+            throw new Error('El editor no pudo abrir la sesión autenticada.');
+        }
+        reportPhase('editor_ready');
+        await page.waitForFunction(() => Boolean(window.__VEDAMCI_NATIVE_PDF_RESULT__), { timeout: 15000 });
+        reportPhase('exporting');
         await page.waitForFunction(() => {
             const result = window.__VEDAMCI_NATIVE_PDF_RESULT__;
             return result?.status === 'ready' || result?.status === 'error';
         }, { timeout: 180000 });
         const result = await page.evaluate(() => window.__VEDAMCI_NATIVE_PDF_RESULT__ || null);
         if (result?.status === 'error') {
-            return res.status(422).json({ error: result.error || 'El editor nativo no pudo preparar el PDF.' });
+            throw new Error(result.error || 'El editor nativo no pudo preparar el PDF.');
         }
         if (result?.status !== 'ready' || typeof result.pdfBase64 !== 'string') {
-            return res.status(500).json({ error: 'El editor nativo no devolvió un PDF.' });
+            throw new Error('El editor nativo no devolvió un PDF.');
         }
         const pdfBuffer = Buffer.from(result.pdfBase64, 'base64');
         if (!pdfBuffer.length || pdfBuffer.length > 18 * 1024 * 1024 || !pdfBuffer.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
-            return res.status(422).json({ error: 'La salida del editor no es un PDF válido o supera el tamaño permitido.' });
+            throw new Error('La salida del editor no es un PDF válido o supera el tamaño permitido.');
         }
-        res.type('application/pdf').send(pdfBuffer);
-    } catch (error) {
-        console.error('[native-print] Error generando PDF desde el editor de Consultas:', error?.message || error);
-        if (!res.headersSent) res.status(500).json({ error: 'No se pudo generar el PDF con el editor nativo de Consultas.' });
+        return pdfBuffer;
     } finally {
         if (browser) { try { await browser.close(); } catch { /* noop */ } }
     }
+}
+
+// Disk-backed jobs work across LiteSpeed workers and avoid proxy timeouts.
+// Tokens stay in memory; only the authenticated owner's job is readable.
+const NATIVE_PDF_JOBS_DIR = join(USER_DATA_DIR, 'native-pdf-jobs');
+const NATIVE_PDF_JOB_TTL = 30 * 60 * 1000;
+const nativeJobPath = (id, suffix = 'json') => join(NATIVE_PDF_JOBS_DIR, `${id}.${suffix}`);
+const validNativeJobId = (id) => typeof id === 'string' && /^[0-9a-f-]{36}$/.test(id);
+const writeNativeJob = (job) => {
+    const path = nativeJobPath(job.id);
+    const temp = `${path}.${process.pid}.tmp`;
+    fs.writeFileSync(temp, JSON.stringify(job), { mode: 0o600 });
+    fs.renameSync(temp, path);
+};
+const readNativeJob = (id) => {
+    if (!validNativeJobId(id)) return null;
+    try { return JSON.parse(fs.readFileSync(nativeJobPath(id), 'utf8')); }
+    catch { return null; }
+};
+const nativeJobView = (job) => ({
+    success: true, jobId: job.id, status: job.status, phase: job.phase,
+    error: job.error || undefined,
+});
+
+app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) => {
+    const { patientId, recordId, format = 'desktop', async: asyncMode = false } = req.body || {};
+    const validId = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+    if (!validId(patientId) || !validId(recordId) || !['desktop', 'mobile'].includes(format)) {
+        return res.status(400).json({ error: 'Paciente, tratamiento o formato inválido.' });
+    }
+    const accessToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    const input = { patientId, recordId, format, accessToken };
+    if (!asyncMode) {
+        try { return res.type('application/pdf').send(await generateNativeTreatmentPdf(input)); }
+        catch (error) {
+            console.error('[native-print]', error?.message || error);
+            return res.status(500).json({ error: 'No se pudo generar el PDF con el editor nativo de Consultas.' });
+        }
+    }
+
+    fs.mkdirSync(NATIVE_PDF_JOBS_DIR, { recursive: true, mode: 0o700 });
+    for (const file of fs.readdirSync(NATIVE_PDF_JOBS_DIR)) {
+        if (!/^[0-9a-f-]{36}\.json$/.test(file)) continue;
+        const old = readNativeJob(file.slice(0, -5));
+        if (old && Date.now() - old.createdAt > NATIVE_PDF_JOB_TTL) {
+            for (const suffix of ['json', 'pdf']) {
+                try { fs.unlinkSync(nativeJobPath(old.id, suffix)); } catch { /* expired temporary file */ }
+            }
+        } else if (old?.status === 'running' && Date.now() - old.createdAt > 6 * 60 * 1000) {
+            old.status = 'error';
+            old.error = 'La exportación se interrumpió. Vuelve a generarla.';
+            writeNativeJob(old);
+        } else if (old?.status === 'running') {
+            if (old.ownerId === String(req.user.id) && old.patientId === patientId
+                && old.recordId === recordId && old.format === format) {
+                return res.status(202).json(nativeJobView(old));
+            }
+            return res.status(409).json({ error: 'Hay una exportación en curso. Inténtalo cuando termine.' });
+        }
+    }
+    const job = {
+        id: crypto.randomUUID(), ownerId: String(req.user.id), patientId, recordId,
+        format, createdAt: Date.now(), status: 'running', phase: 'queued',
+    };
+    const lockPath = join(NATIVE_PDF_JOBS_DIR, 'active.lock');
+    try {
+        if (fs.existsSync(lockPath) && Date.now() - fs.statSync(lockPath).mtimeMs > 6 * 60 * 1000) {
+            fs.unlinkSync(lockPath);
+        }
+        const lock = fs.openSync(lockPath, 'wx', 0o600);
+        fs.writeFileSync(lock, job.id);
+        fs.closeSync(lock);
+    } catch (error) {
+        if (error.code === 'EEXIST') return res.status(409).json({ error: 'Hay una exportación en curso.' });
+        throw error;
+    }
+    writeNativeJob(job);
+    res.status(202).json(nativeJobView(job));
+    void (async () => {
+        try {
+            const pdf = await generateNativeTreatmentPdf(input, (phase) => {
+                job.phase = phase;
+                writeNativeJob(job);
+            });
+            fs.writeFileSync(nativeJobPath(job.id, 'pdf'), pdf, { mode: 0o600 });
+            job.status = 'ready';
+            job.phase = 'ready';
+        } catch (error) {
+            console.error('[native-print]', error?.message || error);
+            job.status = 'error';
+            job.error = String(error?.message || 'No se pudo generar el PDF nativo.');
+        }
+        writeNativeJob(job);
+        try {
+            if (fs.readFileSync(lockPath, 'utf8') === job.id) fs.unlinkSync(lockPath);
+        } catch { /* another worker may have recovered an expired lock */ }
+    })();
+});
+
+const ownedNativeJob = (req) => {
+    const job = readNativeJob(req.params.jobId);
+    return job && job.ownerId === String(req.user.id)
+        && Date.now() - job.createdAt <= NATIVE_PDF_JOB_TTL ? job : null;
+};
+app.get('/api/print/native-treatment-pdf/:jobId', authenticateToken, (req, res) => {
+    const job = ownedNativeJob(req);
+    res.set('Cache-Control', 'no-store');
+    return job ? res.json(nativeJobView(job)) : res.status(404).json({ error: 'Exportación no encontrada.' });
+});
+app.get('/api/print/native-treatment-pdf/:jobId/file', authenticateToken, (req, res) => {
+    const job = ownedNativeJob(req);
+    res.set('Cache-Control', 'no-store');
+    if (!job) return res.status(404).json({ error: 'Exportación no encontrada.' });
+    if (job.status !== 'ready') return res.status(409).json({ error: 'El PDF todavía no está listo.' });
+    res.type('application/pdf').sendFile(nativeJobPath(job.id, 'pdf'));
 });
 
 app.post('/api/patients/:id/pdf/:recordId', authenticateToken, async (req, res) => {

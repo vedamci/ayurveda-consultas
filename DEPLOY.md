@@ -131,6 +131,13 @@ aislado para la sesión del usuario. En Passenger y LiteSpeed usa por defecto
 `https://consultas.vedamci.com.mx`, porque Passenger sustituye el puerto de Node
 por un socket Unix. En otros servidores Node usa el listener local.
 
+El MCP envía `async: true`: recibe un trabajo y consulta su estado por GET
+en `/api/print/native-treatment-pdf/:jobId`, luego descarga `/file` al terminar.
+Los trabajos temporales son privados del usuario autenticado, se comparten
+entre workers mediante disco y caducan a los 30 minutos. Así la generación no
+queda limitada por el tiempo de espera del proxy. Solo se ejecuta un trabajo
+a la vez en este alojamiento.
+
 En LiteSpeed se carga la entrada CommonJS de Puppeteer para evitar el conflicto
 de stdin con `lsnode`. Si Chromium falta, activa el entorno Node de la app y
 ejecuta `npx puppeteer browsers install chrome-headless-shell` para LiteSpeed
