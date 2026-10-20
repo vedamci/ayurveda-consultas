@@ -5477,7 +5477,11 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
             for (const suffix of ['json', 'pdf']) {
                 try { fs.unlinkSync(nativeJobPath(old.id, suffix)); } catch { /* expired temporary file */ }
             }
-        } else if (old?.status === 'running' && Date.now() - old.createdAt > 6 * 60 * 1000) {
+        } else if (old?.status === 'running' && (Date.now() - old.createdAt > 6 * 60 * 1000
+            || (old.workerPid && (() => {
+                try { process.kill(old.workerPid, 0); return false; }
+                catch (error) { return error.code === 'ESRCH'; }
+            })()))) {
             old.status = 'error';
             old.error = 'La exportación se interrumpió. Vuelve a generarla.';
             writeNativeJob(old);
@@ -5491,12 +5495,14 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
     }
     const job = {
         id: crypto.randomUUID(), ownerId: String(req.user.id), patientId, recordId,
-        format, createdAt: Date.now(), status: 'running', phase: 'queued',
+        format, workerPid: process.pid, createdAt: Date.now(), status: 'running', phase: 'queued',
     };
     const lockPath = join(NATIVE_PDF_JOBS_DIR, 'active.lock');
     try {
-        if (fs.existsSync(lockPath) && Date.now() - fs.statSync(lockPath).mtimeMs > 6 * 60 * 1000) {
-            fs.unlinkSync(lockPath);
+        if (fs.existsSync(lockPath)) {
+            const lockedJob = readNativeJob(fs.readFileSync(lockPath, 'utf8'));
+            if (lockedJob?.status !== 'running'
+                || Date.now() - fs.statSync(lockPath).mtimeMs > 6 * 60 * 1000) fs.unlinkSync(lockPath);
         }
         const lock = fs.openSync(lockPath, 'wx', 0o600);
         fs.writeFileSync(lock, job.id);
