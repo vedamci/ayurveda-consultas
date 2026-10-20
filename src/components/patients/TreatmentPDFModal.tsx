@@ -3936,7 +3936,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                                                 Visita los siguientes videos para el mejor entendimiento del Ayurveda:
                                                 <div className="mt-1 pl-1 space-y-1 pdf-c-text-muted">
                                                     <div className="flex items-start gap-1">
-                                                        <span className="pdf-c-gold-dark">→</span>
+                                                        <span className="pdf-c-gold-dark">&gt;</span>
                                                         <span>
                                                             <strong className="pdf-c-burgundy">Doshas:</strong>{' '}
                                                             <a href="https://youtu.be/iHlND1C8WoE" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
@@ -3945,7 +3945,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                                                         </span>
                                                     </div>
                                                     <div className="flex items-start gap-1">
-                                                        <span className="pdf-c-gold-dark">→</span>
+                                                        <span className="pdf-c-gold-dark">&gt;</span>
                                                         <span>
                                                             <strong className="pdf-c-burgundy">Los tres pilares de la salud:</strong>{' '}
                                                             <a href="https://youtu.be/v8aPGf8LNSk" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
@@ -3954,7 +3954,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                                                         </span>
                                                     </div>
                                                     <div className="flex items-start gap-1">
-                                                        <span className="pdf-c-gold-dark">→</span>
+                                                        <span className="pdf-c-gold-dark">&gt;</span>
                                                         <span>
                                                             <strong className="pdf-c-burgundy">La verdadera salud con Ayurveda:</strong>{' '}
                                                             <a href="https://youtu.be/g2FqJDZGS_A" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
@@ -4419,7 +4419,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                                     </div>
                                 </div>
 
-                                <div className="rounded-xl pdf-border-card border bg-white p-5 min-h-[148mm] flex flex-col">
+                                {showRecipesSection && <div className="rounded-xl pdf-border-card border bg-white p-5 min-h-[148mm] flex flex-col">
                                     <h4 className="text-[12px] font-bold pdf-c-terracotta pdf-font-heading font-sans mb-3 pdf-subtitle">
                                         Recetas recomendadas
                                     </h4>
@@ -4466,7 +4466,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                                             </div>
                                         </div>
                                     )}
-                                </div>
+                                </div>}
                             </div>
                         </div>
 
@@ -4763,7 +4763,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                                             Visita los siguientes videos para el mejor entendimiento del Ayurveda:
                                             <div className="mt-1 pl-1 space-y-1 pdf-c-text-muted">
                                                 <div className="flex items-start gap-1">
-                                                    <span className="pdf-c-gold-dark">→</span>
+                                                    <span className="pdf-c-gold-dark">&gt;</span>
                                                     <span>
                                                         <strong className="pdf-c-burgundy">Doshas:</strong>{' '}
                                                         <a href="https://youtu.be/iHlND1C8WoE" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
@@ -4772,7 +4772,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                                                     </span>
                                                 </div>
                                                 <div className="flex items-start gap-1">
-                                                    <span className="pdf-c-gold-dark">→</span>
+                                                    <span className="pdf-c-gold-dark">&gt;</span>
                                                     <span>
                                                         <strong className="pdf-c-burgundy">Los tres pilares de la salud:</strong>{' '}
                                                         <a href="https://youtu.be/v8aPGf8LNSk" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
@@ -4781,7 +4781,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                                                     </span>
                                                 </div>
                                                 <div className="flex items-start gap-1">
-                                                    <span className="pdf-c-gold-dark">→</span>
+                                                    <span className="pdf-c-gold-dark">&gt;</span>
                                                     <span>
                                                         <strong className="pdf-c-burgundy">La verdadera salud con Ayurveda:</strong>{' '}
                                                         <a href="https://youtu.be/g2FqJDZGS_A" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">

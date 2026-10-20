@@ -5413,7 +5413,7 @@ async function generateNativeTreatmentPdf({ patientId, recordId, format, accessT
         await page.waitForFunction(() => {
             const result = window.__VEDAMCI_NATIVE_PDF_RESULT__;
             return result?.status === 'ready' || result?.status === 'error';
-        }, { timeout: 180000 });
+        }, { timeout: 300000 });
         const result = await page.evaluate(() => window.__VEDAMCI_NATIVE_PDF_RESULT__ || null);
         if (result?.status === 'error') {
             throw new Error(result.error || 'El editor nativo no pudo preparar el PDF.');
@@ -5435,6 +5435,7 @@ async function generateNativeTreatmentPdf({ patientId, recordId, format, accessT
 // Tokens stay in memory; only the authenticated owner's job is readable.
 const NATIVE_PDF_JOBS_DIR = join(USER_DATA_DIR, 'native-pdf-jobs');
 const NATIVE_PDF_JOB_TTL = 30 * 60 * 1000;
+const NATIVE_PDF_RUN_LIMIT = 10 * 60 * 1000;
 const nativeJobPath = (id, suffix = 'json') => join(NATIVE_PDF_JOBS_DIR, `${id}.${suffix}`);
 const validNativeJobId = (id) => typeof id === 'string' && /^[0-9a-f-]{36}$/.test(id);
 const writeNativeJob = (job) => {
@@ -5477,7 +5478,7 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
             for (const suffix of ['json', 'pdf']) {
                 try { fs.unlinkSync(nativeJobPath(old.id, suffix)); } catch { /* expired temporary file */ }
             }
-        } else if (old?.status === 'running' && (Date.now() - old.createdAt > 6 * 60 * 1000
+        } else if (old?.status === 'running' && (Date.now() - old.createdAt > NATIVE_PDF_RUN_LIMIT
             || (old.workerPid && (() => {
                 try { process.kill(old.workerPid, 0); return false; }
                 catch (error) { return error.code === 'ESRCH'; }
@@ -5502,7 +5503,7 @@ app.post('/api/print/native-treatment-pdf', authenticateToken, async (req, res) 
         if (fs.existsSync(lockPath)) {
             const lockedJob = readNativeJob(fs.readFileSync(lockPath, 'utf8'));
             if (lockedJob?.status !== 'running'
-                || Date.now() - fs.statSync(lockPath).mtimeMs > 6 * 60 * 1000) fs.unlinkSync(lockPath);
+                || Date.now() - fs.statSync(lockPath).mtimeMs > NATIVE_PDF_RUN_LIMIT) fs.unlinkSync(lockPath);
         }
         const lock = fs.openSync(lockPath, 'wx', 0o600);
         fs.writeFileSync(lock, job.id);

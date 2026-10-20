@@ -76,7 +76,10 @@ export async function exportPreviewPdf(container: HTMLElement, onProgress?: Prog
     const footer = cards[0].querySelector<HTMLElement>('.pdf-footer-border')?.cloneNode(true) as HTMLElement | undefined;
     for (const band of [header, footer]) {
         if (!band) continue;
-        Object.assign(band.style, { position: 'absolute', left: `${sideMargin}px`, right: `${sideMargin}px`, margin: '0' });
+            Object.assign(band.style, {
+                position: 'absolute', left: `${sideMargin}px`, right: `${sideMargin}px`, margin: '0',
+                zIndex: '2', backgroundColor: '#ffffff',
+            });
         context.appendChild(band);
     }
     if (header) header.style.top = `${margin}px`;
@@ -118,6 +121,9 @@ export async function exportPreviewPdf(container: HTMLElement, onProgress?: Prog
         flow.appendChild(clone);
     }
     context.appendChild(flowWindow);
+    // Paint repeated bands after the scrolling content. SVG foreignObject
+    // capture can otherwise let a later white card cover their text.
+    for (const band of [header, footer]) if (band) context.appendChild(band);
     viewport.append(style, context);
     document.body.appendChild(viewport);
     try {
