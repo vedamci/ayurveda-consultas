@@ -123,7 +123,8 @@ export async function createMobilePdfLayout(source: HTMLElement) {
         }
         Object.assign(flow.style, {
             width: `${contentWidth}px`, height: `${contentHeight}px`,
-            columnCount: '1', columnGap: `${columnGap}px`, columnFill: 'auto',
+            // An explicit column width also triggers fragmentation in older WebKit.
+            columnWidth: `${contentWidth}px`, columnGap: `${columnGap}px`, columnFill: 'auto',
             paddingTop: '10px', paddingBottom: '10px', boxSizing: 'border-box',
         });
         await nextPaint();

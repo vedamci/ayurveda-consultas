@@ -169,9 +169,11 @@ const faceRule = (face: typeof faces[number], url: string = face.url) =>
 
 export const PDF_FONT_FACE_CSS = faces.map(face => faceRule(face)).join('\n');
 
+export const PDF_FONT_WEIGHTS = [...new Map(faces.map(({ family, weight }) =>
+    [`${family}-${weight}`, { family, weight }])).values()];
+
 export async function loadPdfFonts(): Promise<void> {
-    const weights = [...new Map(faces.map(face => [`${face.family}-${face.weight}`, face])).values()];
-    await Promise.all(weights.map(async face => {
+    await Promise.all(PDF_FONT_WEIGHTS.map(async face => {
         const loaded = await document.fonts.load(`${face.weight} 16px "${face.family}"`);
         if (!loaded.length) throw new Error(`No se pudo cargar la fuente ${face.family}. Vuelve a intentar la descarga.`);
     }));

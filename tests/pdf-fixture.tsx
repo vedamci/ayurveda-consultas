@@ -30,9 +30,9 @@ const record = {
     showRecipesSection: false, showTherapiesSection: false, healthyEatingHabits: [],
 };
 const fixtureParams = new URLSearchParams(window.location.search);
-if (fixtureParams.has('long-follow-up')) {
+if (fixtureParams.has('long-follow-up') || fixtureParams.has('long-first')) {
     patient.name = 'PACIENTE DE PRUEBA CON NOMBRE ESPECIALMENTE LARGO';
-    Object.assign(record, { isFollowUp: true, pdfFontSize: 'xl' });
+    Object.assign(record, { isFollowUp: fixtureParams.has('long-follow-up'), pdfFontSize: 'xl' });
 }
 if (fixtureParams.has('long')) {
     record.patientTreatment += '\n\n' + Array.from({ length: 16 }, (_, index) => `Párrafo ficticio ${index + 1}. ` + 'Texto largo de prueba para comprobar márgenes, tipografía y saltos de renglón. '.repeat(8)).join('\n\n');

@@ -38,6 +38,18 @@ try {
             if (pixels[index + 3] > 10 && Math.min(pixels[index], pixels[index + 1], pixels[index + 2]) < 235) ink++;
         }
         assert(ink > 4, `Rendered page ${page.pageNumber} is blank`);
+        if (format === 'mobile' && page.pageNumber === 1) {
+            // Gold rules and icons can survive a failed first-page font paint.
+            // Require dark neutral ink in the fixture's opening guidance area.
+            const bodyPixels = ctx.getImageData(18, 112, 217, 98).data;
+            let textInk = 0;
+            for (let index = 0; index < bodyPixels.length; index += 4) {
+                const darkest = Math.min(bodyPixels[index], bodyPixels[index + 1], bodyPixels[index + 2]);
+                const lightest = Math.max(bodyPixels[index], bodyPixels[index + 1], bodyPixels[index + 2]);
+                if (lightest < 175 && lightest - darkest < 12) textInk++;
+            }
+            assert(textInk > 60, 'Rendered mobile cover is missing its opening text');
+        }
         await writeFile(join(outputDir, `page-${page.pageNumber}.png`), page.data);
     }
     const sheet = createCanvas(700 * 2, Math.ceil(render.pages.length / 2) * 1030);
