@@ -469,8 +469,8 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
             : ''
     );
 
-    const fetchPatientDetails = async () => {
-        setLoading(true);
+    const fetchPatientDetails = async (showLoading = true) => {
+        if (showLoading) setLoading(true);
         try {
             const res = await fetch(`/api/patients/${patientId}`);
             const data = await res.json();
@@ -480,7 +480,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
         } catch (error) {
             console.error('Error fetching patient details:', error);
         } finally {
-            setLoading(false);
+            if (showLoading) setLoading(false);
         }
     };
 
@@ -2975,6 +2975,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         onClick={onClose}
+                        style={{ display: isTreatmentModalOpen ? 'none' : undefined }}
                         className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[60]"
                     />
                     <motion.div
@@ -2982,6 +2983,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                         animate={{ x: 0 }}
                         exit={{ x: '100%' }}
                         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                        style={{ display: isTreatmentModalOpen ? 'none' : undefined }}
                         className={`fixed bg-[#F4F6F9] shadow-2xl z-[70] overflow-hidden flex flex-col transition-all duration-300 ${
                             isPanelFullScreen
                                 ? 'inset-3 md:inset-6 rounded-2xl'
@@ -6821,7 +6823,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                 onClose={() => {
                     setIsTreatmentModalOpen(false);
                     setEditingRecord(null);
-                    void fetchPatientDetails();
+                    void fetchPatientDetails(false);
                 }}
                 initialDiagnosis={diagnosis}
                 editingRecord={editingRecord}
