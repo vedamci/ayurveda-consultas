@@ -5,7 +5,7 @@ export async function toSvg(node: HTMLElement, options: Record<string, unknown> 
     let firstPageHasInstructions: boolean | undefined;
     if (node.hasAttribute('data-pdf-mobile-page') && node.dataset.pdfPageIndex === '0') {
         const clip = node.querySelector<HTMLElement>('[data-pdf-clip]')?.getBoundingClientRect();
-        const firstInstruction = node.querySelector<HTMLElement>('.print-flow-instruction-block li');
+        const firstInstruction = node.querySelector<HTMLElement>('.print-flow-instruction-block li, .print-flow-hero + .print-flow-section h4');
         if (clip && firstInstruction) {
             firstPageHasInstructions = Array.from(firstInstruction.getClientRects()).some(rect =>
                 rect.left < clip.right && rect.right > clip.left && rect.top < clip.bottom && rect.bottom > clip.top);

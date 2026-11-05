@@ -5546,6 +5546,9 @@ ${pdfPageFormat === 'mobile' ? `
                 #pdf-print-content .print-flow-header img { height: 34px !important; }
                 #pdf-print-content .print-flow-header h1 { font-size: 18px !important; }
                 #pdf-print-content .print-flow-header .pdf-meta { text-align: left !important; }
+                #pdf-print-content .print-flow-hero .pdf-hero-name[data-pdf-mobile-compact] {
+                    font-size: 30px !important;
+                }
                 #pdf-print-content .print-flow-footer {
                     flex-direction: column;
                     align-items: flex-start;

@@ -29,7 +29,12 @@ const record = {
     showLifestylePage: false, showDiagnosis: true, showHealthyEatingGuide: false,
     showRecipesSection: false, showTherapiesSection: false, healthyEatingHabits: [],
 };
-if (new URLSearchParams(window.location.search).has('long')) {
+const fixtureParams = new URLSearchParams(window.location.search);
+if (fixtureParams.has('long-follow-up')) {
+    patient.name = 'PACIENTE DE PRUEBA CON NOMBRE ESPECIALMENTE LARGO';
+    Object.assign(record, { isFollowUp: true, pdfFontSize: 'xl' });
+}
+if (fixtureParams.has('long')) {
     record.patientTreatment += '\n\n' + Array.from({ length: 16 }, (_, index) => `Párrafo ficticio ${index + 1}. ` + 'Texto largo de prueba para comprobar márgenes, tipografía y saltos de renglón. '.repeat(8)).join('\n\n');
 }
 createRoot(document.getElementById('root')!).render(<TreatmentPDFModal

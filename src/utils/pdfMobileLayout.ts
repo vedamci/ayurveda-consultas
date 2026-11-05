@@ -34,7 +34,7 @@ export async function createMobilePdfLayout(source: HTMLElement) {
     });
     const flow = document.createElement('div');
     flow.dataset.pdfMobileFlow = '';
-    Object.assign(flow.style, { width: '100%', margin: '0', padding: '0', transformOrigin: 'top left' });
+    Object.assign(flow.style, { width: '100%', margin: '0', padding: '0', transformOrigin: 'top left', overflowWrap: 'break-word' });
     for (const child of Array.from(body.children)) flow.appendChild(child.cloneNode(true));
     const header = flow.querySelector<HTMLElement>('.print-flow-header');
     if (header) header.style.paddingTop = '0'; // The page already has its top margin.
@@ -65,9 +65,20 @@ export async function createMobilePdfLayout(source: HTMLElement) {
         const viewportRect = viewport.getBoundingClientRect();
         const footerRect = footer.getBoundingClientRect();
         const contentHeight = footerRect.top - viewportRect.top - 12;
+        // A physical gutter prevents paint from a neighbouring fragment
+        // (borders, rounded cards) from bleeding into the current page.
         const contentWidth = viewportRect.width;
+        const columnGap = 24;
+        const pageStride = contentWidth + columnGap;
         if (contentWidth < 100 || contentHeight < 150) throw new Error('El área móvil no tiene un tamaño imprimible.');
         viewport.style.height = `${contentHeight}px`;
+
+        // A tall name can turn the cover into a nearly empty first page.
+        // Constrain only that heading, preserving the chosen body text size.
+        const coverName = flow.querySelector<HTMLElement>('.print-flow-hero .pdf-hero-name');
+        if (coverName && coverName.getBoundingClientRect().height > 112) {
+            coverName.dataset.pdfMobileCompact = '';
+        }
         const columnHeight = contentHeight - 20; // Eczar ascenders extend beyond tight line boxes.
 
         // Let content start in the space below the header instead of moving a
@@ -112,16 +123,16 @@ export async function createMobilePdfLayout(source: HTMLElement) {
         }
         Object.assign(flow.style, {
             width: `${contentWidth}px`, height: `${contentHeight}px`,
-            columnCount: '1', columnGap: '0px', columnFill: 'auto',
+            columnCount: '1', columnGap: `${columnGap}px`, columnFill: 'auto',
             paddingTop: '10px', paddingBottom: '10px', boxSizing: 'border-box',
         });
         await nextPaint();
-        const pageCount = Math.max(1, Math.ceil((flow.scrollWidth - 1) / contentWidth));
+        const pageCount = Math.max(1, Math.ceil((flow.scrollWidth + columnGap - 1) / pageStride));
         if (pageCount > 150) throw new Error('El documento móvil tiene demasiadas páginas.');
         return {
             frame, viewport, pageCount, width: Math.ceil(frameRect.width), height: Math.ceil(frameRect.height),
             async showPage(index: number) {
-                flow.style.transform = `translateX(${-index * contentWidth}px)`;
+                flow.style.transform = `translateX(${-index * pageStride}px)`;
                 frame.dataset.pdfPageIndex = String(index);
                 // Reserve the full footer's height on every page so text never
                 // reflows or overlaps when switching between footer versions.
