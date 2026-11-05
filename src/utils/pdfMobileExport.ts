@@ -25,13 +25,15 @@ export async function exportMobilePdf(
             await assertCapturedPageHasInk(image);
             pdf.addImage(image, 'JPEG', 0, 0, 120, 213, undefined, 'FAST');
             const origin = layout.frame.getBoundingClientRect();
+            const viewport = layout.viewport.getBoundingClientRect();
             for (const anchor of Array.from(layout.frame.querySelectorAll<HTMLAnchorElement>('a[href]'))) {
                 if (!/^(https?:|mailto:|tel:)/i.test(anchor.href)) continue;
+                const clip = layout.viewport.contains(anchor) ? viewport : origin;
                 for (const rect of Array.from(anchor.getClientRects())) {
-                    const left = Math.max(0, rect.left - origin.left);
-                    const top = Math.max(0, rect.top - origin.top);
-                    const right = Math.min(origin.width, rect.right - origin.left);
-                    const bottom = Math.min(origin.height, rect.bottom - origin.top);
+                    const left = Math.max(clip.left, rect.left) - origin.left;
+                    const top = Math.max(clip.top, rect.top) - origin.top;
+                    const right = Math.min(clip.right, rect.right) - origin.left;
+                    const bottom = Math.min(clip.bottom, rect.bottom) - origin.top;
                     if (right <= left || bottom <= top) continue;
                     pdf.link(left / origin.width * 120, top / origin.height * 213,
                         (right - left) / origin.width * 120, (bottom - top) / origin.height * 213,

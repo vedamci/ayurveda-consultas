@@ -33,6 +33,7 @@ client_secret*.json
 # === DATOS DE PACIENTES / DATOS LOCALES (NUNCA subir) ===
 local-data/
 server/users.json
+/therapy-catalog.json*
 *.sqlite
 *.db
 

@@ -39,7 +39,7 @@ const ToggleSwitch: React.FC<{
     </button>
 );
 import type { PatientDetail } from '../../types/patient';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { SpeechTextarea } from '../ui/SpeechTextarea';
 import { type DoshaType, inferDoshaFromText } from '../../utils/dosha';
@@ -63,6 +63,7 @@ import recipesList from '../../data/recipes.json';
 import lifestyleList from '../../data/lifestyle.json';
 import healthyHabitsSeed from '../../data/healthy-eating-habits.json';
 import therapiesSeed from '../../data/therapies.json';
+import yogaNidraSeed from '../../data/therapy-yoga-nidra.json';
 
 interface TreatmentPDFModalProps {
     isOpen: boolean;
@@ -142,7 +143,7 @@ const HEALTHY_EATING_HABITS: HealthyHabit[] = (healthyHabitsSeed as HealthyHabit
 
 // Catálogo de terapias ayurvédicas seleccionables (Abhyanga, Nasya, Basti, etc.).
 // Cada terapia es una plantilla {id, name, emoji, text} editable desde la app y
-// persistida en src/data/therapies.json (endpoints /api/therapies). El profesional
+// persistida en el catálogo editable (endpoints /api/therapies). El profesional
 // elige cuáles asignar al paciente, igual que los hábitos saludables.
 interface TherapyItem {
     id: string;
@@ -151,7 +152,23 @@ interface TherapyItem {
     text: string;
 }
 // Semilla generada desde la carpeta "Terapias" (respaldo si la API no responde).
-const THERAPIES_SEED: TherapyItem[] = (therapiesSeed as TherapyItem[]);
+const THERAPIES_SEED: TherapyItem[] = therapiesSeed.some(item => item.id === yogaNidraSeed.id)
+    ? therapiesSeed
+    : [...therapiesSeed, yogaNidraSeed];
+
+const therapyMarkdownComponents: Components = {
+    a: ({ node: _node, href, children, ...props }) => {
+        const isYogaNidraVideo = /^https:\/\/youtu\.be\/NK4rWcMn9Ls(?:[?#]|$)/.test(href ?? '');
+        return (
+            <a {...props} href={href}
+                className={isYogaNidraVideo
+                    ? 'not-prose my-3 inline-flex min-h-11 w-full max-w-xs break-inside-avoid items-center justify-center rounded-lg bg-[#7A1F2B] px-5 py-2.5 text-center text-sm font-bold text-white no-underline [print-color-adjust:exact] focus-visible:outline-2 focus-visible:outline-offset-2'
+                    : props.className}>
+                {isYogaNidraVideo ? 'Ver Yoga Nidra en YouTube' : children}
+            </a>
+        );
+    },
+};
 
 const slugifyTherapyName = (name: string) => name.trim().toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -984,7 +1001,7 @@ const getStructuredRecipeParts = (recipe: any) => {
             });
             if (res.ok) {
                 const data = await res.json();
-                if (data.success && Array.isArray(data.therapies) && data.therapies.length > 0) {
+                if (data.success && Array.isArray(data.therapies)) {
                     setTherapiesList(data.therapies);
                 }
             }
@@ -4298,7 +4315,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                                 <div className="mt-5 space-y-4 flex-1 flex flex-col">
                                     <div className="space-y-1.5 flex-1 pdf-bg-cream p-5 rounded-xl pdf-border-card border overflow-hidden">
                                         <div className="text-[11.5px] leading-relaxed pdf-c-text-muted font-sans prose prose-sm max-w-none prose-p:text-[#333333] prose-p:my-1.5 prose-strong:text-[#7A1F2B] prose-em:text-[#666666] prose-h1:text-[13px] prose-h1:font-bold prose-h1:uppercase prose-h1:tracking-wider prose-h1:text-[#7A1F2B] prose-h1:mt-3 prose-h1:mb-2 prose-h1:first:mt-0 prose-h2:text-[11.5px] prose-h2:font-bold prose-h2:text-[#8a6d1f] prose-h2:mt-2.5 prose-h2:mb-1 prose-h3:text-[11px] prose-h3:font-bold prose-h3:text-[#333333] prose-h3:mt-2 prose-h3:mb-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 pdf-base-text">
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{pageText}</ReactMarkdown>
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={therapyMarkdownComponents}>{pageText}</ReactMarkdown>
                                         </div>
                                     </div>
                                 </div>
@@ -4759,33 +4776,33 @@ const getStructuredRecipeParts = (recipe: any) => {
                                         <li>Lee las indicaciones generales que vienen en este documento.</li>
                                         <li>Descarga y revisa los archivos adjuntos. A lado de tratamientos se indicará si hay anexo. <span className="italic pdf-c-text-muted">(No siempre hay archivos adjuntos.)</span></li>
                                         <li>Mantente en contacto conmigo; no esperes hasta la consulta para resolver dudas o reportar cualquier cambio en tu salud.</li>
-                                        <li>
-                                            Visita los siguientes videos para el mejor entendimiento del Ayurveda:
+                                        <li data-pdf-mobile-split>
+                                            <div data-pdf-mobile-keep-with-next>Visita los siguientes videos para el mejor entendimiento del Ayurveda:</div>
                                             <div className="mt-1 pl-1 space-y-1 pdf-c-text-muted">
-                                                <div className="flex items-start gap-1">
+                                                <div className="flex items-start gap-1" data-pdf-mobile-keep>
                                                     <span className="pdf-c-gold-dark">&gt;</span>
                                                     <span>
                                                         <strong className="pdf-c-burgundy">Doshas:</strong>{' '}
                                                         <a href="https://youtu.be/iHlND1C8WoE" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
-                                                            https://youtu.be/iHlND1C8WoE
+                                                            {pdfPageFormat === 'mobile' ? 'Ver video' : 'https://youtu.be/iHlND1C8WoE'}
                                                         </a>
                                                     </span>
                                                 </div>
-                                                <div className="flex items-start gap-1">
+                                                <div className="flex items-start gap-1" data-pdf-mobile-keep>
                                                     <span className="pdf-c-gold-dark">&gt;</span>
                                                     <span>
                                                         <strong className="pdf-c-burgundy">Los tres pilares de la salud:</strong>{' '}
                                                         <a href="https://youtu.be/v8aPGf8LNSk" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
-                                                            https://youtu.be/v8aPGf8LNSk
+                                                            {pdfPageFormat === 'mobile' ? 'Ver video' : 'https://youtu.be/v8aPGf8LNSk'}
                                                         </a>
                                                     </span>
                                                 </div>
-                                                <div className="flex items-start gap-1">
+                                                <div className="flex items-start gap-1" data-pdf-mobile-keep>
                                                     <span className="pdf-c-gold-dark">&gt;</span>
                                                     <span>
                                                         <strong className="pdf-c-burgundy">La verdadera salud con Ayurveda:</strong>{' '}
                                                         <a href="https://youtu.be/g2FqJDZGS_A" target="_blank" rel="noopener noreferrer" className="pdf-c-link-green underline font-semibold break-all">
-                                                            https://youtu.be/g2FqJDZGS_A
+                                                            {pdfPageFormat === 'mobile' ? 'Ver video' : 'https://youtu.be/g2FqJDZGS_A'}
                                                         </a>
                                                     </span>
                                                 </div>
@@ -4886,7 +4903,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                             <h3 className="print-flow-title"><span className="inline-flex items-center gap-2"><HeartHandshake size={16} className="pdf-c-burgundy" />Terapias recomendadas</span></h3>
                             <div className="print-flow-divider"><div className="pdf-diamond-line"></div><div className="pdf-diamond"></div><div className="pdf-diamond-line"></div></div>
                             <div className="print-flow-card prose prose-sm max-w-none font-sans pdf-base-text">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{therapiesContent}</ReactMarkdown>
+                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={therapyMarkdownComponents}>{therapiesContent}</ReactMarkdown>
                             </div>
                         </section>
                     )}
@@ -5024,7 +5041,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                     )}
 
                     <section className="print-flow-section print-avoid">
-                        <div className="pdf-cta-banner text-center rounded-xl p-4">
+                        <div className="pdf-cta-banner text-center rounded-xl p-4 print-avoid">
                             <p className="pdf-c-burgundy font-bold pdf-font-heading pdf-base-text">¿Tienes dudas? Escríbeme antes de tu próxima consulta — estoy aquí para acompañarte.</p>
                         </div>
                     </section>
@@ -5033,7 +5050,7 @@ const getStructuredRecipeParts = (recipe: any) => {
                     </tbody>
                     <tfoot className="print-layout-foot">
                     <tr><td className="plt-foot">
-                    <div className="print-flow-footer">
+                    <div className="print-flow-footer" data-pdf-contact-label={`Contacto ${professionalContact.name.replace(/^krishna\s*das$/i, 'Krishnadas')}`}>
                         <div>
                             <p className="font-semibold pdf-c-burgundy">VEDAMCI · Instituto de Medicina Ayurvédica</p>
                             <p className="italic">Indicaciones personalizadas · Todos los derechos reservados</p>

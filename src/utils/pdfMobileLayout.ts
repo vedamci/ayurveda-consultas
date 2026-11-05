@@ -44,6 +44,12 @@ export async function createMobilePdfLayout(source: HTMLElement) {
     Object.assign(footer.style, {
         position: 'absolute', left: '8mm', right: '8mm', bottom: '6mm', marginTop: '0',
     });
+    const fullFooter = Array.from(footer.childNodes);
+    const contactLink = footer.querySelector<HTMLAnchorElement>('a[href]');
+    const compactContact = contactLink?.cloneNode(false) as HTMLAnchorElement | undefined
+        ?? document.createElement('span');
+    compactContact.textContent = footer.dataset.pdfContactLabel || 'Contacto';
+    compactContact.classList.add('font-semibold', 'pdf-c-gold-dark');
     frame.append(viewport, footer);
     stage.appendChild(frame);
     // Keep the original selectors/tokens on the capture without duplicate IDs.
@@ -70,8 +76,8 @@ export async function createMobilePdfLayout(source: HTMLElement) {
         for (const container of Array.from(flow.querySelectorAll<HTMLElement>(containers))) {
             container.style.setProperty('break-inside', 'auto', 'important');
         }
-        for (const element of Array.from(flow.querySelectorAll<HTMLElement>('.print-avoid, tr, li, img'))) {
-            if (element.matches(containers)) continue;
+        for (const element of Array.from(flow.querySelectorAll<HTMLElement>('.print-avoid, tr, li, img, [data-pdf-mobile-keep]'))) {
+            if (element.matches(containers) || element.hasAttribute('data-pdf-mobile-split')) continue;
             element.style.setProperty('break-inside', element.getBoundingClientRect().height <= columnHeight ? 'avoid-column' : 'auto', 'important');
         }
         for (const card of Array.from(flow.querySelectorAll<HTMLElement>('.print-flow-card, .print-flow-table-card'))) {
@@ -88,8 +94,18 @@ export async function createMobilePdfLayout(source: HTMLElement) {
             image.style.objectFit = 'contain';
             image.style.setProperty('break-inside', 'avoid-column', 'important');
         }
-        for (const heading of Array.from(flow.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6, .print-flow-title, .print-flow-divider'))) {
+        for (const heading of Array.from(flow.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6, [data-pdf-mobile-keep-with-next]'))) {
             heading.style.setProperty('break-after', 'avoid-column', 'important');
+            if (!heading.matches('.print-flow-title')) continue;
+            const divider = heading.nextElementSibling;
+            if (!(divider instanceof HTMLElement) || !divider.matches('.print-flow-divider')) continue;
+            // Fragment title and rule as a unit. Otherwise the diamond can be
+            // split between the bottom of one page and the top of the next.
+            const headingGroup = document.createElement('div');
+            headingGroup.style.setProperty('break-inside', 'avoid-column', 'important');
+            headingGroup.style.setProperty('break-after', 'avoid-column', 'important');
+            heading.before(headingGroup);
+            headingGroup.append(heading, divider);
         }
         for (const section of Array.from(flow.querySelectorAll<HTMLElement>('.print-page-break-before'))) {
             section.style.setProperty('break-before', 'column', 'important');
@@ -103,10 +119,17 @@ export async function createMobilePdfLayout(source: HTMLElement) {
         const pageCount = Math.max(1, Math.ceil((flow.scrollWidth - 1) / contentWidth));
         if (pageCount > 150) throw new Error('El documento móvil tiene demasiadas páginas.');
         return {
-            frame, pageCount, width: Math.ceil(frameRect.width), height: Math.ceil(frameRect.height),
+            frame, viewport, pageCount, width: Math.ceil(frameRect.width), height: Math.ceil(frameRect.height),
             async showPage(index: number) {
                 flow.style.transform = `translateX(${-index * contentWidth}px)`;
                 frame.dataset.pdfPageIndex = String(index);
+                // Reserve the full footer's height on every page so text never
+                // reflows or overlaps when switching between footer versions.
+                if (index === 0 || index === pageCount - 1) {
+                    footer.replaceChildren(...fullFooter);
+                } else {
+                    footer.replaceChildren(compactContact);
+                }
                 await nextPaint();
             },
             dispose,

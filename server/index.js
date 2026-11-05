@@ -12,6 +12,7 @@ import crypto from 'crypto';
 import convertHEIC from 'heic-convert';
 import { exec, execFile } from 'child_process';
 import os from 'os';
+import { createTherapyCatalog } from './therapyCatalog.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1465,9 +1466,15 @@ function buildCatalogMap(items = []) {
     return map;
 }
 
+const therapyCatalog = createTherapyCatalog({
+    seedPath: join(__dirname, '../src/data/therapy-yoga-nidra.json'),
+    legacyPath: join(__dirname, '../src/data/therapies.json'),
+    catalogPath: join(USER_DATA_DIR, 'therapy-catalog.json'),
+});
+
 function getTrackingCatalogs() {
     return {
-        therapies: buildCatalogMap(readJsonCatalogCandidates(['src', 'data', 'therapies.json'])),
+        therapies: buildCatalogMap(therapyCatalog.read()),
         healthyHabits: buildCatalogMap(readJsonCatalogCandidates(['src', 'data', 'healthy-eating-habits.json']))
     };
 }
@@ -4316,17 +4323,12 @@ app.post('/api/healthy-habits/delete', authenticateToken, (req, res) => {
     }
 });
 
-// ============ Terapias (catálogo editable, src/data/therapies.json) ============
+// ============ Terapias (catálogo editable) ============
 
 // Get the catalog of therapy templates
 app.get('/api/therapies', authenticateToken, (req, res) => {
     try {
-        const therapiesPath = join(__dirname, '../src/data/therapies.json');
-        let therapiesList = [];
-        if (fs.existsSync(therapiesPath)) {
-            therapiesList = JSON.parse(fs.readFileSync(therapiesPath, 'utf8') || '[]');
-        }
-        res.json({ success: true, therapies: therapiesList });
+        res.json({ success: true, therapies: therapyCatalog.read() });
     } catch (error) {
         console.error('Error getting therapies:', error);
         res.status(500).json({ error: 'Error al obtener la base de datos de terapias.' });
@@ -4341,29 +4343,24 @@ app.post('/api/therapies/update', authenticateToken, (req, res) => {
             return res.status(400).json({ error: 'El nombre y texto de la terapia son requeridos.' });
         }
 
-        const therapiesPath = join(__dirname, '../src/data/therapies.json');
-        let therapiesList = [];
-        if (fs.existsSync(therapiesPath)) {
-            therapiesList = JSON.parse(fs.readFileSync(therapiesPath, 'utf8') || '[]');
-        }
 
         const slug = (id || name).toString().trim().toLowerCase()
             .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
             .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
         const lookup = (originalId || slug).toLowerCase();
-        const existingIdx = therapiesList.findIndex(t => (t.id || '').toLowerCase() === lookup);
         const updatedTherapy = { id: slug, name, emoji, text };
-
-        if (existingIdx >= 0) {
-            therapiesList[existingIdx] = updatedTherapy;
-        } else {
-            therapiesList.push(updatedTherapy);
-        }
-
-        fs.writeFileSync(therapiesPath, JSON.stringify(therapiesList, null, 2), 'utf8');
+        const therapiesList = therapyCatalog.change(items => {
+            const index = items.findIndex(t => (t.id || '').toLowerCase() === lookup);
+            if (index >= 0) items[index] = updatedTherapy;
+            else items.push(updatedTherapy);
+            return items;
+        });
 
         res.json({ success: true, message: 'Terapia guardada exitosamente.', therapy: updatedTherapy, therapies: therapiesList });
     } catch (error) {
+        if (error.code === 'EEXIST') {
+            return res.status(409).json({ error: 'El catálogo de terapias se está guardando. Inténtalo de nuevo.' });
+        }
         console.error('Error updating therapy:', error);
         res.status(500).json({ error: 'Error al actualizar la base de datos de terapias.' });
     }
@@ -4377,17 +4374,14 @@ app.post('/api/therapies/delete', authenticateToken, (req, res) => {
             return res.status(400).json({ error: 'El ID de la terapia es requerido.' });
         }
 
-        const therapiesPath = join(__dirname, '../src/data/therapies.json');
-        let therapiesList = [];
-        if (fs.existsSync(therapiesPath)) {
-            therapiesList = JSON.parse(fs.readFileSync(therapiesPath, 'utf8') || '[]');
-        }
 
-        const filtered = therapiesList.filter(t => (t.id || '').toLowerCase() !== id.toLowerCase());
-        fs.writeFileSync(therapiesPath, JSON.stringify(filtered, null, 2), 'utf8');
+        const filtered = therapyCatalog.change(items => items.filter(t => (t.id || '').toLowerCase() !== id.toLowerCase()));
 
         res.json({ success: true, message: 'Terapia eliminada exitosamente.', therapies: filtered });
     } catch (error) {
+        if (error.code === 'EEXIST') {
+            return res.status(409).json({ error: 'El catálogo de terapias se está guardando. Inténtalo de nuevo.' });
+        }
         console.error('Error deleting therapy:', error);
         res.status(500).json({ error: 'Error al eliminar la terapia.' });
     }
