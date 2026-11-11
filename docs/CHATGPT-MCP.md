@@ -21,10 +21,25 @@ Un puente MCP configurado en un cliente local no queda automáticamente disponib
 en ChatGPT web. Hay que verificar por separado el proceso del puente, su
 autenticación con Consultas y la instalación en el workspace de ChatGPT.
 
-No se pudo comprobar la respuesta HTTPS en vivo desde el entorno de esta revisión.
-Eso **no demuestra una caída del sitio ni un fallo DNS**. Tampoco se ha demostrado
-que consultas.yurveda.com o consultas.vedamsi.com pertenezcan a esta app: no usarlos
-para iniciar sesión ni enviar credenciales sin verificar su titularidad.
+La herramienta web de esta revisión no pudo acceder al sitio. Una comprobación
+posterior desde un runner de GitHub sí obtuvo evidencia pública, el 11 de
+noviembre de 2026 a las 23:37 UTC:
+
+| Destino | Observado |
+| --- | --- |
+| consultas.vedamci.com.mx | DNS resolvió; HEAD /login respondió HTTPS 200. |
+| https://consultas.vedamci.com.mx/mcp | POST initialize respondió 404. No es un transporte MCP utilizable en esa ruta. |
+| consultas.yurveda.com | DNS resolvió; no se verificó identidad ni relación con esta app. |
+| consultas.vedamsi.com | DNS no resolvió desde el runner. |
+
+No enviar credenciales a los dominios alternativos sin comprobar su titularidad.
+Las pruebas no recorrieron otras rutas MCP desconocidas ni autenticaron una cuenta.
+El 404 solo describe la ruta probada, no descarta un servicio alojado en otro sitio.
+
+Evidencia: [ejecución de diagnóstico](https://github.com/vedamci/ayurveda-consultas/actions/runs/43121265683).
+La sintaxis y las 20 pruebas sintéticas pasaron. La comprobación pública devolvió
+código de salida 1 por el 404; ese paso es informativo y tolera el fallo, de modo
+que el estado verde global del workflow **no acredita que el MCP funcione**.
 
 ## Ruta inicial: conexión privada al MCP existente
 
@@ -133,7 +148,7 @@ El script nuevo no inicia sesión, no recibe tokens, no llama herramientas y no
 lee endpoints clínicos. Comprueba DNS de los tres dominios mencionados, HEAD
 /login, initialize del transporte /mcp y, si se anuncia en un 401, metadatos
 públicos de OAuth del mismo origen. No sigue redirecciones, no imprime respuestas,
-cookies ni identificadores de sesión y limita el tiempo y el tamaño de respuesta.
+cookies ni identificadores de sesión y limita el tiempo y el tamaño de respuesta HTTP.
 Los emisores OAuth externos se dejan para inspección posterior.
 
 Requiere Node 20 o posterior, sin instalar dependencias:
