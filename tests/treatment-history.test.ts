@@ -32,3 +32,14 @@ test('calendar date is stable across timezone offsets and includes same-day save
     assert.equal(result.length,1);
     assert.equal(result[0].date,'2026-11-03');
 });
+
+test('preview is factual, marks suspended herbs, and keeps full sections intact', async () => {
+    const { recommendationPreview } = await import('../src/utils/treatmentHistory.ts');
+    const record = plan({ herbs: [{formula:'Hierba ficticia',dosage:'Dosis exacta',suspended:true}], categories:['Cereales','Frutas','Aceites','Legumbres'] });
+    const herbSection = recommendationSections(record).find(s => s.title === 'Fórmulas y dosis')!;
+    assert.equal(recommendationPreview(record, herbSection), 'Hierba ficticia (suspendido)');
+    assert.ok(herbSection.items[0].includes('Dosis exacta'));
+    assert.equal(recommendationPreview(record,{title:'Alimentación',items:['Texto completo']}),'Cereales · Frutas · Aceites · +1 más');
+    const long = 'A'.repeat(200);
+    assert.equal(recommendationPreview(record,{title:'Indicaciones',items:[long]}),'A'.repeat(100)+'…');
+});

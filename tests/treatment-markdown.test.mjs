@@ -14,6 +14,9 @@ try {
     const before = JSON.stringify(plan);
     const html = renderToStaticMarkup(createElement(SavedRecommendations, {plans:[plan],visits:[],date:'2026-11-11'}));
     assert.ok(html.includes('<strong>Receta de prueba:</strong>'));
+    assert.ok(!/<details[^>]*\sopen(?:[= >])/.test(html), 'details start collapsed');
+    assert.ok(html.includes('Ver detalle completo'));
+    assert.ok(html.includes('Ocultar detalle'));
     assert.ok(html.includes('<ol>') && html.includes('<ul>'));
     assert.ok(html.includes('½ taza y 25 minutos.'));
     assert.ok(html.includes('Primer paso ficticio.') && html.includes('Segundo paso ficticio.'));

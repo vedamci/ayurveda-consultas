@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CalendarDays, ChevronDown, ClipboardList, FileText, History, Leaf, Pill, Utensils, Heart, BookOpen, Sparkles, Info } from 'lucide-react';
 import type { TreatmentPlan, Visit } from '../../types/patient';
-import { savedRecommendationHistory } from '../../utils/treatmentHistory';
+import { savedRecommendationHistory, recommendationPreview } from '../../utils/treatmentHistory';
 
 const categoryIcons = {
     'Indicaciones': ClipboardList, 'Fórmulas y dosis': Pill, 'Alimentación': Utensils,
@@ -54,10 +54,16 @@ export function SavedRecommendations({ plans, visits, date, editingVisitId }: {
             </div>
             {selected.sections.map(section => {
                 const Icon = categoryIcons[section.title as keyof typeof categoryIcons] || ClipboardList;
-                return <details key={section.title} open={section.title === 'Indicaciones' || section.title === 'Fórmulas y dosis'} className="group overflow-hidden rounded-xl border border-slate-200 bg-white">
+                const preview = recommendationPreview(selected.record, section);
+                return <details key={section.title} className="group overflow-hidden rounded-xl border border-slate-200 bg-white">
                     <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2.5 px-3 py-3 text-sm font-semibold text-slate-800 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-600 [&::-webkit-details-marker]:hidden">
                         <Icon size={17} className="shrink-0 text-emerald-600" aria-hidden="true" />
-                        <span className="min-w-0 flex-1">{section.title}</span>
+                        <span className="min-w-0 flex-1">
+                            <span className="block">{section.title}</span>
+                            {preview && <span className="mt-1 block text-xs font-normal leading-relaxed text-slate-600 line-clamp-2">{preview}</span>}
+                            <span className="mt-1 block text-[11px] font-medium text-emerald-700 group-open:hidden">Ver detalle completo</span>
+                            <span className="mt-1 hidden text-[11px] font-medium text-emerald-700 group-open:block">Ocultar detalle</span>
+                        </span>
                         <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500">{section.items.length}</span>
                         <ChevronDown size={16} className="shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden="true" />
                     </summary>

@@ -46,3 +46,23 @@ export function savedRecommendationHistory(plans: TreatmentPlan[], visits: Visit
         .filter(entry => entry.date && cutoff && entry.date <= cutoff && entry.sections.length)
         .sort((a, b) => b.date.localeCompare(a.date));
 }
+
+// Factual labels from the saved record, not a generated clinical summary.
+export function recommendationPreview(record: Recommendation, section: RecommendationSection): string {
+    let labels: string[] = [];
+    switch (section.title) {
+        case 'Fórmulas y dosis':
+            labels = (record.herbs || []).map(h => `${h.formula}${h.suspended ? ' (suspendido)' : ''}`); break;
+        case 'Alimentación': labels = record.categories || []; break;
+        case 'Hábitos alimentarios': labels = record.healthyEatingHabitDetails?.length ? record.healthyEatingHabitDetails.map(h => h.name) : record.healthyEatingHabits || []; break;
+        case 'Terapias': labels = record.therapyDetails?.length ? record.therapyDetails.map(t => t.name) : record.therapies || []; break;
+        case 'Recetas': labels = (record.recipes || []).map((r: unknown) => typeof r === 'string' ? r : r && typeof r === 'object' ? text((r as Record<string, unknown>).title) : ''); break;
+    }
+    labels = labels.map(text).filter(Boolean);
+    if (labels.length) {
+        return labels.slice(0, 3).join(' · ') + (labels.length > 3 ? ` · +${labels.length - 3} más` : '');
+    }
+    // An explicitly shortened first-line excerpt for unstructured older records.
+    const excerpt = section.items[0]?.split('\n').find(line => line.trim())?.replace(/^[#>*\s]+/, '').replace(/\*\*/g, '').trim() || '';
+    return excerpt.length > 100 ? `${excerpt.slice(0, 100).trimEnd()}…` : excerpt;
+}
