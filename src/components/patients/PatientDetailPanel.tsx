@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Badge } from '../ui/Badge';
 import { TreatmentPDFModal } from './TreatmentPDFModal';
+import { SavedRecommendations } from './SavedRecommendations';
 import { SpeechTextarea } from '../ui/SpeechTextarea';
 import { buildWhatsAppUrl } from '../../utils/whatsapp';
 import herbsList from '../../data/herb.json';
@@ -5242,6 +5243,7 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                             <h4 className="text-xs font-black uppercase tracking-wider text-emerald-800">Tratamientos elegidos</h4>
                                         </div>
                                         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                                            <SavedRecommendations key={`${patient?.id}-${editingVisitId || 'new'}-${visitDate}`} plans={patient?.treatmentPlans || []} visits={patient?.visits || []} date={visitDate} editingVisitId={editingVisitId} />
                                             <div className="space-y-2">
                                                 <label className="text-xs font-bold text-slate-500 uppercase">Tratamiento indicado</label>
                                                 <SpeechTextarea
