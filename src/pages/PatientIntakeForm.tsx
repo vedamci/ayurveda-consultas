@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Save, CheckCircle, AlertCircle, StickyNote, Plus, X } from 'lucide-react';
 import { PublicLayout } from '../layouts/PublicLayout';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { SpeechTextarea } from '../components/ui/SpeechTextarea';
+
+import { INTAKE_DRAFT_KEY, encodeIntakeDraft, decodeIntakeDraft } from '../utils/intakeDraft';
 
 const PROFESSIONAL_NOTES_DRAFT_KEY = 'vedamci-professional-notes-draft';
 
@@ -100,6 +102,12 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
         };
     });
 
+    const defaults = useRef(formData);
+    const [saveDraft, setSaveDraft] = useState(false);
+    const [hasDraft, setHasDraft] = useState(false);
+    const [draftMessage, setDraftMessage] = useState('');
+    const submitting = useRef(false);
+
     const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
     const [newSymptomName, setNewSymptomName] = useState('');
@@ -114,6 +122,43 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
             }
         }
     }, [isInternal]);
+
+    useEffect(() => {
+        if (isInternal) return;
+        try {
+            const raw = localStorage.getItem(INTAKE_DRAFT_KEY);
+            if (raw && decodeIntakeDraft(raw, defaults.current)) setHasDraft(true);
+            else if (raw) localStorage.removeItem(INTAKE_DRAFT_KEY);
+        } catch { setDraftMessage('Este navegador no permite guardar el avance.'); }
+    }, [isInternal]);
+
+    useEffect(() => {
+        if (isInternal || !saveDraft || status === 'success') return;
+        try {
+            localStorage.setItem(INTAKE_DRAFT_KEY, encodeIntakeDraft(formData));
+            setDraftMessage('Avance guardado en este dispositivo. Caduca después de 7 días.');
+        } catch { setDraftMessage('No se pudo guardar el avance. Mantén esta página abierta hasta enviarlo.'); }
+    }, [formData, isInternal, saveDraft, status]);
+
+    const discardDraft = () => {
+        setSaveDraft(false);
+        setHasDraft(false);
+        try {
+            localStorage.removeItem(INTAKE_DRAFT_KEY);
+            setDraftMessage('Borrador eliminado de este dispositivo.');
+        } catch { setDraftMessage('No se pudo eliminar el borrador. Borra los datos de este sitio desde el navegador.'); }
+    };
+
+    const resumeDraft = () => {
+        try {
+            const raw = localStorage.getItem(INTAKE_DRAFT_KEY);
+            const restored = raw && decodeIntakeDraft(raw, defaults.current);
+            if (!restored) { discardDraft(); return; }
+            setFormData(restored);
+            setHasDraft(false);
+            setSaveDraft(true);
+        } catch { setDraftMessage('No se pudo recuperar el avance.'); }
+    };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
@@ -187,9 +232,10 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (submitting.current) return;
 
         // Basic validation
-        if (!formData.patientName || !formData.email || !formData.phone || (!isInternal && !formData.consent)) {
+        if (!formData.patientName || !formData.email || !formData.phone || (!isInternal && (!formData.consent || !formData.dataProtection))) {
             setErrorMessage('Por favor complete los campos obligatorios.');
             setStatus('error');
             if (!isInternal) window.scrollTo(0, 0);
@@ -201,17 +247,19 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
             return;
         }
 
+        submitting.current = true;
         setStatus('loading');
 
         try {
             const response = await fetch('/api/consultation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData),
+                body: JSON.stringify({ ...formData, intensityScale: 10 }),
             });
 
             if (response.ok) {
                 setStatus('success');
+                if (!isInternal) discardDraft();
                 if (isInternal) {
                     setFormData(prev => ({ ...prev, professionalNotes: '' }));
                 }
@@ -220,7 +268,7 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
                 }
                 if (!isInternal) window.scrollTo(0, 0);
             } else {
-                const data = await response.json();
+                const data = await response.json().catch(() => ({}));
                 setStatus('error');
                 setErrorMessage(data.error || 'Error desconocido al guardar en Notion.');
                 if (!isInternal) window.scrollTo(0, 0);
@@ -229,6 +277,8 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
             setStatus('error');
             setErrorMessage('Error de conexión con el servidor.');
             if (!isInternal) window.scrollTo(0, 0);
+        } finally {
+            submitting.current = false;
         }
     };
 
@@ -331,6 +381,23 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
             }}
             className="space-y-8"
         >
+            {!isInternal && (
+                <section className="rounded-xl border border-slate-200 p-4 space-y-3" aria-label="Guardar avance">
+                    <p className="text-sm text-slate-600">Puedes guardar el avance en tu dispositivo personal. Incluye información de salud: no lo actives en un equipo compartido. No se envía hasta pulsar «Enviar Formulario».</p>
+                    {hasDraft ? (
+                        <div className="flex flex-wrap gap-3">
+                            <Button type="button" onClick={resumeDraft}>Retomar mi borrador</Button>
+                            <Button type="button" variant="outline" onClick={discardDraft}>Eliminar borrador guardado</Button>
+                        </div>
+                    ) : (
+                        <label className="flex gap-2 items-center text-sm">
+                            <input type="checkbox" checked={saveDraft} onChange={e => e.target.checked ? setSaveDraft(true) : discardDraft()} />
+                            Guardar automáticamente en este dispositivo personal
+                        </label>
+                    )}
+                    <p role="status" className="text-sm text-slate-600">{draftMessage}</p>
+                </section>
+            )}
             {status === 'error' && (
                 <div className="p-4 bg-red-50 text-red-700 rounded-xl flex items-center gap-3">
                     <AlertCircle size={24} />
@@ -464,7 +531,7 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
                                     <li><strong className="text-slate-600">M</strong> = Mensual</li>
                                 </ul>
                             </li>
-                            <li>Selecciona la <strong>Intensidad</strong> (1 = Suave, 2 = Moderado, 3 = Fuerte).</li>
+                            <li>Selecciona la <strong>Intensidad</strong> (1 a 10: 1 = mínima y 10 = máxima).</li>
                         </ol>
                     </div>
                     <div className="space-y-2">
@@ -511,7 +578,7 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
                                         <div className="px-3 pb-3 pt-0 flex flex-wrap gap-4">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Frecuencia:</span>
-                                                <div className="flex gap-1">
+                                                <div className="flex flex-wrap gap-1">
                                                     {[
                                                         { label: 'D', value: 'Diaria', title: 'Diaria' },
                                                         { label: 'S', value: 'Semanal', title: 'Semanal' },
@@ -522,7 +589,7 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
                                                             type="button"
                                                             title={opt.title}
                                                             onClick={() => handleCalibrationChange(symptom, 'frequency', opt.value)}
-                                                            className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center transition-all ${cal.frequency === opt.value
+                                                            className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center transition-all ${cal.frequency === opt.value
                                                                 ? opt.value === 'Diaria' ? 'bg-blue-500 text-white shadow-sm'
                                                                     : opt.value === 'Semanal' ? 'bg-emerald-500 text-white shadow-sm'
                                                                         : 'bg-slate-500 text-white shadow-sm'
@@ -534,20 +601,22 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
                                                     ))}
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex flex-wrap items-center gap-2">
                                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Intensidad:</span>
-                                                <div className="flex gap-1">
-                                                    {([1, 2, 3] as const).map(level => {
-                                                        const labels = { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' };
+                                                <div className="flex flex-wrap gap-1">
+                                                    {([1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const).map(level => {
+                                                        const label = `${symptom}: intensidad ${level} de 10`;
                                                         return (
                                                             <button
                                                                 key={level}
                                                                 type="button"
-                                                                title={labels[level]}
+                                                                title={label}
+                                                                aria-label={label}
+                                                                aria-pressed={cal.intensity === level}
                                                                 onClick={() => handleCalibrationChange(symptom, 'intensity', level)}
-                                                                className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center transition-all ${cal.intensity === level
-                                                                    ? level === 1 ? 'bg-green-500 text-white shadow-sm'
-                                                                        : level === 2 ? 'bg-amber-500 text-white shadow-sm'
+                                                                className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center transition-all ${cal.intensity === level
+                                                                    ? level <= 3 ? 'bg-green-500 text-white shadow-sm'
+                                                                        : level <= 6 ? 'bg-amber-500 text-white shadow-sm'
                                                                             : 'bg-red-500 text-white shadow-sm'
                                                                     : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                                                                     }`}
@@ -584,7 +653,7 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
                                             {/* Frequency */}
                                             <div className="flex items-center gap-2">
                                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Frecuencia:</span>
-                                                <div className="flex gap-1">
+                                                <div className="flex flex-wrap gap-1">
                                                     {[
                                                         { label: 'D', value: 'Diaria', title: 'Diaria' },
                                                         { label: 'S', value: 'Semanal', title: 'Semanal' },
@@ -595,7 +664,7 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
                                                             type="button"
                                                             title={opt.title}
                                                             onClick={() => handleCalibrationChange(symptom, 'frequency', opt.value)}
-                                                            className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center transition-all ${cal.frequency === opt.value
+                                                            className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center transition-all ${cal.frequency === opt.value
                                                                 ? opt.value === 'Diaria' ? 'bg-blue-500 text-white shadow-sm'
                                                                     : opt.value === 'Semanal' ? 'bg-emerald-500 text-white shadow-sm'
                                                                         : 'bg-slate-500 text-white shadow-sm'
@@ -608,20 +677,22 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
                                                 </div>
                                             </div>
                                             {/* Intensity */}
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex flex-wrap items-center gap-2">
                                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Intensidad:</span>
-                                                <div className="flex gap-1">
-                                                    {([1, 2, 3] as const).map(level => {
-                                                        const labels = { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' };
+                                                <div className="flex flex-wrap gap-1">
+                                                    {([1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const).map(level => {
+                                                        const label = `${symptom}: intensidad ${level} de 10`;
                                                         return (
                                                             <button
                                                                 key={level}
                                                                 type="button"
-                                                                title={labels[level]}
+                                                                title={label}
+                                                                aria-label={label}
+                                                                aria-pressed={cal.intensity === level}
                                                                 onClick={() => handleCalibrationChange(symptom, 'intensity', level)}
-                                                                className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center transition-all ${cal.intensity === level
-                                                                    ? level === 1 ? 'bg-green-500 text-white shadow-sm'
-                                                                        : level === 2 ? 'bg-amber-500 text-white shadow-sm'
+                                                                className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center transition-all ${cal.intensity === level
+                                                                    ? level <= 3 ? 'bg-green-500 text-white shadow-sm'
+                                                                        : level <= 6 ? 'bg-amber-500 text-white shadow-sm'
                                                                             : 'bg-red-500 text-white shadow-sm'
                                                                     : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                                                                     }`}

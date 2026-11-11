@@ -13,6 +13,7 @@ import convertHEIC from 'heic-convert';
 import { exec, execFile } from 'child_process';
 import os from 'os';
 import { createTherapyCatalog } from './therapyCatalog.js';
+import { validateIntake, intakeScaleFromNotes, cacheCreatedIntakeScale } from './intakeValidation.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1201,17 +1202,17 @@ function readPatientRecords() {
     }
 }
 
-function readPatientRecord(patientId, patientName = '') {
+function readPatientRecord(patientId, patientName = '', fallbackScale = 3) {
     try {
         const { recordsFile } = getPatientRecordPath(patientId, patientName);
         if (!fs.existsSync(recordsFile)) {
             const legacyRecord = readPatientRecords()[patientId];
-            return normalizePatientRecord(legacyRecord);
+            return normalizePatientRecord({ intensityScale: fallbackScale, ...legacyRecord });
         }
-        return normalizePatientRecord(JSON.parse(fs.readFileSync(recordsFile, 'utf8') || '{}'));
+        return normalizePatientRecord({ intensityScale: fallbackScale, ...JSON.parse(fs.readFileSync(recordsFile, 'utf8') || '{}') });
     } catch (error) {
         console.error('Error reading local patient record:', error);
-        return normalizePatientRecord();
+        return normalizePatientRecord({ intensityScale: fallbackScale });
     }
 }
 
@@ -1891,8 +1892,8 @@ function refreshAllTherapeuticTrackingFolders() {
 
 refreshAllTherapeuticTrackingFolders();
 
-function getLocalPatientRecord(patientId, patientName = '') {
-    return readPatientRecord(patientId, patientName);
+function getLocalPatientRecord(patientId, patientName = '', fallbackScale = 3) {
+    return readPatientRecord(patientId, patientName, fallbackScale);
 }
 
 function appendLocalPatientRecord(patientId, key, value) {
@@ -2703,7 +2704,7 @@ app.get('/api/patients/:id', authenticateToken, async (req, res) => {
 
         // ─────────────────────────────────────────────────────────────────────────
 
-        const localRecord = getLocalPatientRecord(id, name);
+        const localRecord = getLocalPatientRecord(id, name, intakeScaleFromNotes(fullNotes));
         const visits = [...(localRecord.visits || [])].sort((a, b) => new Date(b.date) - new Date(a.date));
         const treatmentPlans = [...(localRecord.treatmentPlans || [])].sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
         const tonguePhotos = [...(localRecord.tonguePhotos || [])]
@@ -5715,7 +5716,9 @@ app.get('/api/patients/:id/pdf/:recordId', authenticateToken, async (req, res) =
 
 app.post('/api/consultation', async (req, res) => {
     try {
-        const body = req.body;
+        const validation = validateIntake(req.body);
+        if (validation.error) return res.status(400).json({ error: validation.error });
+        const body = validation.value;
 
         if (!databaseId) {
             throw new Error('Database ID is not configured');
@@ -5723,7 +5726,7 @@ app.post('/api/consultation', async (req, res) => {
 
         // Helper to formatting unmapped fields into a readable summary
         const formatSummary = (data) => {
-            let summary = `**Resumen de Ficha de Ingreso**\nFecha: ${new Date().toLocaleDateString()}\n\n`;
+            let summary = `**Resumen de Ficha de Ingreso**\nFecha: ${new Date().toLocaleDateString()}\nEscala de intensidad de ingreso: ${data.intensityScale}\n\n`;
 
             // Personal Data
             summary += `**Datos Personales**\n`;
@@ -5780,9 +5783,8 @@ app.post('/api/consultation', async (req, res) => {
             // Symptom Calibrations
             if (data.symptomCalibrations && Object.keys(data.symptomCalibrations).length > 0) {
                 summary += `\n**Calibración de Síntomas**\n`;
-                const intensityLabels = { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' };
                 for (const [symptom, cal] of Object.entries(data.symptomCalibrations)) {
-                    summary += `- ${symptom} → Frecuencia: ${cal.frequency}, Intensidad: ${cal.intensity} (${intensityLabels[cal.intensity] || cal.intensity})\n`;
+                    summary += `- ${symptom} → Frecuencia: ${cal.frequency}, Intensidad: ${cal.intensity} (${getIntensityLabel(cal.intensity, data.intensityScale)})\n`;
                 }
             }
 
@@ -5840,6 +5842,11 @@ app.post('/api/consultation', async (req, res) => {
             },
         });
 
+        await cacheCreatedIntakeScale(response.id, body.intensityScale, (id, scale) => {
+            const record = readPatientRecord(id);
+            record.intensityScale = scale;
+            writePatientRecord(id, record);
+        }, message => console.warn(message));
         console.log('Success! Entry created properly in Notion.');
         res.json({ success: true, id: response.id });
     } catch (error) {
