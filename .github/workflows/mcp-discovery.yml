@@ -30,3 +30,7 @@ jobs:
           node --check scripts/check-mcp-discovery.mjs
       - name: Check synthetic protocol and discovery responses
         run: node scripts/check-mcp-discovery.mjs --self-test
+      - name: Public discovery only (no login or clinical calls)
+        if: github.event_name == 'push' && github.ref_name == 'docs/chatgpt-mcp-connection'
+        continue-on-error: true
+        run: node scripts/check-mcp-discovery.mjs
