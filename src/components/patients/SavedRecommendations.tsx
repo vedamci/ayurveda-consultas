@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { CalendarDays, ChevronDown, ClipboardList, FileText, History, Leaf, Pill, Utensils, Heart, BookOpen, Sparkles, Info } from 'lucide-react';
 import type { TreatmentPlan, Visit } from '../../types/patient';
 import { savedRecommendationHistory } from '../../utils/treatmentHistory';
@@ -59,7 +61,16 @@ export function SavedRecommendations({ plans, visits, date, editingVisitId }: {
                         <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500">{section.items.length}</span>
                         <ChevronDown size={16} className="shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden="true" />
                     </summary>
-                    <ul className="space-y-3 border-t border-slate-100 bg-slate-50/60 p-3 text-sm leading-relaxed text-slate-700">{section.items.map((item, index) => <li key={index} className="whitespace-pre-wrap break-words rounded-lg border border-slate-100 bg-white p-3 [overflow-wrap:anywhere]">{item}</li>)}</ul>
+                    <ul className="space-y-3 border-t border-slate-100 bg-slate-50/60 p-3 text-sm leading-relaxed text-slate-700">{section.items.map((item, index) => <li key={index} className="break-words rounded-lg border border-slate-100 bg-white p-3 sm:p-4 [overflow-wrap:anywhere]">
+                        <div className="treatment-recommendation-text text-sm leading-7 text-slate-700 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_strong]:font-bold [&_strong]:text-emerald-900 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_ul]:my-3 [&_ol]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-emerald-200 [&_blockquote]:pl-3 [&_hr]:my-4 [&_hr]:border-slate-200 [&_a]:underline [&_a]:text-emerald-800 [&_pre]:whitespace-pre-wrap [&_code]:break-all">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                                h1: ({ children }) => <h6 className="mb-2 mt-4 text-base font-bold text-emerald-900 first:mt-0">{children}</h6>,
+                                h2: ({ children }) => <h6 className="mb-2 mt-4 text-base font-bold text-emerald-900 first:mt-0">{children}</h6>,
+                                h3: ({ children }) => <h6 className="mb-2 mt-4 text-sm font-bold text-emerald-900 first:mt-0">{children}</h6>,
+                                table: ({ children }) => <div className="my-3 overflow-x-auto"><table className="w-full border-collapse text-left text-xs [&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_th]:border [&_th]:border-slate-200 [&_th]:bg-emerald-50 [&_th]:p-2">{children}</table></div>,
+                            }}>{item}</ReactMarkdown>
+                        </div>
+                    </li>)}</ul>
                 </details>;
             })}
         </div>}
