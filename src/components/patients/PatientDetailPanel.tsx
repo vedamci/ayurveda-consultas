@@ -4732,6 +4732,13 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                     )}
                                 </AnimatePresence>
 
+                                <details className="lg:hidden shrink-0 mb-3 rounded-xl border border-emerald-200 bg-emerald-50">
+                                    <summary className="min-h-12 cursor-pointer px-4 py-3 text-sm font-bold text-emerald-900">Ver tratamientos anteriores · Lo que recomendaste</summary>
+                                    <div className="max-h-[45vh] overflow-y-auto p-2">
+                                        <SavedRecommendations key={`mobile-${patient?.id}-${editingVisitId || 'new'}-${visitDate}`} plans={patient?.treatmentPlans || []} visits={patient?.visits || []} date={visitDate} editingVisitId={editingVisitId} />
+                                    </div>
+                                </details>
+
                                 {/* Panel de 3 columnas */}
                                 <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
 
@@ -5243,7 +5250,9 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                                             <h4 className="text-xs font-black uppercase tracking-wider text-emerald-800">Tratamientos elegidos</h4>
                                         </div>
                                         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                                            <div className="hidden lg:block">
                                             <SavedRecommendations key={`${patient?.id}-${editingVisitId || 'new'}-${visitDate}`} plans={patient?.treatmentPlans || []} visits={patient?.visits || []} date={visitDate} editingVisitId={editingVisitId} />
+                                            </div>
                                             <div className="space-y-2">
                                                 <label className="text-xs font-bold text-slate-500 uppercase">Tratamiento indicado</label>
                                                 <SpeechTextarea
@@ -6304,6 +6313,15 @@ export const PatientDetailPanel = ({ patientId, onClose }: Props) => {
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                                <div className="mb-5">
+                                    <SavedRecommendations
+                                        key={`record-${patient?.id}-${openRecord.type}-${openRecord.record.id}`}
+                                        plans={(patient?.treatmentPlans || []).filter(plan => openRecord.type !== 'plan' || plan.id !== openRecord.record.id)}
+                                        visits={patient?.visits || []}
+                                        date={((openRecord.type === 'plan' ? openRecord.record.visitDate || openRecord.record.date : openRecord.record.date) || '').slice(0, 10)}
+                                        editingVisitId={openRecord.type === 'visit' ? openRecord.record.id : undefined}
+                                    />
+                                </div>
                                 <label className="space-y-2 block mb-5">
                                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Nombre del archivo editable</span>
                                     <input
