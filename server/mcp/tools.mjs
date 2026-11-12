@@ -44,10 +44,13 @@ export function createMcpServer({ resolvePrincipal, adapter, audit, requestId, r
   const small = z.string().max(200);
   const summary = z.object({ patientId: uuid, name: small, lastEdited: z.string().max(40) });
   register('connection_status', 'Comprueba el proceso MCP sin consultar Notion ni archivos clínicos.', status,
-    z.object({}).strict(), z.object({ status: z.literal('ok'), mode: z.literal('read_only'), clinicalBackendChecked: z.literal(false) }),
-    async () => ({ status: 'ok', mode: 'read_only', clinicalBackendChecked: false }));
+    z.object({}).strict(), z.object({ status: z.literal('ok'), mode: z.enum(['status_only', 'read_only']), clinicalBackendChecked: z.literal(false) }),
+    async () => ({ status: 'ok', mode: adapter ? 'read_only' : 'status_only', clinicalBackendChecked: false }));
   register('get_profile', 'Identifica la cuenta conectada mediante un ID opaco estable, sin datos de pacientes.', status,
     z.object({}).strict(), z.object({ id: uuid }), async p => ({ id: p.profileId }), { 'openai/profile': true });
+  // An absent clinical adapter removes the tools entirely; extra token scopes
+  // or accidental patient grants cannot activate clinical access.
+  if (!adapter) return server;
   register('search_patients', 'Busca un nombre explícito (mínimo 3 caracteres) solo entre hasta 20 expedientes asignados. Devuelve nombres e IDs, sin teléfonos, correos ni notas. Si hay ambigüedad pide selección.',
     [...status, 'consultas:patients:search'], z.object({ query: z.string().trim().min(3).max(80), limit: z.number().int().min(1).max(5).default(5) }).strict(),
     z.object({ patients: z.array(summary).max(5), hasMore: z.boolean() }), (p, a) => adapter.search(p, a.query, a.limit));

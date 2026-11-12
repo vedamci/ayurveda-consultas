@@ -44,8 +44,8 @@ export function createPolicyLoader(config, usersFile) {
     if (!Array.isArray(users) || !users.some(u => u.id === grant.userId && u.disabled !== true)) throw new AccessDenied();
     // Web role, email, self-registration and token-supplied roles never grant access.
     const tokenScopes = new Set(String(payload.scope || '').split(' '));
-    return Object.freeze({ profileId: grant.profileId, patientIds: Object.freeze([...new Set(grant.patientIds)]),
-      scopes: Object.freeze(grant.scopes.filter(s => tokenScopes.has(s))) });
+    return Object.freeze({ profileId: grant.profileId, patientIds: Object.freeze(config.clinicalEnabled ? [...new Set(grant.patientIds)] : []),
+      scopes: Object.freeze(grant.scopes.filter(s => config.scopes.includes(s) && tokenScopes.has(s))) });
   };
 }
 export function requireScope(principal, scope) {

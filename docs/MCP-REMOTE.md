@@ -20,7 +20,23 @@ GET y DELETE del transporte devuelven 405 después de autenticar. Las
 notificaciones usan el comportamiento del SDK. Las rutas de descubrimiento
 son públicas, no consultan Notion y no contienen credenciales.
 
-La entrega es **solo lectura**. No permite guardar, borrar, generar diagnósticos,
+Con `MCP_ENABLED=true` y `MCP_CLINICAL_ENABLED` ausente o `false`, el modo inicial
+es **solo estado**: publica únicamente `connection_status` y `get_profile`, y
+anuncia solo `consultas:status`. No construye el adaptador clínico, no lee las
+variables de Notion ni necesita base o directorio de pacientes. Aunque un token o
+un grant incluyan scopes clínicos o IDs, se descartan en este modo; las cinco
+herramientas clínicas no existen en el catálogo y no pueden invocarse por nombre.
+El estado devuelve `mode:status_only` y `clinicalBackendChecked:false`.
+
+El modo de solo estado sigue exigiendo OAuth válido, política privada aprobada y
+cuenta web vigente. No convierte el estado en un endpoint anónimo, no crea
+identidades y no omite revocación. Cambiar a `MCP_CLINICAL_ENABLED=true` es una
+activación separada que requiere revisión y aprobación de acceso: entonces se
+exigen Notion y las rutas clínicas, se anuncian los scopes de lectura y el catálogo
+pasa a siete herramientas. El estado devuelve `mode:read_only` sin sondear Notion.
+Una configuración clínica incompleta falla cerrada al arrancar.
+
+La entrega clínica es **solo lectura**. No permite guardar, borrar, generar diagnósticos,
 mandar mensajes, abrir carpetas, descargar adjuntos ni generar PDFs. Esas funciones
 necesitan una implementación posterior con autorización, confirmación ligada a
 contenido/destino, control de versión e idempotencia; no quedan habilitadas por
@@ -141,14 +157,21 @@ el proveedor, el acceso y el entorno:
 | Variable | Valor requerido |
 | --- | --- |
 | `MCP_ENABLED` | Ausente o `false` mantiene MCP desactivado. Solo `true` lo monta. |
+| `MCP_CLINICAL_ENABLED` | Ausente o `false`: solo estado/perfil, sin Notion ni herramientas clínicas. `true`: lectura clínica solo tras aprobación separada. |
 | `MCP_RESOURCE_URL` | `https://consultas.vedamci.com.mx/mcp` para el destino de producción propuesto; en staging, URL distinta. |
 | `MCP_OAUTH_ISSUER` | Emisor HTTPS exacto del proveedor verificado, incluida ruta/barra final. |
 | `MCP_OAUTH_JWKS_URL` | JWKS HTTPS fijo, mismo origen del emisor. |
 | `MCP_OAUTH_CLIENT_IDS` | IDs aprobados separados por coma; no secretos. |
 | `MCP_POLICY_FILE` | Ruta absoluta del archivo privado fuera del checkout, sin symlink final. |
-| `MCP_NOTION_API_KEY` | Integración de Notion dedicada de **solo lectura**, aprobada; no usa la clave de escritura de la web ni variables VITE. |
-| `NOTION_DATABASE_ID` | Base existente que contiene los pacientes autorizados; verificar en el host. |
-| `DATA_DIR` | Conservar el directorio real de la app; no inventar uno nuevo. |
+| `MCP_NOTION_API_KEY` | Solo para `MCP_CLINICAL_ENABLED=true`: integración de Notion dedicada de **solo lectura**, aprobada; no usa la clave de escritura de la web ni variables VITE. |
+| `NOTION_DATABASE_ID` | Solo para modo clínico: base existente que contiene los pacientes autorizados; verificar en el host. |
+| `DATA_DIR` | Conservar el directorio real de la app; no inventar uno nuevo. El MCP de solo estado no accede a su subdirectorio clínico. |
+
+Para la primera prueba, dejar **sin definir** `MCP_NOTION_API_KEY` y no conceder
+permisos de Notion. Usar `MCP_ENABLED=true`, `MCP_CLINICAL_ENABLED=false`, OAuth y
+un grant concreto con `scopes:["consultas:status"]`, `patientIds:[]`. La creación
+de ese grant y la activación HTTP aún requieren autorización; preparar el archivo
+no equivale a instalarlo. No se ha realizado ninguna de esas operaciones reales.
 
 No guardar secretos, asignaciones, copias de `users.json` o datos de pacientes en
 Git, una PR, logs, capturas o el chat. Inyectar el token de Notion por el mecanismo
@@ -218,7 +241,8 @@ permisos de la web. Una reversión de código requiere el mismo control de despl
 
 ## Aceptación antes de habilitar Durga
 
-1. En staging aislado, usar proveedor/cuenta/base/volumen sintéticos y verificar
+1. En staging aislado, empezar por solo estado sin clave de Notion, base ni volumen
+   clínico. Usar proveedor/cuenta sintéticos y verificar
    descubrimiento del emisor, PKCE S256, callback exacto, consentimiento y tokens
    dirigidos a la URL de staging. Probar refresh, expiración y revocación del
    proveedor. La suite local **no demuestra el flujo OAuth del proveedor**.
@@ -228,12 +252,13 @@ permisos de la web. Una reversión de código requiere el mismo control de despl
 3. Confirmar identidad inmutable de Durga, cuenta web y profileId persistente;
    presentar el grant concreto de solo estado antes de instalarlo. No crear una
    cuenta, contraseña, cliente OAuth o integración Notion sin autorización.
-4. Después de aprobar credenciales, permisos, despliegue y acceso, añadir el MCP
+4. Después de aprobar OAuth, grant de solo estado, despliegue y acceso, añadir el MCP
    personalizado en ChatGPT Plugins con OAuth y el cliente registrado. Instalar,
    iniciar conversación nueva, seleccionarlo con @ y pedir: «Comprueba el estado
    de VEDAMCI Consultas sin buscar pacientes». Observar una llamada exitosa a
    `connection_status`; el resultado debe decir `clinicalBackendChecked:false`.
-5. Solo tras una autorización separada, probar búsqueda/lectura de un expediente
+5. Solo tras una autorización separada, configurar la integración Notion de solo
+   lectura y `MCP_CLINICAL_ENABLED=true`; probar búsqueda/lectura de un expediente
    explícitamente asignado y verificar rechazo de otro, sin copiar los resultados
    clínicos a la PR. Un estado verde o un icono en ChatGPT no verifica lectura.
 
@@ -246,8 +271,9 @@ concesión MCP siempre necesita identidad OAuth verificada y política independi
 
 Prueba local del 12 de noviembre de 2026, Node v24.22.1:
 
-- 25/25 pruebas en `server/mcp/test/security.test.mjs` aprobadas.
-- Cliente oficial SDK: initialize, catálogo de siete herramientas, estado y perfil.
+- 30/30 pruebas en `server/mcp/test/security.test.mjs` aprobadas.
+- Cliente oficial SDK: initialize y catálogos de siete herramientas (lectura) y
+  dos (solo estado); llamadas a estado y perfil.
 - Rechazo de token alterado, issuer/aud/client incorrectos, expiración, nbf futuro,
   iat futuro, vida excesiva y claims ausentes; rechazo de sesión web.
 - Separación entre cuentas/expedientes, scopes intersectados, denegación de roles
@@ -256,6 +282,9 @@ Prueba local del 12 de noviembre de 2026, Node v24.22.1:
   upstream, truncamiento explícito, symlinks y traversal.
 - Ninguna llamada clínica para estado/perfil ni para un ID no asignado; errores y
   auditoría no contienen valores clínicos o credenciales sintéticas.
+- Cinco pruebas adicionales verifican arranque sin leer credenciales Notion,
+  directorios clínicos ausentes, catálogo/scopes de solo estado, rechazo de
+  llamadas clínicas con tokens amplios y revocación de identidad.
 - 20/20 pruebas originales del diagnóstico de #8 aprobadas.
 - Sintaxis de `server/index.js` y módulos MCP, `git diff --check` aprobados.
 - `npm audit --omit=dev --prefix server/mcp`: 0 vulnerabilidades reportadas para

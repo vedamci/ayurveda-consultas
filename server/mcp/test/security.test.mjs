@@ -7,7 +7,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { loadConfig, SCOPES } from '../config.mjs';
 import { AccessDenied, Unavailable } from '../policy.mjs';
-import { createLimiter } from '../router.mjs';
+import { createLimiter, createMcpRouter } from '../router.mjs';
+import { createMcpComponents } from '../mount.mjs';
 import { fixture, P1, P2, E1, U2 } from './fixtures.mjs';
 
 const callData = result => result.body.result.structuredContent;
@@ -267,4 +268,73 @@ test('main mounts MCP before web CORS/parser and never imports it when disabled'
   assert.ok(source.indexOf("await import('./mcp/mount.mjs')", optIn) < source.indexOf('app.use(express.json('));
   const example = JSON.parse(fs.readFileSync(new URL('../access-policy.example.json', import.meta.url)));
   assert.deepEqual(example.grants, []);
+});
+
+
+test('status-only components start without reading Notion credentials, database ID or patient paths', () => {
+  const values = { MCP_RESOURCE_URL: 'https://consultas.example.invalid/mcp', MCP_OAUTH_ISSUER: 'https://identity.example.invalid/',
+    MCP_OAUTH_JWKS_URL: 'https://identity.example.invalid/jwks', MCP_POLICY_FILE: '/synthetic/not-installed/policy.json', MCP_OAUTH_CLIENT_IDS: 'synthetic-client' };
+  const env = new Proxy(values, { get(target, key) {
+    if (['MCP_NOTION_API_KEY', 'NOTION_DATABASE_ID', 'DATA_DIR'].includes(key)) throw new Error('Clinical environment must not be accessed');
+    return target[key];
+  } });
+  const components = createMcpComponents({ usersFile: '/synthetic/not-installed/users.json', userDataDir: undefined, env });
+  assert.equal(components.config.clinicalEnabled, false);
+  assert.deepEqual(components.config.scopes, ['consultas:status']);
+  assert.equal(components.adapter, undefined);
+  // Constructing router does not fetch JWKS or touch absent user/policy files.
+  assert.ok(createMcpRouter(components));
+});
+
+test('status-only SDK connection offers exactly status/profile and no clinical scopes or tools', async t => {
+  const f = await fixture(t, { statusOnly: true });
+  // Make every patient path absent before any RPC. No clinical adapter is created.
+  fs.rmSync(f.localDataDir, { recursive: true });
+  assert.equal(f.adapter, undefined);
+  const client = new Client({ name: 'synthetic-status-client', version: '1' });
+  await client.connect(new StreamableHTTPClientTransport(new URL(f.url), { requestInit: { headers: { Authorization: `Bearer ${f.token}` } } }));
+  const tools = (await client.listTools()).tools;
+  assert.deepEqual(tools.map(tool => tool.name).sort(), ['connection_status', 'get_profile']);
+  assert.ok(tools.every(tool => JSON.stringify(tool._meta.securitySchemes) === JSON.stringify([{ type: 'oauth2', scopes: ['consultas:status'] }])));
+  const status = await client.callTool({ name: 'connection_status', arguments: {} });
+  assert.deepEqual(status.structuredContent, { status: 'ok', mode: 'status_only', clinicalBackendChecked: false });
+  const profile = await client.callTool({ name: 'get_profile', arguments: {} });
+  assert.equal(profile.structuredContent.id, f.grant.profileId);
+  const metadata = await (await fetch(f.url.replace('/mcp', '/.well-known/oauth-protected-resource/mcp'))).json();
+  assert.deepEqual(metadata.scopes_supported, ['consultas:status']);
+  assert.equal(f.calls.length, 0);
+  await client.close();
+});
+
+test('status-only mode denies anonymous/unassigned requests and clinical calls despite broad token/grant', async t => {
+  const f = await fixture(t, { statusOnly: true });
+  const principal = f.loadPrincipal(await f.verifyToken(f.token));
+  assert.deepEqual(principal.scopes, ['consultas:status']); assert.deepEqual(principal.patientIds, []);
+  assert.equal((await f.rpc('tools/list', {}, null)).response.status, 401);
+  assert.equal((await f.tool('connection_status', {}, await f.mint({ sub: 'unassigned' }))).response.status, 403);
+  for (const name of ['search_patients', 'read_patient_summary', 'read_patient_notes', 'list_patient_entries', 'read_patient_entry']) {
+    const result = await f.tool(name, { patientId: P1, query: 'Ficticio', kind: 'visits', entryId: E1 });
+    assert.ok(result.body.error || result.body.result?.isError);
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test('clinical opt-in remains separate and fails closed when its required configuration is absent', () => {
+  const env = { MCP_RESOURCE_URL: 'https://consultas.example.invalid/mcp', MCP_OAUTH_ISSUER: 'https://identity.example.invalid/',
+    MCP_OAUTH_JWKS_URL: 'https://identity.example.invalid/jwks', MCP_POLICY_FILE: '/private/synthetic-policy.json', MCP_OAUTH_CLIENT_IDS: 'synthetic-client' };
+  assert.equal(loadConfig(env).clinicalEnabled, false);
+  assert.equal(loadConfig({ ...env, MCP_CLINICAL_ENABLED: 'true' }).clinicalEnabled, true);
+  assert.throws(() => createMcpComponents({ usersFile: '/private/synthetic-users.json', userDataDir: '/synthetic-data', env: { ...env, MCP_CLINICAL_ENABLED: 'true' } }));
+  assert.throws(() => loadConfig({ ...env, MCP_CLINICAL_ENABLED: 'TRUE' }));
+  assert.throws(() => createMcpRouter({ config: loadConfig(env), adapter: {} }), /clinical configuration mismatch/);
+});
+
+test('status-only revocation still works and never releases a profile after account deletion', async t => {
+  const f = await fixture(t, { statusOnly: true });
+  assert.equal((await f.tool('get_profile')).body.result.structuredContent.id, f.grant.profileId);
+  fs.writeFileSync(f.usersFile, '[]');
+  const deniedProfile = await f.tool('get_profile');
+  assert.equal(deniedProfile.response.status, 403);
+  assert.ok(!JSON.stringify(deniedProfile.body).includes(f.grant.profileId));
+  assert.equal(f.calls.length, 0);
 });

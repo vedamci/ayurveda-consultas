@@ -9,6 +9,10 @@ export function httpsUrl(value) {
   return url;
 }
 export function loadConfig(env = process.env) {
+  if (env.MCP_CLINICAL_ENABLED !== undefined && !['false', 'true'].includes(env.MCP_CLINICAL_ENABLED)) {
+    throw new Error('MCP_CLINICAL_ENABLED must be false or true.');
+  }
+  const clinicalEnabled = env.MCP_CLINICAL_ENABLED === 'true';
   const resource = httpsUrl(env.MCP_RESOURCE_URL);
   if (resource.pathname !== '/mcp') throw new Error('MCP_RESOURCE_URL must end in /mcp.');
   const issuer = httpsUrl(env.MCP_OAUTH_ISSUER);
@@ -19,5 +23,5 @@ export function loadConfig(env = process.env) {
   const clients = String(env.MCP_OAUTH_CLIENT_IDS || '').split(',').map(x => x.trim()).filter(Boolean);
   if (!clients.length || clients.some(x => x.length > 2048)) throw new Error('Explicit OAuth client IDs are required.');
   return Object.freeze({ resource: resource.href, origin: resource.origin, host: resource.host,
-    issuer: issuer.href, jwks: jwks.href, policyPath, clients, scopes: SCOPES });
+    issuer: issuer.href, jwks: jwks.href, policyPath, clients, clinicalEnabled, scopes: clinicalEnabled ? SCOPES : ['consultas:status'] });
 }

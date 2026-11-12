@@ -19,6 +19,7 @@ export function createLimiter(max, maxKeys = 1000) {
 }
 export function createMcpRouter({ config, loadPrincipal, adapter,
   verifyToken = createTokenVerifier(config), audit = event => console.info(JSON.stringify({ component: 'mcp', ...event })) }) {
+  if (Boolean(adapter) !== config.clinicalEnabled) throw new Error('MCP clinical configuration mismatch.');
   const router = express.Router({ strict: true });
   const ipLimit = createLimiter(120); const userLimit = createLimiter(30);
   let inFlight = 0;
@@ -34,7 +35,7 @@ export function createMcpRouter({ config, loadPrincipal, adapter,
     next();
   });
   const metadata = (_req, res) => res.json({ resource: config.resource,
-    authorization_servers: [config.issuer], scopes_supported: config.scopes, bearer_methods_supported: ['header'], resource_name: 'VEDAMCI Consultas (solo lectura)' });
+    authorization_servers: [config.issuer], scopes_supported: config.scopes, bearer_methods_supported: ['header'], resource_name: config.clinicalEnabled ? 'VEDAMCI Consultas (solo lectura)' : 'VEDAMCI Consultas (solo estado)' });
   router.get(metadataPath, metadata);
   router.get('/.well-known/oauth-protected-resource', metadata);
   router.all(['/mcp', '/mcp/'], async (req, res, next) => {

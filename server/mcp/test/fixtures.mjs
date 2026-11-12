@@ -29,7 +29,8 @@ export async function fixture(t, options = {}) {
   const usersFile = path.join(dir, 'users.json'); const policyPath = path.join(dir, 'policy.json');
   const config = { resource: 'https://consultas.example.invalid/mcp', origin: 'https://consultas.example.invalid',
     host: '', issuer: 'https://identity.example.invalid/', jwks: 'https://identity.example.invalid/jwks',
-    policyPath, clients: ['synthetic-chatgpt'], scopes: SCOPES };
+    policyPath, clients: ['synthetic-chatgpt'], clinicalEnabled: !options.statusOnly,
+    scopes: options.statusOnly ? ['consultas:status'] : SCOPES };
   const grant = { subject: 'synthetic-durga', userId: U1, profileId: PROFILE1, enabled: true,
     scopes: [...SCOPES], patientIds: [P1], revokedBefore: 0, revokedTokenIds: [] };
   let policy = { version: 1, issuer: config.issuer, grants: [grant,
@@ -45,7 +46,7 @@ export async function fixture(t, options = {}) {
     treatmentPlans: [] }));
   const calls = []; const audit = [];
   const pages = { [P1]: page(P1, 'Paciente Fictício Uno'), [P2]: page(P2, 'Paciente Ficticio Dos') };
-  const adapter = createClinicalAdapter({ notionApiKey: 'SYNTHETIC_NOTION_KEY', databaseId: DB, localDataDir,
+  const adapter = options.statusOnly ? undefined : createClinicalAdapter({ notionApiKey: 'SYNTHETIC_NOTION_KEY', databaseId: DB, localDataDir,
     fetchImpl: async (url, init) => {
       calls.push({ url, init });
       if (options.upstream) return options.upstream(url, init, pages);
