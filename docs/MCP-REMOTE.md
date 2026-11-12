@@ -1,5 +1,7 @@
 # MCP remoto de Consultas VEDAMCI — implementación 0.1.0
 
+Para desplegar sin arrancar la web: [entrada autónoma de solo estado](MCP-STANDALONE.md).
+
 Para los pasos dentro de ChatGPT, ver [Añadir Consultas a las aplicaciones](INSTALAR-EN-CHATGPT.md).
 
 Estado al 12 de noviembre de 2026: implementado y probado con datos sintéticos;
@@ -282,7 +284,7 @@ concesión MCP siempre necesita identidad OAuth verificada y política independi
 
 Prueba local del 12 de noviembre de 2026, Node v24.22.1:
 
-- 30/30 pruebas en `server/mcp/test/security.test.mjs` aprobadas.
+- 41/41 pruebas en `server/mcp/test/security.test.mjs` aprobadas.
 - Cliente oficial SDK: initialize y catálogos de siete herramientas (lectura) y
   dos (solo estado); llamadas a estado y perfil.
 - Rechazo de token alterado, issuer/aud/client incorrectos, expiración, nbf futuro,

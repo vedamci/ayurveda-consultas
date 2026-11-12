@@ -71,7 +71,7 @@ solo estado no acredita que se puedan consultar expedientes.
 
 ## Evidencia y referencias
 
-La PR #9 contiene el servidor, 30 pruebas sintéticas, 20 del diagnóstico y una
+La PR #9 contiene el servidor, 41 pruebas sintéticas, 20 del diagnóstico y una
 sonda privada independiente; CI las ejecuta sin secretos ni datos reales. Estas
 pruebas acreditan el código y el transporte local, no OAuth real ni la conexión
 instalada en ChatGPT.

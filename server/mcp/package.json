@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": { "node": ">=20.19" },
-  "scripts": { "test": "node --test test/*.test.mjs", "probe": "node qa-probe.mjs", "check": "node --check router.mjs && node --check auth.mjs && node --check policy.mjs && node --check adapter.mjs && node --check tools.mjs && node --check qa-probe.mjs" },
+  "scripts": { "test": "node --test test/*.test.mjs", "probe": "node qa-probe.mjs", "start:status": "node status-app.js", "check": "node --check router.mjs && node --check auth.mjs && node --check policy.mjs && node --check adapter.mjs && node --check tools.mjs && node --check qa-probe.mjs && node --check standalone.mjs && node --check status-app.js" },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
     "express": "5.2.1",

@@ -1,0 +1,10 @@
+{
+  "MCP_ENABLED": "false",
+  "MCP_CLINICAL_ENABLED": "false",
+  "MCP_RESOURCE_URL": "https://mcp-qa.example.invalid/mcp",
+  "MCP_OAUTH_ISSUER": "https://identity.example.invalid/",
+  "MCP_OAUTH_JWKS_URL": "https://identity.example.invalid/jwks",
+  "MCP_OAUTH_CLIENT_IDS": "CLIENTE_PREVIAMENTE_APROBADO",
+  "MCP_POLICY_FILE": "/RUTA_PRIVADA_VERIFICADA/policy.json",
+  "MCP_USERS_FILE": "/RUTA_PRIVADA_VERIFICADA/users.json"
+}
