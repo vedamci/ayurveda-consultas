@@ -1,0 +1,36 @@
+name: MCP discovery checks
+
+on:
+  pull_request:
+    paths:
+      - "docs/CHATGPT-MCP.md"
+      - "scripts/check-mcp-discovery.mjs"
+      - ".github/workflows/mcp-discovery.yml"
+  push:
+    branches:
+      - "docs/chatgpt-mcp-connection"
+    paths:
+      - "scripts/check-mcp-discovery.mjs"
+      - ".github/workflows/mcp-discovery.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Verify runtime and syntax
+        run: |
+          node -e 'if (Number(process.versions.node.split(".")[0]) < 20) process.exit(1)'
+          node --check scripts/check-mcp-discovery.mjs
+      - name: Check synthetic protocol and discovery responses
+        run: node scripts/check-mcp-discovery.mjs --self-test
+      - name: Public discovery only (no login or clinical calls)
+        if: github.event_name == 'push' && github.ref_name == 'docs/chatgpt-mcp-connection'
+        continue-on-error: true
+        run: node scripts/check-mcp-discovery.mjs
