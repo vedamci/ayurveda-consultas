@@ -2,6 +2,10 @@
 
 Revisión: 11 de noviembre de 2026. Estado: preparación y diagnóstico; **no instalado ni verificado de extremo a extremo**.
 
+Actualización de implementación: [MCP remoto 0.1.0](MCP-REMOTE.md). La rama de
+implementación conserva este diagnóstico y añade un servidor opt-in de solo
+lectura. Su despliegue, permisos e instalación en ChatGPT siguen pendientes.
+
 ## Qué existe y qué falta
 
 La app de este repositorio ofrece una API Express y una interfaz React. El dominio

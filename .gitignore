@@ -69,3 +69,7 @@ VEDAMCI_Consulta_Inicial.pdf
 
 # OS
 Thumbs.db
+
+# Private MCP identity/resource grants (example contains no grants)
+server/mcp/access-policy.json
+server/mcp/access-policy.*.local.json

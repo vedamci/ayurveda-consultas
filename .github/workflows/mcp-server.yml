@@ -1,0 +1,39 @@
+name: MCP server synthetic tests
+
+on:
+  pull_request:
+    paths:
+      - "server/mcp/**"
+      - "server/index.js"
+      - "docs/MCP-REMOTE.md"
+      - ".github/workflows/mcp-server.yml"
+  push:
+    branches: ["feat/remote-mcp"]
+    paths:
+      - "server/mcp/**"
+      - "server/index.js"
+      - ".github/workflows/mcp-server.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Require supported Node runtime
+        run: node -e 'const [a,b]=process.versions.node.split(".").map(Number); if(a<20 || (a===20 && b<19)) process.exit(1)'
+      - name: Install isolated MCP dependencies without lifecycle scripts
+        run: npm ci --prefix server/mcp --ignore-scripts --no-audit --no-fund
+      - name: Syntax checks
+        run: |
+          node --check server/index.js
+          npm run check --prefix server/mcp
+      - name: Test synthetic transport, authorization and adapters
+        run: npm test --prefix server/mcp
+      - name: Preserve diagnostic self-tests from PR 8
+        run: node scripts/check-mcp-discovery.mjs --self-test

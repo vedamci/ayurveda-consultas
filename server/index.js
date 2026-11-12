@@ -585,6 +585,16 @@ const getCalendarRedirectUri = (req) => {
     return getDefaultCalendarRedirectUri(req);
 };
 
+// MCP is opt-in and mounted before the web CORS policy, large JSON parser and SPA.
+// Dependencies live in server/mcp; disabled installations do not load them.
+if (process.env.MCP_ENABLED === 'true') {
+    const { mountMcp } = await import('./mcp/mount.mjs');
+    mountMcp(app, { usersFile: USERS_FILE_PATH, userDataDir: USER_DATA_DIR });
+} else {
+    app.all(['/mcp', '/mcp/', '/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'],
+        (_req, res) => res.status(404).set('Cache-Control', 'no-store').json({ error: 'mcp_disabled' }));
+}
+
 app.use(cors());
 app.use(express.json({
     limit: '25mb',

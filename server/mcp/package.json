@@ -1,0 +1,14 @@
+{
+  "name": "@vedamci/consultas-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20.19" },
+  "scripts": { "test": "node --test test/*.test.mjs", "check": "node --check router.mjs && node --check auth.mjs && node --check policy.mjs && node --check adapter.mjs && node --check tools.mjs" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "express": "5.2.1",
+    "jose": "6.2.17",
+    "zod": "4.6.7"
+  }
+}
