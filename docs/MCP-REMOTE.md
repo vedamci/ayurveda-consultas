@@ -141,9 +141,18 @@ apagado no cambie su instalación actual:
 npm ci --prefix server/mcp --ignore-scripts --no-audit --no-fund
 npm run check --prefix server/mcp
 npm test --prefix server/mcp
+npm run probe --prefix server/mcp
 node --check server/index.js
 node scripts/check-mcp-discovery.mjs --self-test
 ```
+
+`npm run probe --prefix server/mcp` ejecuta una sonda independiente con identidad
+ficticia y firma efímera en memoria. Solo escucha en `127.0.0.1` y un puerto libre
+asignado por el sistema; comprueba 401, catálogo de dos herramientas, estado,
+perfil, rechazo clínico y revocación, y termina cerrando el listener y borrando
+sus archivos sintéticos. No carga `.env`, no usa credenciales reales ni el emisor
+OAuth externo. Su salida incluye `oauthFlowVerified:false`: no acredita PKCE,
+HTTPS, Passenger o ChatGPT. Usar un `TMPDIR` privado para la prueba del host.
 
 No iniciar `server/index.js` como prueba inocua: el arranque histórico puede crear
 `JWT_SECRET`, copiar datos y migrar archivos. La suite usa otra app Express mínima,

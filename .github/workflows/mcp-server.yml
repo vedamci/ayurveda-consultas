@@ -35,5 +35,7 @@ jobs:
           npm run check --prefix server/mcp
       - name: Test synthetic transport, authorization and adapters
         run: npm test --prefix server/mcp
+      - name: Probe synthetic status-only server on private loopback
+        run: npm run probe --prefix server/mcp
       - name: Preserve diagnostic self-tests from PR 8
         run: node scripts/check-mcp-discovery.mjs --self-test
