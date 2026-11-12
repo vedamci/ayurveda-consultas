@@ -31,24 +31,32 @@ try {
         assert.equal(await first.evaluate(el => el.open), true);
         assert.ok(await page.$eval('div[id][class*="max-h-"]', el => el.scrollHeight > el.clientHeight), 'long notes scroll');
         await page.screenshot({ path: `/tmp/consultation-notes-${width}.png`, fullPage: true });
+        const scroller = await page.$('div[id][class*="max-h-"]');
+        await scroller.evaluate(el => { el.scrollTop = (el.scrollHeight - el.clientHeight) / 2; });
+        await page.screenshot({ path: `/tmp/consultation-notes-${width}-middle.png`, fullPage: true });
+        await scroller.evaluate(el => { el.scrollTop = el.scrollHeight; });
+        await page.screenshot({ path: `/tmp/consultation-notes-${width}-bottom.png`, fullPage: true });
         await button.click();
         assert.equal(await button.evaluate(el => el.getAttribute('aria-expanded')), 'false');
     }
     await page.goto('http://localhost:4179/tests/consultation-notes-fixture.html?legacy', { waitUntil: 'networkidle0' });
     await page.click('button[aria-controls]');
     assert.ok(await page.$eval('body', el => el.innerText.includes('Objetivo ficticio conservado.') && el.innerText.includes('nota antigua')));
+    await page.screenshot({ path: '/tmp/consultation-notes-legacy.png', fullPage: true });
     await page.goto('http://localhost:4179/tests/consultation-notes-fixture.html?empty', { waitUntil: 'networkidle0' });
     await page.click('button[aria-controls]');
     assert.ok(await page.$eval('body', el => el.innerText.includes('No hay propósito de consulta registrado') && el.innerText.includes('No hay nota general ni tratamiento indicado')));
+    await page.screenshot({ path: '/tmp/consultation-notes-empty.png', fullPage: true });
     // Integration: the actual editor uses the new component and its toggle.
     await page.goto('http://localhost:4179/tests/pdf-fixture.html', { waitUntil: 'networkidle0' });
     await page.click('button[aria-controls]');
     assert.ok(await page.$eval('section[aria-label="Notas de consulta"]', el => el.innerText.includes('Texto de prueba: áéíóú, ñ y enlaces.') && el.innerText.includes('No hay propósito de consulta registrado')));
+    await page.screenshot({ path: '/tmp/consultation-notes-editor.png', fullPage: true });
     const status = await page.evaluate(() => fetch('/__pdf-test-status').then(response => response.json()));
     assert.equal(status.blockedWrites, 0);
     assert.equal(status.printRequests, 0);
     assert.deepEqual(external, []);
     assert.deepEqual(errors, []);
     console.log('PASS: 375/768px, keyboard toggles, scrolling, no overflow, legacy/empty purpose, actual editor integration, zero tracking requests, zero API writes/prints, zero page errors.');
-    console.log('Screenshots: /tmp/consultation-notes-375.png and /tmp/consultation-notes-768.png');
+    console.log('Screenshots: /tmp/consultation-notes-*.png (top/middle/bottom, legacy, empty and actual editor)');
 } finally { await browser?.close(); await server.close(); }
