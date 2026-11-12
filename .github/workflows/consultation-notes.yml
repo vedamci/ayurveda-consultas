@@ -1,0 +1,39 @@
+name: Consultation notes (synthetic data)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/consultation-notes.yml'
+      - 'src/components/patients/ConsultationNotes.tsx'
+      - 'src/components/patients/TreatmentPDFModal.tsx'
+      - 'src/utils/consultationNotes.ts'
+      - 'tests/consultation-notes*'
+      - 'package*.json'
+permissions:
+  contents: read
+jobs:
+  synthetic-notes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npx puppeteer browsers install chrome
+      - run: node tests/consultation-notes.test.mjs
+      - run: node --test tests/treatment-history.test.ts
+      - run: node tests/treatment-markdown.test.mjs
+      - run: npx eslint src/utils/consultationNotes.ts src/components/patients/ConsultationNotes.tsx
+      - run: npm run build
+      - run: node tests/consultation-notes-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-consultation-notes-screenshots
+          path: /tmp/consultation-notes-*.png
+          if-no-files-found: ignore

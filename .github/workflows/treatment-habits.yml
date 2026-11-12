@@ -1,0 +1,28 @@
+name: Treatment habits (synthetic data)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/treatment-habits.yml'
+      - 'src/components/patients/TreatmentPDFModal.tsx'
+      - 'tests/treatment-habits.test.mjs'
+      - 'package*.json'
+permissions:
+  contents: read
+jobs:
+  synthetic-habits:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run test:treatment-habits
+      - run: node --test tests/treatment-history.test.ts
+      - run: node tests/treatment-markdown.test.mjs
+      - run: npm run build
