@@ -1,6 +1,12 @@
 # Conectar Consultas VEDAMCI a ChatGPT
 
+Para añadirlo dentro de ChatGPT: [guía de instalación de la aplicación MCP](INSTALAR-EN-CHATGPT.md).
+
 Revisión: 11 de noviembre de 2026. Estado: preparación y diagnóstico; **no instalado ni verificado de extremo a extremo**.
+
+Actualización de implementación: [MCP remoto 0.1.0](MCP-REMOTE.md). La rama de
+implementación conserva este diagnóstico y añade un servidor opt-in de solo
+estado/perfil, con lectura clínica bajo una segunda activación explícita. Su despliegue, permisos e instalación en ChatGPT siguen pendientes.
 
 ## Qué existe y qué falta
 
