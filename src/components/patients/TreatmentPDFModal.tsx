@@ -858,7 +858,7 @@ const getStructuredRecipeParts = (recipe: any) => {
     const [healthyHabitsList, setHealthyHabitsList] = useState<HealthyHabit[]>([...HEALTHY_EATING_HABITS]);
     // Hábitos seleccionados: se guardan por NOMBRE de plantilla (el profesional elige cuáles incluir).
     const allHabitNames = (list: HealthyHabit[]) => list.map(h => h.name);
-    const [selectedHealthyHabits, setSelectedHealthyHabits] = useState<string[]>(allHabitNames(HEALTHY_EATING_HABITS));
+    const [selectedHealthyHabits, setSelectedHealthyHabits] = useState<string[]>([]);
     const toggleHealthyHabit = (habitName: string) => {
         setSelectedHealthyHabits(prev => prev.includes(habitName) ? prev.filter(h => h !== habitName) : [...prev, habitName]);
     };
@@ -1356,13 +1356,10 @@ const getStructuredRecipeParts = (recipe: any) => {
             setShowHealthyEatingGuide(rec.showHealthyEatingGuide !== undefined ? rec.showHealthyEatingGuide : true);
             setShowRecipesSection(rec.showRecipesSection !== undefined ? rec.showRecipesSection : true);
             setHealthyEatingGuide(rec.healthyEatingGuide || HEALTHY_EATING_GUIDE_TEXT);
-            // Si el registro se guardó con la sección apagada, los hábitos vienen
-            // vacíos; volvemos al default completo para que al reactivar la sección
-            // no aparezca sin nada seleccionado.
+            // Respetar la selección guardada, incluso vacía. Un registro antiguo
+            // sin este campo tampoco debe añadir hábitos automáticamente.
             setSelectedHealthyHabits(
-                Array.isArray(rec.healthyEatingHabits) && rec.healthyEatingHabits.length > 0
-                    ? rec.healthyEatingHabits
-                    : allHabitNames(healthyHabitsList)
+                Array.isArray(rec.healthyEatingHabits) ? [...rec.healthyEatingHabits] : []
             );
             // Terapias guardadas en el registro (por id de plantilla).
             const recTherapies = Array.isArray(rec.therapies) ? rec.therapies : [];
@@ -1429,7 +1426,7 @@ const getStructuredRecipeParts = (recipe: any) => {
             setShowHealthyEatingGuide(true);
             setShowRecipesSection(true);
             setHealthyEatingGuide(HEALTHY_EATING_GUIDE_TEXT);
-            setSelectedHealthyHabits(allHabitNames(healthyHabitsList));
+            setSelectedHealthyHabits([]);
             setSelectedTherapies([]);
             setShowTherapiesSection(false);
             setTherapyFrequency('');
