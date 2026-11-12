@@ -1,5 +1,7 @@
 # MCP remoto de Consultas VEDAMCI — implementación 0.1.0
 
+Para los pasos dentro de ChatGPT, ver [Añadir Consultas a las aplicaciones](INSTALAR-EN-CHATGPT.md).
+
 Estado al 12 de noviembre de 2026: implementado y probado con datos sintéticos;
 **no desplegado, sin credenciales creadas, sin acceso concedido a Durga y sin
 conexión funcional verificada desde ChatGPT**.
