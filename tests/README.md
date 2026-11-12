@@ -16,3 +16,11 @@ node scripts/verify-pdf-download.mjs PATH_TO_PDF mobile OUTPUT_DIRECTORY
 ```
 
 The verifier checks every page's paper size and rendered ink, PDF signature/EOF, and the fixture's clickable link. Inspect the rendered pages and contact sheet for overlaps. The raster export preserves visual fonts and links; document text is not selectable.
+
+# Consultation notes (synthetic data only)
+
+Run `node tests/consultation-notes.test.mjs` for legacy/current Markdown, exact content and quantities, inert HTML/URLs/images, cross-category references, and the actual purpose field/fallback/absence. Existing treatment checks: `node --test tests/treatment-history.test.ts` and `node tests/treatment-markdown.test.mjs`.
+
+For the visual fixture, start `node scripts/test-pdf-preview.mjs`, which stubs `/api` and never starts the real backend. Open `http://localhost:4179/tests/consultation-notes-fixture.html`; `?legacy` removes the structured purpose, `?empty` checks missing data. Verify keyboard toggle, category accordions, tables, scroll and narrow layouts. The `/__pdf-test-status` endpoint reports blocked writes.
+
+Automated browser checks own and close the isolated Vite server: `node tests/consultation-notes-browser.mjs` (requires Puppeteer's Chrome, installed with `npx puppeteer browsers install chrome`, or `CHROME_BIN` pointing to Chromium). They check keyboard toggles, scrolling, 375/768 px layouts, legacy/missing purpose, real editor integration and zero API writes/print/tracking requests. Synthetic screenshots are written to `/tmp/consultation-notes-{375,768}.png`.

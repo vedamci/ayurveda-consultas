@@ -39,6 +39,7 @@ const ToggleSwitch: React.FC<{
     </button>
 );
 import type { PatientDetail } from '../../types/patient';
+import { ConsultationNotes } from './ConsultationNotes';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { SpeechTextarea } from '../ui/SpeechTextarea';
@@ -2298,48 +2299,12 @@ const getStructuredRecipeParts = (recipe: any) => {
                         </button>
                     </div>
 
-                    {/* Notas de consulta (fix #2): consultables mientras se edita el PDF */}
-                    <div className="px-6 pb-3 print:hidden">
-                        <button
-                            type="button"
-                            onClick={() => setShowConsultNotes(v => !v)}
-                            className="w-full flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100 transition-colors"
-                        >
-                            <span className="flex items-center gap-2">
-                                <ClipboardList size={14} />
-                                Notas de consulta
-                            </span>
-                            <ChevronDown size={14} className={`transition-transform ${showConsultNotes ? 'rotate-180' : ''}`} />
-                        </button>
-                        {showConsultNotes && (() => {
-                            // Muestra específicamente la "Nota general" y el "Tratamiento
-                            // indicado" de esta visita (fix #2). Si es un tratamiento inicial
-                            // sin esos campos, cae a las notas globales del paciente.
-                            const rec: any = editingRecord?.record || {};
-                            const notaGeneral = (rec.note || '').trim() || (patient.fullNotes || '').trim();
-                            const tratamientoIndicado = (rec.treatment || '').trim();
-                            const hayContenido = notaGeneral || tratamientoIndicado;
-                            return (
-                                <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-3 space-y-3 scrollbar-thin">
-                                    {notaGeneral && (
-                                        <div>
-                                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Nota general</p>
-                                            <div className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">{notaGeneral}</div>
-                                        </div>
-                                    )}
-                                    {tratamientoIndicado && (
-                                        <div>
-                                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Tratamiento indicado</p>
-                                            <div className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">{tratamientoIndicado}</div>
-                                        </div>
-                                    )}
-                                    {!hayContenido && (
-                                        <p className="text-xs text-slate-400 text-center py-2">No hay nota general ni tratamiento indicado en esta visita.</p>
-                                    )}
-                                </div>
-                            );
-                        })()}
-                    </div>
+                    <ConsultationNotes
+                        patient={patient}
+                        record={editingRecord?.record}
+                        expanded={showConsultNotes}
+                        onToggle={() => setShowConsultNotes(value => !value)}
+                    />
 
                     {/* Pestañas de navegación del editor */}
                     <div className="flex items-stretch border-b border-slate-200 px-2 print:hidden">
