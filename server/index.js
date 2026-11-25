@@ -2731,7 +2731,7 @@ app.get('/api/patients/:id', authenticateToken, async (req, res) => {
                 fullNotes,
                 symptomCalibrations,
                 plainSymptoms,
-                intensityScale: localRecord.intensityScale || 3,
+                intensityScale: symptomCalibrations.some(cal => cal.intensityLabel === `${cal.intensity}/10`) ? 10 : (localRecord.intensityScale || 3),
                 clinicalData,
                 visits,
                 treatmentPlans,
@@ -5716,6 +5716,18 @@ app.get('/api/patients/:id/pdf/:recordId', authenticateToken, async (req, res) =
 app.post('/api/consultation', async (req, res) => {
     try {
         const body = req.body;
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            return res.status(400).json({ error: 'La ficha debe ser un objeto válido.' });
+        }
+        const intakeScale = Number(body.intensityScale) === 10 ? 10 : 3;
+        if (intakeScale === 10) {
+            body.professional = 'Krishna Das';
+            if (body.symptomCalibrations != null &&
+                (typeof body.symptomCalibrations !== 'object' || Array.isArray(body.symptomCalibrations) ||
+                Object.values(body.symptomCalibrations).some(cal => !cal || !Number.isInteger(cal.intensity) || cal.intensity < 1 || cal.intensity > 10))) {
+                return res.status(400).json({ error: 'La intensidad de cada síntoma debe ser un número entero del 1 al 10.' });
+            }
+        }
 
         if (!databaseId) {
             throw new Error('Database ID is not configured');
@@ -5782,7 +5794,7 @@ app.post('/api/consultation', async (req, res) => {
                 summary += `\n**Calibración de Síntomas**\n`;
                 const intensityLabels = { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' };
                 for (const [symptom, cal] of Object.entries(data.symptomCalibrations)) {
-                    summary += `- ${symptom} → Frecuencia: ${cal.frequency}, Intensidad: ${cal.intensity} (${intensityLabels[cal.intensity] || cal.intensity})\n`;
+                    summary += `- ${symptom} → Frecuencia: ${cal.frequency}, Intensidad: ${cal.intensity} (${intakeScale === 10 ? `${cal.intensity}/10` : (intensityLabels[cal.intensity] || cal.intensity)})\n`;
                 }
             }
 
