@@ -65,6 +65,8 @@ interface PatientIntakeFormProps {
 }
 
 export default function PatientIntakeForm({ isInternal, onSuccess }: PatientIntakeFormProps) {
+    const intensityScale = isInternal ? 3 : 10;
+    const intensityLevels = Array.from({ length: intensityScale }, (_, i) => i + 1);
     const [formData, setFormData] = useState(() => {
         const params = new URLSearchParams(window.location.search);
         return {
@@ -90,7 +92,7 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
             sleep: [] as string[], temperature: '',
 
             // Final
-            professional: '', recordingConsent: '', studentListeners: '',
+            professional: isInternal ? '' : 'Krishna Das', recordingConsent: '', studentListeners: '',
             consent: isInternal || false,
             dataProtection: isInternal || false,
 
@@ -207,7 +209,7 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
             const response = await fetch('/api/consultation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData),
+                body: JSON.stringify(isInternal ? formData : { ...formData, professional: 'Krishna Das', intensityScale: 10 }),
             });
 
             if (response.ok) {
@@ -464,7 +466,7 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
                                     <li><strong className="text-slate-600">M</strong> = Mensual</li>
                                 </ul>
                             </li>
-                            <li>Selecciona la <strong>Intensidad</strong> (1 = Suave, 2 = Moderado, 3 = Fuerte).</li>
+                            <li>Selecciona la <strong>Intensidad</strong> ({isInternal ? '1 = Suave, 2 = Moderado, 3 = Fuerte' : '1 a 10: 1 = mínima y 10 = máxima'}).</li>
                         </ol>
                     </div>
                     <div className="space-y-2">
@@ -534,20 +536,22 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
                                                     ))}
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex flex-wrap items-center gap-2">
                                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Intensidad:</span>
-                                                <div className="flex gap-1">
-                                                    {([1, 2, 3] as const).map(level => {
-                                                        const labels = { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' };
+                                                <div className="flex flex-wrap gap-1">
+                                                    {intensityLevels.map(level => {
+                                                        const labels: Record<number, string> = { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' };
                                                         return (
                                                             <button
                                                                 key={level}
                                                                 type="button"
-                                                                title={labels[level]}
+                                                                title={isInternal ? labels[level] : `${level} de 10`}
+                                                                aria-label={`Intensidad de ${symptom}: ${level} de ${intensityScale}`}
+                                                                aria-pressed={cal.intensity === level}
                                                                 onClick={() => handleCalibrationChange(symptom, 'intensity', level)}
                                                                 className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center transition-all ${cal.intensity === level
                                                                     ? level === 1 ? 'bg-green-500 text-white shadow-sm'
-                                                                        : level === 2 ? 'bg-amber-500 text-white shadow-sm'
+                                                                        : level <= Math.ceil(intensityScale / 2) ? 'bg-amber-500 text-white shadow-sm'
                                                                             : 'bg-red-500 text-white shadow-sm'
                                                                     : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                                                                     }`}
@@ -608,20 +612,22 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
                                                 </div>
                                             </div>
                                             {/* Intensity */}
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex flex-wrap items-center gap-2">
                                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Intensidad:</span>
-                                                <div className="flex gap-1">
-                                                    {([1, 2, 3] as const).map(level => {
-                                                        const labels = { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' };
+                                                <div className="flex flex-wrap gap-1">
+                                                    {intensityLevels.map(level => {
+                                                        const labels: Record<number, string> = { 1: 'Suave', 2: 'Moderado', 3: 'Fuerte' };
                                                         return (
                                                             <button
                                                                 key={level}
                                                                 type="button"
-                                                                title={labels[level]}
+                                                                title={isInternal ? labels[level] : `${level} de 10`}
+                                                                aria-label={`Intensidad de ${symptom}: ${level} de ${intensityScale}`}
+                                                                aria-pressed={cal.intensity === level}
                                                                 onClick={() => handleCalibrationChange(symptom, 'intensity', level)}
                                                                 className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center transition-all ${cal.intensity === level
                                                                     ? level === 1 ? 'bg-green-500 text-white shadow-sm'
-                                                                        : level === 2 ? 'bg-amber-500 text-white shadow-sm'
+                                                                        : level <= Math.ceil(intensityScale / 2) ? 'bg-amber-500 text-white shadow-sm'
                                                                             : 'bg-red-500 text-white shadow-sm'
                                                                     : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                                                                     }`}
@@ -789,11 +795,11 @@ export default function PatientIntakeForm({ isInternal, onSuccess }: PatientInta
                 {/* Q36 */}
                 <div className="space-y-2">
                     {qLabel(36, 'Nombre del profesional de Ayurveda que te atiende')}
-                    {radioGroup('professional', [
+                    {isInternal ? radioGroup('professional', [
                         'Krishna Das',
                         'Hari Priya Das',
                         'Nimai Pandit Das'
-                    ], formData.professional)}
+                    ], formData.professional) : <p className="text-sm font-medium text-slate-700">Krishna Das</p>}
                 </div>
 
                 {/* Q37 */}
